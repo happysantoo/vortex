@@ -138,7 +138,7 @@ publishing {
     }
     
     
-    // No repositories: JReleaser handles bundle + portal upload
+    // No repositories: Publishing handled via Central Portal API (see scripts/publish-to-central.sh)
 }
 
 // Signing configuration
@@ -161,10 +161,10 @@ signing {
     }
 }
 
-// JReleaser configuration for Central Portal publishing
-// Configuration is in jreleaser.yml file
-// Credentials from gradle.properties: mavenCentralUsername, mavenCentralPassword
-// Note: Description and copyright must be set in jreleaser.yml
+// Maven Central Publishing
+// Publishing is handled via Central Portal API using scripts/publish-to-central.sh
+// This approach uses Bearer token authentication (base64 token) and works reliably
+// See PUBLISH_SUCCESS.md for details on the publishing process
 
 // JMH Configuration
 jmh {
