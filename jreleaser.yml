@@ -1,0 +1,42 @@
+project:
+  name: vortex
+  version: 0.0.1
+  description: A lightweight Java library for micro-batching requests to any backend with virtual threads support
+  authors:
+    - VajraPulse
+  license: Apache-2.0
+  copyright: "Copyright © 2025 VajraPulse"
+  links:
+    homepage: https://github.com/vajrapulse/vortex
+    scm: https://github.com/vajrapulse/vortex
+    documentation: https://github.com/vajrapulse/vortex
+  java:
+    groupId: com.vajrapulse
+
+signing:
+  active: ALWAYS
+  armored: true
+  # secretKey & passphrase sourced from gradle properties (signingKey, signingPassword)
+
+release:
+  github:
+    enabled: false  # disabled for Maven Central deployment; enable later when token available
+
+deploy:
+  maven:
+    mavenCentral:
+      active: ALWAYS
+      stage: FULL          # UPLOAD | PUBLISH | FULL
+      username: '{{mavenCentralUsername}}'
+      password: '{{mavenCentralPassword}}'
+      retryDelay: 10       # seconds between polls
+      maxRetries: 10
+
+# Environment variable / Gradle properties mapping:
+# - mavenCentralUsername / mavenCentralPassword -> portal credentials
+# - signingKey / signingPassword -> PGP key & passphrase (in ~/.gradle/gradle.properties)
+
+# To run:
+#   ./gradlew build jreleaserDeploy --dry-run   # validate
+#   ./gradlew build jreleaserDeploy            # full upload + publish
+
