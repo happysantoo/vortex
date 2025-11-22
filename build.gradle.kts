@@ -5,7 +5,6 @@ plugins {
     jacoco
     `maven-publish`
     signing
-    id("org.jreleaser") version "1.13.0"
     id("me.champeau.jmh") version "0.7.2"
     id("io.morethan.jmhreport") version "0.9.6"
 }
