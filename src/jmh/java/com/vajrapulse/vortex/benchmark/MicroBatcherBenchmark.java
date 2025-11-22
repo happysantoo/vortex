@@ -65,7 +65,9 @@ public class MicroBatcherBenchmark {
     @Benchmark
     @Threads(4)
     public void submitConcurrentRequests() {
-        CompletableFuture<BatchResult<String>> future = batcher.submit("test-item-" + Thread.currentThread().getId());
+        // Use thread name instead of deprecated getId()
+        String threadName = Thread.currentThread().getName();
+        CompletableFuture<BatchResult<String>> future = batcher.submit("test-item-" + threadName);
         future.join();
     }
     

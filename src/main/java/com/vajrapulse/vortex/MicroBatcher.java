@@ -38,10 +38,24 @@ public class MicroBatcher<T> implements AutoCloseable {
     private final Timer requestWaitLatency;
     private final AtomicInteger queueDepth = new AtomicInteger(0);
     
+    /**
+     * Creates a new MicroBatcher with a default SimpleMeterRegistry.
+     * 
+     * @param backend the backend implementation
+     * @param config the batcher configuration
+     */
     public MicroBatcher(Backend<T> backend, BatcherConfig config) {
         this(backend, config, new SimpleMeterRegistry());
     }
     
+    /**
+     * Creates a new MicroBatcher with the specified MeterRegistry.
+     * 
+     * @param backend the backend implementation
+     * @param config the batcher configuration
+     * @param meterRegistry the meter registry for metrics (must not be null)
+     * @throws IllegalArgumentException if backend or config is null
+     */
     public MicroBatcher(Backend<T> backend, BatcherConfig config, MeterRegistry meterRegistry) {
         if (backend == null) {
             throw new IllegalArgumentException("Backend cannot be null");
@@ -189,6 +203,7 @@ public class MicroBatcher<T> implements AutoCloseable {
         }
         
         batchesDispatched.increment();
+        @SuppressWarnings("null") // meterRegistry is checked for null in constructor
         Timer.Sample sample = Timer.start(meterRegistry);
         
         List<T> dataList = batch.stream()
@@ -200,10 +215,14 @@ public class MicroBatcher<T> implements AutoCloseable {
         executor.submit(() -> {
             try {
                 BatchResult<T> result = backend.dispatch(dataList);
-                sample.stop(batchDispatchLatency);
+                @SuppressWarnings("null") // batchDispatchLatency is initialized in constructor
+                Timer timer = batchDispatchLatency;
+                sample.stop(timer);
                 processBatchResults(batch, result);
             } catch (Exception e) {
-                sample.stop(batchDispatchLatency);
+                @SuppressWarnings("null") // batchDispatchLatency is initialized in constructor
+                Timer timer = batchDispatchLatency;
+                sample.stop(timer);
                 handleBatchFailure(batch, e);
             }
         });
@@ -212,9 +231,11 @@ public class MicroBatcher<T> implements AutoCloseable {
     private void processBatchResults(List<PendingRequest<T>> batch, BatchResult<T> result) {
         if (config.isAtomicCommit() && !result.isAllSuccess()) {
             // In atomic mode, if any fails, all fail
+            @SuppressWarnings("null") // requestWaitLatency is initialized in constructor
+            Timer waitLatency = requestWaitLatency;
             for (PendingRequest<T> req : batch) {
                 long waitTime = System.nanoTime() - req.getTimestamp();
-                requestWaitLatency.record(waitTime, TimeUnit.NANOSECONDS);
+                waitLatency.record(waitTime, TimeUnit.NANOSECONDS);
                 
                 requestsFailed.increment();
                 req.getFuture().complete(new BatchResult<>(
@@ -253,29 +274,40 @@ public class MicroBatcher<T> implements AutoCloseable {
             int successIdx = 0;
             int failureIdx = 0;
             
+            @SuppressWarnings("null") // requestWaitLatency is initialized in constructor
+            Timer waitLatency = requestWaitLatency;
             for (PendingRequest<T> req : batch) {
                 long waitTime = System.nanoTime() - req.getTimestamp();
-                requestWaitLatency.record(waitTime, TimeUnit.NANOSECONDS);
+                waitLatency.record(waitTime, TimeUnit.NANOSECONDS);
                 
                 // Check if this request succeeded or failed
                 // Backend should maintain order, but we handle mismatches gracefully
-                if (successIdx < successes.size() && 
-                    successes.get(successIdx).getData().equals(req.getData())) {
-                    requestsSucceeded.increment();
-                    req.getFuture().complete(new BatchResult<>(
-                        List.of(successes.get(successIdx)),
-                        List.of()
-                    ));
-                    successIdx++;
-                } else if (failureIdx < failures.size() && 
-                    failures.get(failureIdx).getData().equals(req.getData())) {
-                    requestsFailed.increment();
-                    req.getFuture().complete(new BatchResult<>(
-                        List.of(),
-                        List.of(failures.get(failureIdx))
-                    ));
-                    failureIdx++;
-                } else {
+                boolean matched = false;
+                if (successIdx < successes.size()) {
+                    T successData = successes.get(successIdx).getData();
+                    if (successData != null && successData.equals(req.getData())) {
+                        requestsSucceeded.increment();
+                        req.getFuture().complete(new BatchResult<>(
+                            List.of(successes.get(successIdx)),
+                            List.of()
+                        ));
+                        successIdx++;
+                        matched = true;
+                    }
+                }
+                if (!matched && failureIdx < failures.size()) {
+                    T failureData = failures.get(failureIdx).getData();
+                    if (failureData != null && failureData.equals(req.getData())) {
+                        requestsFailed.increment();
+                        req.getFuture().complete(new BatchResult<>(
+                            List.of(),
+                            List.of(failures.get(failureIdx))
+                        ));
+                        failureIdx++;
+                        matched = true;
+                    }
+                }
+                if (!matched) {
                     // Fallback: if order doesn't match, distribute proportionally
                     if (successIdx < successes.size()) {
                         requestsSucceeded.increment();
@@ -293,7 +325,9 @@ public class MicroBatcher<T> implements AutoCloseable {
                             List.of(),
                             List.of(new FailureEvent<>(req.getData(), failureError))
                         ));
-                        failureIdx++;
+                        if (failureIdx < failures.size()) {
+                            failureIdx++;
+                        }
                     }
                 }
             }
@@ -378,6 +412,11 @@ public class MicroBatcher<T> implements AutoCloseable {
         }
     }
     
+    /**
+     * Gets the MeterRegistry used for metrics.
+     * 
+     * @return the meter registry
+     */
     public MeterRegistry getMeterRegistry() {
         return meterRegistry;
     }
