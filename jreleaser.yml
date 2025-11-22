@@ -20,7 +20,8 @@ signing:
 
 release:
   github:
-    enabled: false  # disabled for Maven Central deployment; enable later when token available
+    enabled: false
+    token: SKIP
 
 deploy:
   maven:
@@ -28,7 +29,7 @@ deploy:
       active: ALWAYS
       stage: FULL          # UPLOAD | PUBLISH | FULL
       username: '{{mavenCentralUsername}}'
-      password: '{{mavenCentralPassword}}'
+      password: '{{mavenCentralToken}}'
       retryDelay: 10       # seconds between polls
       maxRetries: 10
 
