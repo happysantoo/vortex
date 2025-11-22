@@ -16,28 +16,17 @@ project:
 signing:
   active: ALWAYS
   armored: true
-  # secretKey & passphrase sourced from gradle properties (signingKey, signingPassword)
 
 release:
   github:
     enabled: false
-    token: SKIP
 
 deploy:
   maven:
     mavenCentral:
       active: ALWAYS
-      stage: FULL          # UPLOAD | PUBLISH | FULL
+      stage: FULL
       username: '{{mavenCentralUsername}}'
       password: '{{mavenCentralToken}}'
-      retryDelay: 10       # seconds between polls
+      retryDelay: 10
       maxRetries: 10
-
-# Environment variable / Gradle properties mapping:
-# - mavenCentralUsername / mavenCentralPassword -> portal credentials
-# - signingKey / signingPassword -> PGP key & passphrase (in ~/.gradle/gradle.properties)
-
-# To run:
-#   ./gradlew build jreleaserDeploy --dry-run   # validate
-#   ./gradlew build jreleaserDeploy            # full upload + publish
-

@@ -5,7 +5,7 @@ plugins {
     jacoco
     `maven-publish`
     signing
-    id("org.jreleaser") version "1.12.0"
+    id("org.jreleaser") version "1.13.0"
     id("me.champeau.jmh") version "0.7.2"
     id("io.morethan.jmhreport") version "0.9.6"
 }
@@ -165,6 +165,7 @@ signing {
 // JReleaser configuration for Central Portal publishing
 // Configuration is in jreleaser.yml file
 // Credentials from gradle.properties: mavenCentralUsername, mavenCentralPassword
+// Note: Description and copyright must be set in jreleaser.yml
 
 // JMH Configuration
 jmh {
