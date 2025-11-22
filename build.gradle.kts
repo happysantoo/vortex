@@ -142,12 +142,17 @@ publishing {
             name = "OSSRH"
             url = uri("https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/")
             credentials {
-                username = project.findProperty("mavenCentralUsername") as String?
+                val username = project.findProperty("mavenCentralUsername") as String?
                     ?: project.findProperty("ossrhUsername") as String?
                     ?: ""
-                password = project.findProperty("mavenCentralPassword") as String?
+                val password = project.findProperty("mavenCentralPassword") as String?
                     ?: project.findProperty("ossrhPassword") as String?
                     ?: ""
+                
+                if (username.isNotBlank() && password.isNotBlank()) {
+                    this.username = username
+                    this.password = password
+                }
             }
         }
     }
