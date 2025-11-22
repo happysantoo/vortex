@@ -1,0 +1,15 @@
+# Example gradle.properties for Maven Central publishing
+# Copy this to gradle.properties and fill in your values
+
+# OSSRH (Maven Central) credentials
+ossrhUsername=your-ossrh-username
+ossrhPassword=your-ossrh-password
+
+# GPG signing configuration
+signing.keyId=your-gpg-key-id
+signing.password=your-gpg-password
+signing.secretKeyRingFile=/path/to/your/secring.gpg
+
+# Optional: Sonatype repository URL (default is s01.oss.sonatype.org)
+# ossrhUrl=https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/
+

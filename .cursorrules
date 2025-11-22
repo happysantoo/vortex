@@ -1,0 +1,109 @@
+# Vortex Micro-Batching Library - Cursor Rules
+
+## Code Quality Standards
+
+### Test Coverage Requirements
+- **Minimum 90% line coverage** - All classes must maintain >90% line coverage (excluding examples and PendingRequest)
+- **Minimum 80% instruction coverage** - Overall code coverage must be >80% (realistic for async code with lambdas)
+- **Minimum 50% branch coverage** - Methods must have >50% branch coverage (complex async code with many edge cases)
+- **Complex methods** - Methods like dispatchBatch with complex result mapping logic may have lower branch coverage
+- **All public APIs must have tests** - Every public method and class needs test coverage
+- **Edge cases must be tested** - Null values, empty collections, error conditions, timeouts, interruptions
+- **Integration scenarios** - Test real-world usage patterns
+
+### Testing Standards
+- **Use Spock Framework** - All tests must be written in Spock (Groovy)
+- **Descriptive test names** - Use "should [expected behavior]" naming convention
+- **Given-When-Then structure** - Follow BDD-style test organization
+- **Cleanup resources** - Always close MicroBatcher instances in cleanup blocks
+- **Avoid flaky tests** - Use proper synchronization, avoid hard-coded sleeps where possible
+- **Test isolation** - Each test should be independent and not rely on others
+
+### Code Style
+- **Simplicity first** - Keep code minimal and easy to understand
+- **Java 21 features** - Use modern Java features (virtual threads, records where appropriate)
+- **No unnecessary dependencies** - Keep the library lightweight
+- **Clear naming** - Use descriptive variable and method names
+- **Documentation** - Public APIs must have JavaDoc comments
+
+### Build & CI Requirements
+- **Build must pass** - All tests must pass before committing
+- **Coverage verification** - JaCoCo coverage verification must pass (>90%)
+- **No compilation warnings** - Code should compile cleanly
+- **Gradle 9.2.0** - Use specified Gradle version
+
+### Architecture Principles
+- **Generic design** - Support any backend type via Backend<T> interface
+- **Non-blocking** - All operations should be asynchronous
+- **Thread-safe** - Safe for concurrent use from multiple threads
+- **Resource management** - Proper cleanup with AutoCloseable
+- **Observability** - Comprehensive metrics via Micrometer
+
+### Metrics Requirements
+- **All metrics must be tested** - Verify metrics are recorded correctly
+- **Metric names follow convention** - Use "vortex.*" prefix
+- **Gauges for state** - Use gauges for queue depth and similar state metrics
+- **Counters for events** - Use counters for discrete events
+- **Timers for latencies** - Use timers for duration measurements
+
+### Error Handling
+- **Validate inputs** - Check for null and invalid parameters
+- **Meaningful exceptions** - Provide clear error messages
+- **Handle edge cases** - Empty batches, closed batcher, queue full scenarios
+- **Graceful degradation** - Handle backend failures appropriately
+
+### Performance Considerations
+- **Virtual threads** - Use virtual threads for high concurrency
+- **Efficient batching** - Minimize wait times while maximizing batch sizes
+- **Low overhead** - Keep per-request overhead minimal
+- **Memory efficient** - Avoid unnecessary object creation
+
+### Documentation Requirements
+- **README updates** - Keep README current with features
+- **Example code** - Maintain working examples
+- **JavaDoc** - Document all public classes and methods
+- **API clarity** - Make the API intuitive and easy to use
+
+## Continuous Maintenance Rules
+
+1. **Before every commit:**
+   - Run `./gradlew build` - Must pass
+   - Run `./gradlew jacocoTestReport` - Check coverage report
+   - Verify coverage is >90%
+   - Run `./gradlew jacocoTestCoverageVerification` - Must pass
+
+2. **When adding new features:**
+   - Write Spock tests first (TDD approach)
+   - Ensure all code paths are tested
+   - Update README if API changes
+   - Add example usage if applicable
+
+3. **When fixing bugs:**
+   - Add regression test that reproduces the bug
+   - Fix the bug
+   - Verify test passes
+   - Ensure coverage remains >90%
+
+4. **Code review checklist:**
+   - [ ] Tests written in Spock
+   - [ ] Coverage >90%
+   - [ ] All tests pass
+   - [ ] No new warnings
+   - [ ] Documentation updated
+   - [ ] Example code works
+   - [ ] Metrics tested
+
+## Excluded from Coverage
+
+- Example classes (`com.vortex.batcher.example.*`)
+- Internal helper classes (`PendingRequest`)
+- Simple data classes (SuccessEvent, FailureEvent) - but still test their behavior
+
+## Test Organization
+
+- One spec file per class being tested
+- Use `*Spec.groovy` naming convention
+- Group related tests using `def` blocks
+- Use `@Unroll` for parameterized tests
+- Use `cleanup:` blocks for resource cleanup
+
