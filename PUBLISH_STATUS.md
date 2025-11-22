@@ -2,17 +2,41 @@
 
 ## Configuration Complete ✅
 
-The build is configured to read credentials from `~/.gradle/gradle.properties`:
-- `mavenCentralUsername` - Sonatype username
-- `mavenCentralPassword` - Sonatype password  
-- `signingKey` - GPG signing key
+The build is now configured for **Central Publishing Portal** with token-based authentication:
+
+### Plugin
+- **Gradle Nexus Publish Plugin** (`io.github.gradle-nexus.publish-plugin:2.0.0`)
+  - Supports Central Publishing Portal
+  - Handles staging repository management
+  - Automates close and release process
+
+### Credentials (from `~/.gradle/gradle.properties`)
+- `mavenCentralToken` - **REQUIRED** - Central Portal user token
+- `mavenCentralUsername` - Sonatype username (may be required with token)
+- `signingKey` - GPG signing key (armored format)
 - `signingPassword` - GPG key passphrase
 
-## Current Issue ⚠️
+## Next Steps
+
+1. **Get Central Portal Token**:
+   - Login to https://central.sonatype.com/
+   - Navigate to User Token section
+   - Generate a new token
+   - Add to `~/.gradle/gradle.properties` as `mavenCentralToken`
+
+2. **Publish**:
+   ```bash
+   ./gradlew publishToSonatype closeAndReleaseSonatypeStagingRepository
+   ```
+
+## Previous Issue (Resolved) ✅
 
 **401 Authentication Error**: "Content access is protected by token"
 
-The credentials are being read correctly (verified in debug output), but Sonatype is returning a 401 error with the message "Content access is protected by token".
+This was resolved by:
+- Switching to Gradle Nexus Publish Plugin
+- Configuring for Central Publishing Portal token authentication
+- Updating build configuration to use Portal API endpoints
 
 ## Possible Causes
 

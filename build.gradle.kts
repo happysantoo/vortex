@@ -5,6 +5,7 @@ plugins {
     jacoco
     `maven-publish`
     signing
+    id("io.github.gradle-nexus.publish-plugin") version "2.0.0"
     id("me.champeau.jmh") version "0.7.2"
     id("io.morethan.jmhreport") version "0.9.6"
 }
@@ -136,23 +137,34 @@ publishing {
             }
         }
     }
-    
+}
+
+// Gradle Nexus Publish Plugin - Supports Central Portal with token authentication
+nexusPublishing {
     repositories {
-        maven {
-            name = "OSSRH"
-            url = uri("https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/")
-            credentials {
-                val username = project.findProperty("mavenCentralUsername") as String?
+        sonatype {
+            // Central Portal OSSRH Staging API endpoint
+            nexusUrl.set(uri("https://s01.oss.sonatype.org/service/local/"))
+            snapshotRepositoryUrl.set(uri("https://s01.oss.sonatype.org/content/repositories/snapshots/"))
+            
+            // Credentials - supports both token and username/password
+            val token = project.findProperty("mavenCentralToken") as String?
+                ?: project.findProperty("sonatypeToken") as String?
+            
+            if (token != null && token.isNotBlank()) {
+                // Token-based authentication (Central Portal)
+                username.set(project.findProperty("mavenCentralUsername") as String?
                     ?: project.findProperty("ossrhUsername") as String?
-                    ?: ""
-                val password = project.findProperty("mavenCentralPassword") as String?
+                    ?: "")
+                password.set(token)
+            } else {
+                // Username/password authentication (fallback)
+                username.set(project.findProperty("mavenCentralUsername") as String?
+                    ?: project.findProperty("ossrhUsername") as String?
+                    ?: "")
+                password.set(project.findProperty("mavenCentralPassword") as String?
                     ?: project.findProperty("ossrhPassword") as String?
-                    ?: ""
-                
-                if (username.isNotBlank() && password.isNotBlank()) {
-                    this.username = username
-                    this.password = password
-                }
+                    ?: "")
             }
         }
     }

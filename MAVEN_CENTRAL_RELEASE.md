@@ -13,32 +13,43 @@
 
 ### 1. Configure Credentials
 
-You need to set up credentials in `gradle.properties`. Copy from `gradle.properties.example` if needed:
+You need to set up credentials in `~/.gradle/gradle.properties`. Copy from `gradle.properties.example` if needed:
+
+**IMPORTANT**: Central Publishing Portal requires token-based authentication.
+
+1. **Get your Portal Token**:
+   - Login to https://central.sonatype.com/
+   - Navigate to User Token section
+   - Generate a new token
+   - Copy the token
+
+2. **Configure in `~/.gradle/gradle.properties`**:
 
 ```properties
-# OSSRH (Maven Central) credentials
-ossrhUsername=your-ossrh-username
-ossrhPassword=your-ossrh-password
+# Central Publishing Portal - Token Authentication (REQUIRED)
+mavenCentralToken=your-portal-token-here
+mavenCentralUsername=your-ossrh-username
 
 # GPG signing configuration
 signing.keyId=your-gpg-key-id
-signing.password=your-gpg-password
-signing.secretKeyRingFile=/path/to/your/secring.gpg
+signingKey=your-gpg-private-key-armored
+signingPassword=your-gpg-key-passphrase
 ```
 
 ### 2. Prerequisites
 
 Before publishing, ensure you have:
 
-1. **Sonatype OSSRH Account**
-   - Account at https://issues.sonatype.org/
-   - Ticket created and approved for groupId `com.vajrapulse`
-   - See [RELEASE.md](RELEASE.md) for details
+1. **Central Publishing Portal Account**
+   - Account at https://central.sonatype.com/
+   - Namespace `com.vajrapulse` registered and verified
+   - User token generated (see step 1 above)
+   - See [Central Portal Documentation](https://central.sonatype.org/publish/publish-portal-gradle/) for details
 
 2. **GPG Key**
    - Generated GPG key
-   - Public key uploaded to keyserver
-   - Secret key exported to `secring.gpg`
+   - Public key uploaded to keyserver (e.g., keyserver.ubuntu.com)
+   - Private key exported (armored format) for signing
 
 ### 3. Publish to Maven Central
 
@@ -50,14 +61,17 @@ Once credentials are configured:
 ./gradlew test
 ./gradlew jacocoTestCoverageVerification
 
-# 2. Publish to staging repository
-./gradlew publish
+# 2. Publish to staging repository and release automatically
+./gradlew publishToSonatype closeAndReleaseSonatypeStagingRepository
 
-# 3. Go to https://s01.oss.sonatype.org/
-# 4. Login and navigate to "Staging Repositories"
-# 5. Find your repository (com.vajrapulse:vortex:0.0.1)
-# 6. Click "Close" and wait for validation
-# 7. If successful, click "Release"
+# OR publish and release manually:
+# 2a. Publish to staging
+# ./gradlew publishToSonatype
+# 2b. Go to https://s01.oss.sonatype.org/
+# 2c. Login and navigate to "Staging Repositories"
+# 2d. Find your repository (com.vajrapulse:vortex:0.0.1)
+# 2e. Click "Close" and wait for validation
+# 2f. If successful, click "Release"
 ```
 
 ### 4. Verify Release
