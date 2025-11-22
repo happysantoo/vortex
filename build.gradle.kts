@@ -142,8 +142,12 @@ publishing {
             name = "OSSRH"
             url = uri("https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/")
             credentials {
-                username = project.findProperty("ossrhUsername") as String? ?: ""
-                password = project.findProperty("ossrhPassword") as String? ?: ""
+                username = project.findProperty("mavenCentralUsername") as String?
+                    ?: project.findProperty("ossrhUsername") as String?
+                    ?: ""
+                password = project.findProperty("mavenCentralPassword") as String?
+                    ?: project.findProperty("ossrhPassword") as String?
+                    ?: ""
             }
         }
     }
@@ -151,11 +155,22 @@ publishing {
 
 // Signing configuration
 signing {
-    sign(publishing.publications["maven"])
-}
-
-tasks.withType<Sign>().configureEach {
-    onlyIf { project.hasProperty("signing.keyId") }
+    val signingKeyId: String? = project.findProperty("signing.keyId") as String?
+    val signingKey: String? = project.findProperty("signingKey") as String?
+    val signingPassword: String? = project.findProperty("signingPassword") as String?
+    
+    if (signingKey != null && signingPassword != null) {
+        try {
+            if (signingKeyId != null) {
+                useInMemoryPgpKeys(signingKeyId, signingKey, signingPassword)
+            } else {
+                useInMemoryPgpKeys(signingKey, signingPassword)
+            }
+            sign(publishing.publications["maven"])
+        } catch (e: Exception) {
+            println("Warning: Signing configuration issue: ${e.message}")
+        }
+    }
 }
 
 // JMH Configuration
