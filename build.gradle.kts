@@ -5,7 +5,6 @@ plugins {
     jacoco
     `maven-publish`
     signing
-    id("io.github.gradle-nexus.publish-plugin") version "2.0.0"
     id("me.champeau.jmh") version "0.7.2"
     id("io.morethan.jmhreport") version "0.9.6"
 }
@@ -137,34 +136,34 @@ publishing {
             }
         }
     }
-}
-
-// Gradle Nexus Publish Plugin - Supports Central Portal with token authentication
-nexusPublishing {
+    
+    
     repositories {
-        sonatype {
-            // Central Portal OSSRH Staging API endpoint
-            nexusUrl.set(uri("https://s01.oss.sonatype.org/service/local/"))
-            snapshotRepositoryUrl.set(uri("https://s01.oss.sonatype.org/content/repositories/snapshots/"))
+        maven {
+            name = "OSSRH"
+            url = uri("https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/")
             
-            // Credentials - supports both token and username/password
+            // Central Portal token authentication
+            // Token is base64(username:password)
+            // Try different combinations: empty username with token, or username with token
             val token = project.findProperty("mavenCentralToken") as String?
                 ?: project.findProperty("sonatypeToken") as String?
             
-            if (token != null && token.isNotBlank()) {
-                // Token-based authentication (Central Portal)
-                username.set(project.findProperty("mavenCentralUsername") as String?
-                    ?: project.findProperty("ossrhUsername") as String?
-                    ?: "")
-                password.set(token)
-            } else {
-                // Username/password authentication (fallback)
-                username.set(project.findProperty("mavenCentralUsername") as String?
-                    ?: project.findProperty("ossrhUsername") as String?
-                    ?: "")
-                password.set(project.findProperty("mavenCentralPassword") as String?
-                    ?: project.findProperty("ossrhPassword") as String?
-                    ?: "")
+            credentials {
+                if (token != null && token.isNotBlank()) {
+                    // Try using token as password with empty username
+                    // Some Central Portal setups accept this
+                    username = ""
+                    password = token
+                } else {
+                    // Fallback to username/password
+                    username = project.findProperty("mavenCentralUsername") as String?
+                        ?: project.findProperty("ossrhUsername") as String?
+                        ?: ""
+                    password = project.findProperty("mavenCentralPassword") as String?
+                        ?: project.findProperty("ossrhPassword") as String?
+                        ?: ""
+                }
             }
         }
     }
