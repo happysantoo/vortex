@@ -56,7 +56,7 @@ The dashboard includes the following panels:
 2. **Import dashboard to Grafana:**
    - Open Grafana UI
    - Go to Dashboards → Import
-   - Upload `grafana-dashboard.json`
+   - Upload `documents/resources/grafana-dashboard.json`
    - Configure Prometheus data source
    - Adjust metric names if using different Micrometer registry
 

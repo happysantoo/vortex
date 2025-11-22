@@ -164,7 +164,7 @@ signing {
 // Maven Central Publishing
 // Publishing is handled via Central Portal API using scripts/publish-to-central.sh
 // This approach uses Bearer token authentication (base64 token) and works reliably
-// See PUBLISH_SUCCESS.md for details on the publishing process
+// See documents/integrations/PUBLISH_SUCCESS.md for details on the publishing process
 
 // JMH Configuration
 jmh {

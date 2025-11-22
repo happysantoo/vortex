@@ -64,6 +64,117 @@
 - **JavaDoc** - Document all public classes and methods
 - **API clarity** - Make the API intuitive and easy to use
 
+### File Organization
+
+#### Markdown Documentation Files
+**All markdown documentation files MUST be created in the `documents/` folder with proper classification.**
+
+**Allowed Exceptions:**
+- `README.md` in root directory (project overview)
+- `README.md` in example directories (e.g., `examples/README.md`)
+- `README.md` in script directories (e.g., `scripts/README-*.md`)
+- `.github/*.md` files (GitHub-specific documentation)
+
+**Forbidden Locations:**
+- ❌ Root directory (except README.md)
+- ❌ Source code directories (`src/main/java/`, `src/test/`)
+- ❌ Build directories
+- ❌ Any location outside `documents/` unless it's a standard README
+
+#### Document Classification and Folder Structure
+
+**The `documents/` folder is organized into the following subfolders. ALWAYS create documents in the appropriate subfolder:**
+
+1. **`documents/releases/`** - Release-specific documents
+   - Release notes (e.g., `RELEASE_NOTES.md`)
+   - Release checklists
+   - Release plans
+   - Release summaries
+   - Release deployment guides
+   - Release-specific changes and validation reports
+   - **Naming**: `RELEASE_<version>_<type>.md` or `RELEASE_NOTES.md`
+
+2. **`documents/roadmap/`** - Strategic planning and roadmaps
+   - Roadmap documents
+   - Strategic planning documents
+   - Gap analysis documents
+   - Minimal viable release plans
+   - Breaking changes planning
+
+3. **`documents/architecture/`** - Design and architecture documents
+   - Design documents (e.g., `DESIGN.md`)
+   - Architecture decisions
+   - Architecture plans
+   - Technical alternatives analysis
+   - Specifications
+
+4. **`documents/integrations/`** - Integration guides and publishing
+   - Integration plans
+   - Publishing guides (e.g., `MAVEN_CENTRAL_PUBLISHING.md`)
+   - Release tool integration (e.g., `JRELEASER_INTEGRATION.md`)
+   - Publishing status and troubleshooting
+   - Token authentication guides
+
+5. **`documents/guides/`** - User guides and quick references
+   - Quick reference guides
+   - User guides
+   - Configuration guides
+   - Process documentation (e.g., `RELEASE.md`)
+   - Benchmarking guides (e.g., `BENCHMARKS.md`)
+   - Dashboard guides (e.g., `GRAFANA_DASHBOARD.md`)
+
+6. **`documents/analysis/`** - Analysis and improvement documents
+   - Maintainability analysis
+   - Implementation updates
+   - Critical improvements documents
+   - Issue analysis
+
+7. **`documents/resources/`** - Non-markdown files
+   - JSON configuration files (e.g., Grafana dashboards)
+   - Requirements files
+   - Other non-markdown resources
+
+8. **`documents/archive/`** - Completed and historical documents
+   - Completed implementation summaries
+   - Historical release documents (older than current release cycle)
+   - Superseded plans and documents
+   - Initial/old documentation
+
+**Classification Rules:**
+- **Release documents**: Create in `documents/releases/` with version-specific naming
+- **Planning documents**: Create in `documents/roadmap/` or `documents/architecture/` based on scope
+- **Integration guides**: Create in `documents/integrations/` folder
+- **User documentation**: Create in `documents/guides/` folder
+- **Analysis documents**: Create in `documents/analysis/` folder
+- **Resource files**: Create in `documents/resources/` folder
+- **Archive old documents**: Move completed/historical documents to `documents/archive/` when:
+  - Release is complete and next release cycle begins
+  - Implementation is complete and verified
+  - Document is superseded by newer version
+  - Document is older than 2 release cycles
+
+**Rule**: When creating documentation, planning documents, or any markdown files:
+1. **Always create in the appropriate `documents/<subfolder>/` based on document type**
+2. Use descriptive filenames with `UPPER_SNAKE_CASE` (e.g., `RELEASE_0.0.1_NOTES.md`)
+3. Follow existing naming conventions in each subfolder
+4. Archive completed documents to `documents/archive/` when appropriate
+
+**Examples:**
+```markdown
+✅ documents/releases/RELEASE_NOTES.md
+✅ documents/integrations/MAVEN_CENTRAL_PUBLISHING.md
+✅ documents/roadmap/ROADMAP_TO_1.0.md
+✅ documents/architecture/DESIGN.md
+✅ documents/guides/BENCHMARKS.md
+✅ documents/resources/grafana-dashboard.json
+✅ README.md (root - allowed)
+✅ examples/README.md (allowed)
+
+❌ documents/RELEASE_NOTES.md (should be in releases/)
+❌ RELEASE_NOTES.md (root - forbidden)
+❌ src/main/java/com/vajrapulse/DOCS.md (source directory - forbidden)
+```
+
 ## Continuous Maintenance Rules
 
 1. **Before every commit:**
@@ -90,6 +201,7 @@
    - [ ] All tests pass
    - [ ] No new warnings
    - [ ] Documentation updated
+   - [ ] **Markdown files created in `documents/` folder** (or standard README locations)
    - [ ] Example code works
    - [ ] Metrics tested
 

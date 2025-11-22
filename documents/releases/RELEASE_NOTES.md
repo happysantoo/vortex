@@ -46,7 +46,7 @@ implementation("com.vajrapulse:vortex:0.0.1")
 - [README.md](README.md) - Getting started guide
 - [DESIGN.md](DESIGN.md) - Architecture and design decisions
 - [BENCHMARKS.md](BENCHMARKS.md) - Performance benchmarks
-- [GRAFANA_DASHBOARD.md](GRAFANA_DASHBOARD.md) - Metrics dashboard setup
+- [GRAFANA_DASHBOARD.md](../guides/GRAFANA_DASHBOARD.md) - Metrics dashboard setup
 - [RELEASE.md](RELEASE.md) - Release process guide
 
 ### Examples

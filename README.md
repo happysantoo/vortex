@@ -198,11 +198,11 @@ The benchmarks measure:
 - **Throughput**: Operations per second for single requests, concurrent requests, and batch submissions
 - **Latency**: Average time from submission to completion
 
-For more details, see [BENCHMARKS.md](BENCHMARKS.md).
+For more details, see [BENCHMARKS.md](documents/guides/BENCHMARKS.md).
 
 ## Design
 
-For a detailed explanation of the architecture, request flow, and design decisions, see [DESIGN.md](DESIGN.md).
+For a detailed explanation of the architecture, request flow, and design decisions, see [DESIGN.md](documents/architecture/DESIGN.md).
 
 ## Example
 
