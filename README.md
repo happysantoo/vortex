@@ -216,18 +216,41 @@ See `src/main/java/com/vortex/batcher/example/ExampleUsage.java` for a complete 
 4. **Flexibility**: Generic backend interface works with any system
 5. **Lightweight**: Minimal dependencies
 
-## Improvements & Future Enhancements
+## Roadmap
 
-Potential improvements you might consider:
+### Release 0.0.2 (In Progress)
+
+We're actively working on Release 0.0.2 which includes comprehensive improvements based on real-world usage. See the [Implementation Plan](documents/roadmap/RELEASE_0.0.2_IMPLEMENTATION_PLAN.md) for details.
+
+**High Priority Features:**
+- ✅ Item result tracking with sealed `ItemResult` type
+- ✅ Enhanced error handling (failure rate, failure grouping)
+- ✅ Queue wait time metrics with percentiles
+
+**Medium Priority Features:**
+- Batch completion callbacks
+- Per-item metrics tracking
+- Batch size distribution metrics
+- Test utilities for easier testing
+
+**Low Priority Features:**
+- Debug mode with detailed logging
+- Built-in retry support
+- Dynamic configuration updates
+- Adaptive batching
+- Spring Boot auto-configuration
+
+For the complete list of improvements, see [VORTEX_LIBRARY_IMPROVEMENTS.md](documents/roadmap/VORTEX_LIBRARY_IMPROVEMENTS.md).
+
+### Future Enhancements
+
+Potential improvements for future releases:
 
 1. **Backpressure**: Add configurable backpressure strategies when queue is full
-2. **Retry Logic**: Built-in retry mechanisms for failed batches
-3. **Circuit Breaker**: Circuit breaker pattern for backend failures
-4. **Custom Result Mapping**: More sophisticated result-to-request mapping
-5. **Priority Queues**: Support for priority-based batching
-6. **Batch Size Hints**: Dynamic batch sizing based on load
-7. **Distributed Tracing**: Integration with tracing frameworks
-8. **Health Checks**: Health check endpoints for monitoring
+2. **Circuit Breaker**: Circuit breaker pattern for backend failures
+3. **Priority Queues**: Support for priority-based batching
+4. **Distributed Tracing**: Integration with tracing frameworks
+5. **Health Checks**: Health check endpoints for monitoring
 
 ## License
 
