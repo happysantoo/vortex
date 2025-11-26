@@ -301,10 +301,21 @@ public class MicroBatcher<T> implements AutoCloseable {
             @SuppressWarnings("null") // requestWaitLatency and queueWaitTime are initialized in constructor
             Timer waitLatency = requestWaitLatency;
             Timer queueWait = queueWaitTime;
+            long batchCompletionTime = System.nanoTime();
             for (PendingRequest<T> req : batch) {
-                long waitTime = System.nanoTime() - req.getTimestamp();
+                long waitTime = batchCompletionTime - req.getTimestamp();
                 waitLatency.record(waitTime, TimeUnit.NANOSECONDS);
                 queueWait.record(waitTime, TimeUnit.NANOSECONDS);
+                
+                // Record per-item metrics if enabled
+                if (config.isPerItemMetrics()) {
+                    if (itemWaitTime != null) {
+                        itemWaitTime.record(waitTime, TimeUnit.NANOSECONDS);
+                    }
+                    if (itemSubmitLatency != null) {
+                        itemSubmitLatency.record(waitTime, TimeUnit.NANOSECONDS);
+                    }
+                }
                 
                 requestsFailed.increment();
                 req.getFuture().complete(new BatchResult<>(

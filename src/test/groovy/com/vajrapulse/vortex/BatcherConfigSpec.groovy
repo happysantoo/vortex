@@ -100,5 +100,37 @@ class BatcherConfigSpec extends Specification {
         config.maxConcurrency == 5
         config.autoReplaySuccesses
     }
+
+    def "should create config with perItemMetrics enabled"() {
+        when:
+        def config = BatcherConfig.builder()
+            .perItemMetrics(true)
+            .build()
+
+        then:
+        config.perItemMetrics
+    }
+
+    def "should create config with perItemMetrics disabled by default"() {
+        when:
+        def config = BatcherConfig.builder().build()
+
+        then:
+        !config.perItemMetrics
+    }
+
+    def "should allow perItemMetrics in builder chain"() {
+        when:
+        def config = BatcherConfig.builder()
+            .batchSize(5)
+            .perItemMetrics(true)
+            .autoReplaySuccesses(false)
+            .build()
+
+        then:
+        config.batchSize == 5
+        config.perItemMetrics
+        !config.autoReplaySuccesses
+    }
 }
 

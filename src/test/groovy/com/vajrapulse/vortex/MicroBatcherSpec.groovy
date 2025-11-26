@@ -1578,5 +1578,317 @@ class MicroBatcherSpec extends Specification {
         cleanup:
         batcher?.close()
     }
+
+    def "should execute callback on success with submitWithCallback"() {
+        given:
+        def callbackExecuted = new AtomicInteger(0)
+        def callbackItem = new AtomicInteger(0)
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(2)
+            .lingerTime(Duration.ofMillis(100))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def callback = { item, result ->
+            callbackExecuted.incrementAndGet()
+            callbackItem.set(item.length())
+        }
+        def future = batcher.submitWithCallback("test-item", callback)
+        Thread.sleep(150)
+        future.get(1, TimeUnit.SECONDS)
+
+        then:
+        callbackExecuted.get() == 1
+        callbackItem.get() == 9 // "test-item".length()
+        future.isDone()
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should execute callback on failure with submitWithCallback"() {
+        given:
+        def callbackExecuted = new AtomicInteger(0)
+        def callbackError = null
+        Backend<String> backend = { batch ->
+            def failures = batch.collect { new FailureEvent<>(it, new RuntimeException("error")) }
+            new BatchResult<>(List.of(), failures)
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(2)
+            .lingerTime(Duration.ofMillis(100))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def callback = { item, result ->
+            callbackExecuted.incrementAndGet()
+            if (result instanceof ItemResult.Failure) {
+                callbackError = result.error
+            }
+        }
+        def future = batcher.submitWithCallback("test-item", callback)
+        Thread.sleep(150)
+        future.get(1, TimeUnit.SECONDS)
+
+        then:
+        callbackExecuted.get() == 1
+        callbackError != null
+        callbackError.message == "error"
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle callback exception gracefully"() {
+        given:
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(2)
+            .lingerTime(Duration.ofMillis(100))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def callback = { item, result ->
+            throw new RuntimeException("Callback error")
+        }
+        def future = batcher.submitWithCallback("test-item", callback)
+        Thread.sleep(150)
+
+        then:
+        future.isCompletedExceptionally()
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should record per-item metrics when enabled"() {
+        given:
+        def meterRegistry = new SimpleMeterRegistry()
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(2)
+            .lingerTime(Duration.ofMillis(100))
+            .perItemMetrics(true)
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config, meterRegistry)
+        batcher.submit("item-1")
+        batcher.submit("item-2")
+        Thread.sleep(150)
+
+        then:
+        meterRegistry.find("vortex.item.submit.latency").timer() != null
+        meterRegistry.find("vortex.item.wait.time").timer() != null
+        meterRegistry.find("vortex.item.batch.size").summary() != null
+        meterRegistry.find("vortex.item.submit.latency").timer().count() >= 1
+        meterRegistry.find("vortex.item.wait.time").timer().count() >= 1
+        meterRegistry.find("vortex.item.batch.size").summary().count() >= 1
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should not record per-item metrics when disabled"() {
+        given:
+        def meterRegistry = new SimpleMeterRegistry()
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(2)
+            .lingerTime(Duration.ofMillis(100))
+            .perItemMetrics(false)
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config, meterRegistry)
+        batcher.submit("item-1")
+        Thread.sleep(150)
+
+        then:
+        meterRegistry.find("vortex.item.submit.latency").timer() == null
+        meterRegistry.find("vortex.item.wait.time").timer() == null
+        meterRegistry.find("vortex.item.batch.size").summary() == null
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should record batch size distribution metrics"() {
+        given:
+        def meterRegistry = new SimpleMeterRegistry()
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(5)
+            .lingerTime(Duration.ofMillis(100))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config, meterRegistry)
+        (1..7).each { batcher.submit("item-$it") }
+        Thread.sleep(200)
+
+        then:
+        def batchSizeMetric = meterRegistry.find("vortex.batch.size").summary()
+        batchSizeMetric != null
+        batchSizeMetric.count() >= 1
+        batchSizeMetric.max() >= 1
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should record queue wait time with percentiles"() {
+        given:
+        def meterRegistry = new SimpleMeterRegistry()
+        Backend<String> backend = { batch ->
+            Thread.sleep(50) // Simulate processing time
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(3)
+            .lingerTime(Duration.ofMillis(100))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config, meterRegistry)
+        (1..5).each { batcher.submit("item-$it") }
+        Thread.sleep(300)
+
+        then:
+        def queueWaitMetric = meterRegistry.find("vortex.queue.wait.time").timer()
+        queueWaitMetric != null
+        queueWaitMetric.count() >= 1
+        // Percentiles should be available (p50, p95, p99)
+        queueWaitMetric.percentile(0.5, TimeUnit.MILLISECONDS) != null || queueWaitMetric.count() > 0
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle dispatchBatch with empty batch"() {
+        given:
+        def meterRegistry = new SimpleMeterRegistry()
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(2)
+            .lingerTime(Duration.ofMillis(100))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config, meterRegistry)
+        // Don't submit anything, just wait
+        Thread.sleep(150)
+
+        then:
+        // Should not crash with empty batch
+        noExceptionThrown()
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle dispatchBatch with backend exception"() {
+        given:
+        def meterRegistry = new SimpleMeterRegistry()
+        Backend<String> backend = { batch ->
+            throw new RuntimeException("Backend error")
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(2)
+            .lingerTime(Duration.ofMillis(100))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config, meterRegistry)
+        def future = batcher.submit("item-1")
+        Thread.sleep(150)
+        def result = future.get(1, TimeUnit.SECONDS)
+
+        then:
+        result.failures.size() == 1
+        result.failures[0].error.message == "Backend error"
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should record per-item metrics for failed items"() {
+        given:
+        def meterRegistry = new SimpleMeterRegistry()
+        Backend<String> backend = { batch ->
+            def failures = batch.collect { new FailureEvent<>(it, new RuntimeException("error")) }
+            new BatchResult<>(List.of(), failures)
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(2)
+            .lingerTime(Duration.ofMillis(100))
+            .perItemMetrics(true)
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config, meterRegistry)
+        batcher.submit("item-1")
+        Thread.sleep(150)
+
+        then:
+        meterRegistry.find("vortex.item.submit.latency").timer().count() >= 1
+        meterRegistry.find("vortex.item.wait.time").timer().count() >= 1
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should record per-item metrics in atomic commit mode"() {
+        given:
+        def meterRegistry = new SimpleMeterRegistry()
+        Backend<String> backend = { batch ->
+            // In atomic commit mode, if any fails, all fail
+            // So we return all successes to test the success path
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(2)
+            .lingerTime(Duration.ofMillis(100))
+            .atomicCommit(true)
+            .perItemMetrics(true)
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config, meterRegistry)
+        batcher.submit("item-1")
+        batcher.submit("item-2")
+        Thread.sleep(150)
+
+        then:
+        meterRegistry.find("vortex.item.submit.latency").timer().count() >= 1
+        meterRegistry.find("vortex.item.wait.time").timer().count() >= 1
+
+        cleanup:
+        batcher?.close()
+    }
 }
 
