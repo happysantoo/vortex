@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * A lightweight micro-batcher that groups requests and dispatches them to a backend.
@@ -31,6 +32,9 @@ public class MicroBatcher<T> implements AutoCloseable {
     private final ExecutorService executor;
     
     private volatile boolean closed = false;
+    
+    // Track retry counts for items (item -> retry count)
+    private final ConcurrentHashMap<T, AtomicInteger> retryCounts = new ConcurrentHashMap<>();
     
     // Metrics
     private final Counter requestsSubmitted;
@@ -340,6 +344,7 @@ public class MicroBatcher<T> implements AutoCloseable {
             Timer waitLatency = requestWaitLatency;
             Timer queueWait = queueWaitTime;
             long batchCompletionTime = System.nanoTime();
+            RuntimeException atomicError = new RuntimeException("Batch failed due to atomic commit requirement");
             for (PendingRequest<T> req : batch) {
                 long waitTime = batchCompletionTime - req.getTimestamp();
                 waitLatency.record(waitTime, TimeUnit.NANOSECONDS);
@@ -355,12 +360,16 @@ public class MicroBatcher<T> implements AutoCloseable {
                     }
                 }
                 
-                requestsFailed.increment();
-                req.getFuture().complete(new BatchResult<>(
-                    List.of(),
-                    List.of(new FailureEvent<>(req.getData(), 
-                        new RuntimeException("Batch failed due to atomic commit requirement")))
-                ));
+                // Check if we should retry this failure
+                if (shouldRetry(req.getData(), atomicError)) {
+                    scheduleRetry(req.getData(), atomicError, req.getFuture());
+                } else {
+                    requestsFailed.increment();
+                    req.getFuture().complete(new BatchResult<>(
+                        List.of(),
+                        List.of(new FailureEvent<>(req.getData(), atomicError))
+                    ));
+                }
             }
         } else {
             // Map results back to individual requests
@@ -429,11 +438,19 @@ public class MicroBatcher<T> implements AutoCloseable {
                 if (!matched && failureIdx < failures.size()) {
                     T failureData = failures.get(failureIdx).getData();
                     if (failureData != null && failureData.equals(req.getData())) {
-                        requestsFailed.increment();
-                        req.getFuture().complete(new BatchResult<>(
-                            List.of(),
-                            List.of(failures.get(failureIdx))
-                        ));
+                        FailureEvent<T> failure = failures.get(failureIdx);
+                        Throwable error = failure.getError();
+                        
+                        // Check if we should retry this failure
+                        if (shouldRetry(req.getData(), error)) {
+                            scheduleRetry(req.getData(), error, req.getFuture());
+                        } else {
+                            requestsFailed.increment();
+                            req.getFuture().complete(new BatchResult<>(
+                                List.of(),
+                                List.of(failure)
+                            ));
+                        }
                         failureIdx++;
                         matched = true;
                     }
@@ -448,20 +465,132 @@ public class MicroBatcher<T> implements AutoCloseable {
                         ));
                         successIdx++;
                     } else {
-                        requestsFailed.increment();
                         Throwable failureError = failureIdx < failures.size() ?
                             failures.get(failureIdx).getError() :
                             new RuntimeException("Request failed in batch");
-                        req.getFuture().complete(new BatchResult<>(
-                            List.of(),
-                            List.of(new FailureEvent<>(req.getData(), failureError))
-                        ));
+                        
+                        // Check if we should retry this failure
+                        if (shouldRetry(req.getData(), failureError)) {
+                            scheduleRetry(req.getData(), failureError, req.getFuture());
+                        } else {
+                            requestsFailed.increment();
+                            req.getFuture().complete(new BatchResult<>(
+                                List.of(),
+                                List.of(new FailureEvent<>(req.getData(), failureError))
+                            ));
+                        }
                         if (failureIdx < failures.size()) {
                             failureIdx++;
                         }
                     }
                 }
             }
+            
+            // Clean up retry counts for successful items
+            for (SuccessEvent<T> success : successes) {
+                retryCounts.remove(success.getData());
+            }
+        }
+    }
+    
+    /**
+     * Checks if a failed item should be retried.
+     * 
+     * @param item the item that failed
+     * @param error the error that occurred
+     * @return true if the item should be retried, false otherwise
+     */
+    private boolean shouldRetry(T item, Throwable error) {
+        if (config.getMaxRetries() <= 0) {
+            return false; // Retry disabled
+        }
+        
+        if (!config.getRetryableErrorPredicate().test(error)) {
+            return false; // Error is not retryable
+        }
+        
+        // Check retry count
+        AtomicInteger retryCount = retryCounts.get(item);
+        if (retryCount == null) {
+            return true; // First failure, can retry
+        }
+        
+        return retryCount.get() < config.getMaxRetries();
+    }
+    
+    /**
+     * Schedules a retry for a failed item after the configured retry delay.
+     * The original future will be completed when the retry finishes.
+     * 
+     * @param item the item to retry
+     * @param error the error that occurred
+     * @param originalFuture the original future to complete when retry finishes
+     */
+    private void scheduleRetry(T item, Throwable error, CompletableFuture<BatchResult<T>> originalFuture) {
+        // Increment retry count
+        AtomicInteger retryCount = retryCounts.computeIfAbsent(item, k -> new AtomicInteger(0));
+        int currentRetries = retryCount.incrementAndGet();
+        
+        if (config.isDebugMode()) {
+            logger.debug("Scheduling retry {} for item: {}, error: {}", 
+                currentRetries, item, error.getClass().getSimpleName());
+        }
+        
+        // Schedule retry after delay
+        Runnable retryTask = () -> {
+            try {
+                if (closed) {
+                    retryCounts.remove(item);
+                    originalFuture.complete(new BatchResult<>(
+                        List.of(),
+                        List.of(new FailureEvent<>(item, new IllegalStateException("Batcher is closed"))))
+                    );
+                    return;
+                }
+                
+                CompletableFuture<BatchResult<T>> retryFuture = submit(item);
+                // Complete original future when retry completes
+                retryFuture.whenComplete((result, throwable) -> {
+                    if (throwable != null) {
+                        // Retry submission failed
+                        retryCounts.remove(item);
+                        originalFuture.completeExceptionally(throwable);
+                    } else {
+                        // Retry completed, use its result
+                        originalFuture.complete(result);
+                    }
+                });
+            } catch (IllegalStateException e) {
+                // Batcher is closed, can't retry
+                if (config.isDebugMode()) {
+                    logger.debug("Cannot retry item {} - batcher is closed", item);
+                }
+                retryCounts.remove(item);
+                originalFuture.complete(new BatchResult<>(
+                    List.of(),
+                    List.of(new FailureEvent<>(item, e)))
+                );
+            }
+        };
+        
+        if (config.getRetryDelay().isZero()) {
+            // No delay, retry immediately
+            executor.submit(retryTask);
+        } else {
+            // Schedule retry after delay
+            executor.submit(() -> {
+                try {
+                    Thread.sleep(config.getRetryDelay().toMillis());
+                    retryTask.run();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    retryCounts.remove(item);
+                    originalFuture.complete(new BatchResult<>(
+                        List.of(),
+                        List.of(new FailureEvent<>(item, e)))
+                    );
+                }
+            });
         }
     }
     
@@ -489,22 +618,41 @@ public class MicroBatcher<T> implements AutoCloseable {
         @SuppressWarnings("null") // requestWaitLatency and queueWaitTime are initialized in constructor
         Timer waitLatency = requestWaitLatency;
         Timer queueWait = queueWaitTime;
+        long batchCompletionTime = System.nanoTime();
         for (PendingRequest<T> req : batch) {
-            long waitTime = System.nanoTime() - req.getTimestamp();
+            long waitTime = batchCompletionTime - req.getTimestamp();
             waitLatency.record(waitTime, TimeUnit.NANOSECONDS);
             queueWait.record(waitTime, TimeUnit.NANOSECONDS);
             
-            requestsFailed.increment();
-            req.getFuture().complete(new BatchResult<>(
-                List.of(),
-                List.of(new FailureEvent<>(req.getData(), error))
-            ));
+            // Record per-item metrics if enabled
+            if (config.isPerItemMetrics()) {
+                if (itemWaitTime != null) {
+                    itemWaitTime.record(waitTime, TimeUnit.NANOSECONDS);
+                }
+                if (itemSubmitLatency != null) {
+                    itemSubmitLatency.record(waitTime, TimeUnit.NANOSECONDS);
+                }
+            }
+            
+            // Check if we should retry this failure
+            if (shouldRetry(req.getData(), error)) {
+                scheduleRetry(req.getData(), error, req.getFuture());
+            } else {
+                requestsFailed.increment();
+                req.getFuture().complete(new BatchResult<>(
+                    List.of(),
+                    List.of(new FailureEvent<>(req.getData(), error))
+                ));
+            }
         }
     }
     
     @Override
     public void close() {
         closed = true;
+        
+        // Clear retry counts
+        retryCounts.clear();
         
         // Wait for batch processor to finish processing queue (with timeout)
         long deadline = System.currentTimeMillis() + 2000; // 2 second timeout

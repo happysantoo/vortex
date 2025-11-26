@@ -1,6 +1,7 @@
 package com.vajrapulse.vortex;
 
 import java.time.Duration;
+import java.util.function.Predicate;
 
 /**
  * Configuration for the micro-batcher.
@@ -13,6 +14,9 @@ public class BatcherConfig {
     private final boolean autoReplaySuccesses;
     private final boolean perItemMetrics;
     private final boolean debugMode;
+    private final int maxRetries;
+    private final Duration retryDelay;
+    private final Predicate<Throwable> retryableErrorPredicate;
     
     /**
      * Private constructor for BatcherConfig.
@@ -27,6 +31,9 @@ public class BatcherConfig {
         this.autoReplaySuccesses = builder.autoReplaySuccesses;
         this.perItemMetrics = builder.perItemMetrics;
         this.debugMode = builder.debugMode;
+        this.maxRetries = builder.maxRetries;
+        this.retryDelay = builder.retryDelay;
+        this.retryableErrorPredicate = builder.retryableErrorPredicate;
     }
     
     /**
@@ -93,6 +100,33 @@ public class BatcherConfig {
     }
     
     /**
+     * Gets the maximum number of retries for failed items.
+     * 
+     * @return the maximum number of retries
+     */
+    public int getMaxRetries() {
+        return maxRetries;
+    }
+    
+    /**
+     * Gets the retry delay between retry attempts.
+     * 
+     * @return the retry delay duration
+     */
+    public Duration getRetryDelay() {
+        return retryDelay;
+    }
+    
+    /**
+     * Gets the predicate to determine if an error is retryable.
+     * 
+     * @return the retryable error predicate
+     */
+    public Predicate<Throwable> getRetryableErrorPredicate() {
+        return retryableErrorPredicate;
+    }
+    
+    /**
      * Creates a new builder instance.
      * 
      * @return a new Builder instance
@@ -112,6 +146,9 @@ public class BatcherConfig {
         private boolean autoReplaySuccesses = false;
         private boolean perItemMetrics = false;
         private boolean debugMode = false;
+        private int maxRetries = 0;
+        private Duration retryDelay = Duration.ZERO;
+        private Predicate<Throwable> retryableErrorPredicate = t -> false;
         
         /**
          * Sets the batch size.
@@ -209,6 +246,52 @@ public class BatcherConfig {
          */
         public Builder debugMode(boolean debugMode) {
             this.debugMode = debugMode;
+            return this;
+        }
+        
+        /**
+         * Sets the maximum number of retries for failed items.
+         * 
+         * @param maxRetries the maximum number of retries (must be non-negative)
+         * @return this builder instance
+         * @throws IllegalArgumentException if maxRetries is negative
+         */
+        public Builder maxRetries(int maxRetries) {
+            if (maxRetries < 0) {
+                throw new IllegalArgumentException("Max retries must be non-negative");
+            }
+            this.maxRetries = maxRetries;
+            return this;
+        }
+        
+        /**
+         * Sets the retry delay between retry attempts.
+         * 
+         * @param retryDelay the retry delay duration (must be non-negative)
+         * @return this builder instance
+         * @throws IllegalArgumentException if retryDelay is null or negative
+         */
+        public Builder retryDelay(Duration retryDelay) {
+            if (retryDelay == null || retryDelay.isNegative()) {
+                throw new IllegalArgumentException("Retry delay must be non-negative");
+            }
+            this.retryDelay = retryDelay;
+            return this;
+        }
+        
+        /**
+         * Sets the predicate to determine if an error is retryable.
+         * Only errors that match this predicate will be retried.
+         * 
+         * @param retryableErrorPredicate the predicate to test errors (must not be null)
+         * @return this builder instance
+         * @throws IllegalArgumentException if retryableErrorPredicate is null
+         */
+        public Builder retryableErrorPredicate(Predicate<Throwable> retryableErrorPredicate) {
+            if (retryableErrorPredicate == null) {
+                throw new IllegalArgumentException("Retryable error predicate must not be null");
+            }
+            this.retryableErrorPredicate = retryableErrorPredicate;
             return this;
         }
         

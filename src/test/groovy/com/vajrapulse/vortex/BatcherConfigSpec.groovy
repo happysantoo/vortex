@@ -132,5 +132,103 @@ class BatcherConfigSpec extends Specification {
         config.perItemMetrics
         !config.autoReplaySuccesses
     }
+
+    def "should create config with debugMode enabled"() {
+        when:
+        def config = BatcherConfig.builder()
+            .debugMode(true)
+            .build()
+
+        then:
+        config.debugMode
+    }
+
+    def "should create config with debugMode disabled by default"() {
+        when:
+        def config = BatcherConfig.builder().build()
+
+        then:
+        !config.debugMode
+    }
+
+    def "should allow debugMode in builder chain"() {
+        when:
+        def config = BatcherConfig.builder()
+            .batchSize(5)
+            .debugMode(true)
+            .perItemMetrics(false)
+            .build()
+
+        then:
+        config.batchSize == 5
+        config.debugMode
+        !config.perItemMetrics
+    }
+
+    def "should create config with retry settings"() {
+        when:
+        def config = BatcherConfig.builder()
+            .maxRetries(3)
+            .retryDelay(Duration.ofMillis(100))
+            .retryableErrorPredicate { it instanceof RuntimeException }
+            .build()
+
+        then:
+        config.maxRetries == 3
+        config.retryDelay == Duration.ofMillis(100)
+        config.retryableErrorPredicate != null
+    }
+
+    def "should create config with default retry settings"() {
+        when:
+        def config = BatcherConfig.builder().build()
+
+        then:
+        config.maxRetries == 0
+        config.retryDelay == Duration.ZERO
+        config.retryableErrorPredicate != null
+    }
+
+    @Unroll
+    def "should reject invalid maxRetries: #retries"() {
+        when:
+        BatcherConfig.builder().maxRetries(retries).build()
+
+        then:
+        thrown(IllegalArgumentException)
+
+        where:
+        retries << [-1, -10]
+    }
+
+    @Unroll
+    def "should reject invalid retryDelay: #delay"() {
+        when:
+        BatcherConfig.builder().retryDelay(delay).build()
+
+        then:
+        thrown(IllegalArgumentException)
+
+        where:
+        delay << [null, Duration.ofMillis(-1)]
+    }
+
+    def "should reject null retryableErrorPredicate"() {
+        when:
+        BatcherConfig.builder().retryableErrorPredicate(null).build()
+
+        then:
+        thrown(IllegalArgumentException)
+    }
+
+    def "should allow zero retry delay"() {
+        when:
+        def config = BatcherConfig.builder()
+            .retryDelay(Duration.ZERO)
+            .build()
+
+        then:
+        config.retryDelay == Duration.ZERO
+    }
 }
 
