@@ -227,7 +227,6 @@ boolean shouldReplaySuccesses(BatchResult<T> result)  // Optional, default retur
 - **batchSize**: Maximum items per batch
 - **lingerTime**: Maximum time to wait before dispatching
 - **atomicCommit**: If true, batch fails if any item fails
-- **maxConcurrency**: Maximum concurrent batch dispatches (less relevant with virtual threads)
 - **autoReplaySuccesses**: Default replay behavior (used if backend doesn't override `shouldReplaySuccesses()`)
 
 ## Metrics & Observability

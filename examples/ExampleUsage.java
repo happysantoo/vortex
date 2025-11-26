@@ -47,29 +47,50 @@ public class ExampleUsage {
             .batchSize(5)
             .lingerTime(Duration.ofMillis(200))
             .atomicCommit(false)
-            .maxConcurrency(10)
+            .maxQueueSize(20)  // Custom queue size (default would be 2x batchSize = 10)
             .build();
         
         // Create the micro-batcher
         try (MicroBatcher<String> batcher = new MicroBatcher<>(backend, config)) {
             
-            // Submit some requests
-            List<CompletableFuture<BatchResult<String>>> futures = new ArrayList<>();
-            
+            // OPTION 1: Use submitWithCallback (RECOMMENDED - Cleanest)
+            // No need to track futures - callback handles each item's result
+            // 
+            // BACKPRESSURE HANDLING:
+            // - Queue size is limited to 2x batch size (e.g., batchSize=5 → queue=10 items)
+            // - If queue is full, submit() waits up to 100ms, then rejects with RejectedExecutionException
+            // - Always handle exceptions to detect backpressure!
+            List<CompletableFuture<Void>> callbacks = new ArrayList<>();
             for (int i = 0; i < 15; i++) {
                 final int idx = i;
-                CompletableFuture<BatchResult<String>> future = batcher.submit("Request-" + idx);
-                futures.add(future);
+                CompletableFuture<Void> callback = batcher.submitWithCallback(
+                    "Request-" + idx,
+                    (item, result) -> {
+                        if (result instanceof ItemResult.Success) {
+                            System.out.println("Request " + idx + " succeeded: " + item);
+                        } else if (result instanceof ItemResult.Failure) {
+                            System.out.println("Request " + idx + " failed: " + 
+                                ((ItemResult.Failure<String>) result).error().getMessage());
+                        }
+                    }
+                );
                 
-                future.thenAccept(result -> {
-                    System.out.println("Request " + idx + " completed. " +
-                        "Successes: " + result.getSuccesses().size() + ", " +
-                        "Failures: " + result.getFailures().size());
+                // Handle backpressure: queue full or other errors
+                callback.exceptionally(throwable -> {
+                    if (throwable.getCause() instanceof RejectedExecutionException) {
+                        System.err.println("⚠ Request " + idx + " REJECTED: Queue is full (backpressure)");
+                        // Options: retry, log, send to dead letter queue, or fail fast
+                    } else {
+                        System.err.println("⚠ Request " + idx + " ERROR: " + throwable.getMessage());
+                    }
+                    return null; // Complete exceptionally handled
                 });
+                
+                callbacks.add(callback);
             }
             
-            // Wait for all to complete
-            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).get();
+            // Wait for all callbacks to complete
+            CompletableFuture.allOf(callbacks.toArray(new CompletableFuture[0])).get();
             
             // Print metrics
             System.out.println("\n=== Metrics ===");
@@ -84,4 +105,3 @@ public class ExampleUsage {
         }
     }
 }
-
