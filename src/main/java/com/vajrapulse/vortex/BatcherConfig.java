@@ -12,6 +12,7 @@ public class BatcherConfig {
     private final int maxConcurrency;
     private final boolean autoReplaySuccesses;
     private final boolean perItemMetrics;
+    private final boolean debugMode;
     
     /**
      * Private constructor for BatcherConfig.
@@ -25,6 +26,7 @@ public class BatcherConfig {
         this.maxConcurrency = builder.maxConcurrency;
         this.autoReplaySuccesses = builder.autoReplaySuccesses;
         this.perItemMetrics = builder.perItemMetrics;
+        this.debugMode = builder.debugMode;
     }
     
     /**
@@ -82,6 +84,15 @@ public class BatcherConfig {
     }
     
     /**
+     * Checks if debug mode is enabled.
+     * 
+     * @return true if debug mode is enabled, false otherwise
+     */
+    public boolean isDebugMode() {
+        return debugMode;
+    }
+    
+    /**
      * Creates a new builder instance.
      * 
      * @return a new Builder instance
@@ -100,6 +111,7 @@ public class BatcherConfig {
         private int maxConcurrency = 10;
         private boolean autoReplaySuccesses = false;
         private boolean perItemMetrics = false;
+        private boolean debugMode = false;
         
         /**
          * Sets the batch size.
@@ -180,6 +192,23 @@ public class BatcherConfig {
          */
         public Builder perItemMetrics(boolean perItemMetrics) {
             this.perItemMetrics = perItemMetrics;
+            return this;
+        }
+        
+        /**
+         * Enables debug mode with detailed logging.
+         * When enabled, logs detailed information about:
+         * - Batch formation events
+         * - Item submission events
+         * - Batch dispatch events
+         * - Queue depth changes
+         * - Timing information
+         * 
+         * @param debugMode true to enable debug mode
+         * @return this builder instance
+         */
+        public Builder debugMode(boolean debugMode) {
+            this.debugMode = debugMode;
             return this;
         }
         

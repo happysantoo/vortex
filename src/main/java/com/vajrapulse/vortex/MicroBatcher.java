@@ -5,6 +5,8 @@ import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -19,6 +21,8 @@ import java.util.concurrent.atomic.AtomicInteger;
  * @param <T> the type of request elements
  */
 public class MicroBatcher<T> implements AutoCloseable {
+    private static final Logger logger = LoggerFactory.getLogger(MicroBatcher.class);
+    
     private final Backend<T> backend;
     private final BatcherConfig config;
     private final MeterRegistry meterRegistry;
@@ -228,12 +232,19 @@ public class MicroBatcher<T> implements AutoCloseable {
         batch.add(first);
         queueDepth.decrementAndGet();
         
+        if (config.isDebugMode()) {
+            logger.debug("Starting batch formation, first item: {}", first.getData());
+        }
+        
         // Collect up to batchSize items, respecting linger time
         // Whichever comes first: batch size reached or linger time elapsed
         long deadline = System.nanoTime() + config.getLingerTime().toNanos();
         while (batch.size() < config.getBatchSize()) {
             long remaining = deadline - System.nanoTime();
             if (remaining <= 0) {
+                if (config.isDebugMode()) {
+                    logger.debug("Linger time elapsed, batch size: {}", batch.size());
+                }
                 break; // Linger time elapsed
             }
             
@@ -242,13 +253,23 @@ public class MicroBatcher<T> implements AutoCloseable {
                 TimeUnit.MILLISECONDS
             );
             if (next == null) {
+                if (config.isDebugMode()) {
+                    logger.debug("Timeout waiting for next item, batch size: {}", batch.size());
+                }
                 break; // Timeout - trigger batch
             }
             batch.add(next);
             queueDepth.decrementAndGet();
+            if (config.isDebugMode()) {
+                logger.debug("Added item to batch, current size: {}, queue depth: {}", 
+                    batch.size(), queueDepth.get());
+            }
         }
         
         if (!batch.isEmpty()) {
+            if (config.isDebugMode()) {
+                logger.debug("Dispatching batch of size: {}", batch.size());
+            }
             dispatchBatch(batch);
         }
     }
@@ -259,6 +280,13 @@ public class MicroBatcher<T> implements AutoCloseable {
         }
         
         batchesDispatched.increment();
+        
+        if (config.isDebugMode()) {
+            long waitTime = batch.stream()
+                .mapToLong(req -> System.nanoTime() - req.getTimestamp())
+                .sum() / batch.size();
+            logger.debug("Dispatching batch: size={}, avgWaitTimeNs={}", batch.size(), waitTime);
+        }
         
         // Record batch size distribution
         batchSizeHistogram.record(batch.size());
@@ -281,15 +309,25 @@ public class MicroBatcher<T> implements AutoCloseable {
         // Virtual threads are perfect for I/O-bound operations like HTTP calls, DB queries
         executor.submit(() -> {
             try {
+                if (config.isDebugMode()) {
+                    logger.debug("Calling backend.dispatch() for batch of size: {}", dataList.size());
+                }
                 BatchResult<T> result = backend.dispatch(dataList);
                 @SuppressWarnings("null") // batchDispatchLatency is initialized in constructor
                 Timer timer = batchDispatchLatency;
-                sample.stop(timer);
+                long dispatchTime = sample.stop(timer);
+                if (config.isDebugMode()) {
+                    logger.debug("Backend dispatch completed: successes={}, failures={}, dispatchTimeNs={}", 
+                        result.getSuccesses().size(), result.getFailures().size(), dispatchTime);
+                }
                 processBatchResults(batch, result);
             } catch (Exception e) {
                 @SuppressWarnings("null") // batchDispatchLatency is initialized in constructor
                 Timer timer = batchDispatchLatency;
                 sample.stop(timer);
+                if (config.isDebugMode()) {
+                    logger.debug("Backend dispatch failed", e);
+                }
                 handleBatchFailure(batch, e);
             }
         });
