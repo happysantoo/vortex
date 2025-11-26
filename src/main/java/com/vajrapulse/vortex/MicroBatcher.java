@@ -36,7 +36,16 @@ public class MicroBatcher<T> implements AutoCloseable {
     private final Counter requestsReplayed;
     private final Timer batchDispatchLatency;
     private final Timer requestWaitLatency;
+    private final Timer queueWaitTime; // Additional metric for queue wait time with percentiles
     private final AtomicInteger queueDepth = new AtomicInteger(0);
+    
+    // Per-item metrics (only created if perItemMetrics is enabled)
+    private final Timer itemSubmitLatency;
+    private final Timer itemWaitTime;
+    private final io.micrometer.core.instrument.DistributionSummary itemBatchSize;
+    
+    // Batch size distribution metrics
+    private final io.micrometer.core.instrument.DistributionSummary batchSizeHistogram;
     
     /**
      * Creates a new MicroBatcher with a default SimpleMeterRegistry.
@@ -106,6 +115,36 @@ public class MicroBatcher<T> implements AutoCloseable {
             .description("Time a request waits before being batched")
             .register(meterRegistry);
         
+        // Queue wait time metric with percentiles
+        this.queueWaitTime = Timer.builder("vortex.queue.wait.time")
+            .description("Distribution of queue wait times")
+            .publishPercentiles(0.5, 0.95, 0.99) // p50, p95, p99
+            .register(meterRegistry);
+        
+        // Batch size distribution metrics
+        this.batchSizeHistogram = io.micrometer.core.instrument.DistributionSummary.builder("vortex.batch.size")
+            .description("Distribution of batch sizes")
+            .register(meterRegistry);
+        
+        // Per-item metrics (only created if enabled)
+        Timer itemSubmitLatencyTemp = null;
+        Timer itemWaitTimeTemp = null;
+        io.micrometer.core.instrument.DistributionSummary itemBatchSizeTemp = null;
+        if (config.isPerItemMetrics()) {
+            itemSubmitLatencyTemp = Timer.builder("vortex.item.submit.latency")
+                .description("Time from submit to batch completion (per item)")
+                .register(meterRegistry);
+            itemWaitTimeTemp = Timer.builder("vortex.item.wait.time")
+                .description("Time item waits in queue before batching")
+                .register(meterRegistry);
+            itemBatchSizeTemp = io.micrometer.core.instrument.DistributionSummary.builder("vortex.item.batch.size")
+                .description("Size of batch when item was processed")
+                .register(meterRegistry);
+        }
+        this.itemSubmitLatency = itemSubmitLatencyTemp;
+        this.itemWaitTime = itemWaitTimeTemp;
+        this.itemBatchSize = itemBatchSizeTemp;
+        
         Gauge.builder("vortex.queue.depth", queueDepth, AtomicInteger::get)
             .description("Current depth of the request queue")
             .register(meterRegistry);
@@ -141,6 +180,23 @@ public class MicroBatcher<T> implements AutoCloseable {
         }
         
         return future;
+    }
+    
+    /**
+     * Submits an item and registers a callback for when its batch completes.
+     * The callback receives the item and its result (success or failure).
+     * 
+     * @param item the item to submit
+     * @param callback callback to execute when batch completes, receives (item, ItemResult)
+     * @return CompletableFuture that completes when the callback finishes
+     */
+    public CompletableFuture<Void> submitWithCallback(T item, java.util.function.BiConsumer<T, ItemResult<T>> callback) {
+        CompletableFuture<BatchResult<T>> future = submit(item);
+        return future.thenAccept(result -> {
+            ItemResult<T> itemResult = result.findItemResult(item)
+                .orElseThrow(() -> new IllegalStateException("Item result not found for submitted item"));
+            callback.accept(item, itemResult);
+        });
     }
     
     private void startBatchProcessor() {
@@ -203,8 +259,19 @@ public class MicroBatcher<T> implements AutoCloseable {
         }
         
         batchesDispatched.increment();
+        
+        // Record batch size distribution
+        batchSizeHistogram.record(batch.size());
+        
         @SuppressWarnings("null") // meterRegistry is checked for null in constructor
         Timer.Sample sample = Timer.start(meterRegistry);
+        
+        // Record per-item batch size if enabled
+        if (config.isPerItemMetrics() && itemBatchSize != null) {
+            for (PendingRequest<T> req : batch) {
+                itemBatchSize.record(batch.size());
+            }
+        }
         
         List<T> dataList = batch.stream()
             .map(PendingRequest::getData)
@@ -231,11 +298,13 @@ public class MicroBatcher<T> implements AutoCloseable {
     private void processBatchResults(List<PendingRequest<T>> batch, BatchResult<T> result) {
         if (config.isAtomicCommit() && !result.isAllSuccess()) {
             // In atomic mode, if any fails, all fail
-            @SuppressWarnings("null") // requestWaitLatency is initialized in constructor
+            @SuppressWarnings("null") // requestWaitLatency and queueWaitTime are initialized in constructor
             Timer waitLatency = requestWaitLatency;
+            Timer queueWait = queueWaitTime;
             for (PendingRequest<T> req : batch) {
                 long waitTime = System.nanoTime() - req.getTimestamp();
                 waitLatency.record(waitTime, TimeUnit.NANOSECONDS);
+                queueWait.record(waitTime, TimeUnit.NANOSECONDS);
                 
                 requestsFailed.increment();
                 req.getFuture().complete(new BatchResult<>(
@@ -274,11 +343,24 @@ public class MicroBatcher<T> implements AutoCloseable {
             int successIdx = 0;
             int failureIdx = 0;
             
-            @SuppressWarnings("null") // requestWaitLatency is initialized in constructor
+            @SuppressWarnings("null") // requestWaitLatency and queueWaitTime are initialized in constructor
             Timer waitLatency = requestWaitLatency;
+            Timer queueWait = queueWaitTime;
+            long batchCompletionTime = System.nanoTime();
             for (PendingRequest<T> req : batch) {
-                long waitTime = System.nanoTime() - req.getTimestamp();
+                long waitTime = batchCompletionTime - req.getTimestamp();
                 waitLatency.record(waitTime, TimeUnit.NANOSECONDS);
+                queueWait.record(waitTime, TimeUnit.NANOSECONDS);
+                
+                // Record per-item metrics if enabled
+                if (config.isPerItemMetrics()) {
+                    if (itemWaitTime != null) {
+                        itemWaitTime.record(waitTime, TimeUnit.NANOSECONDS);
+                    }
+                    if (itemSubmitLatency != null) {
+                        itemSubmitLatency.record(waitTime, TimeUnit.NANOSECONDS);
+                    }
+                }
                 
                 // Check if this request succeeded or failed
                 // Backend should maintain order, but we handle mismatches gracefully
@@ -355,9 +437,13 @@ public class MicroBatcher<T> implements AutoCloseable {
     }
     
     private void handleBatchFailure(List<PendingRequest<T>> batch, Throwable error) {
+        @SuppressWarnings("null") // requestWaitLatency and queueWaitTime are initialized in constructor
+        Timer waitLatency = requestWaitLatency;
+        Timer queueWait = queueWaitTime;
         for (PendingRequest<T> req : batch) {
             long waitTime = System.nanoTime() - req.getTimestamp();
-            requestWaitLatency.record(waitTime, TimeUnit.NANOSECONDS);
+            waitLatency.record(waitTime, TimeUnit.NANOSECONDS);
+            queueWait.record(waitTime, TimeUnit.NANOSECONDS);
             
             requestsFailed.increment();
             req.getFuture().complete(new BatchResult<>(

@@ -11,6 +11,7 @@ public class BatcherConfig {
     private final boolean atomicCommit;
     private final int maxConcurrency;
     private final boolean autoReplaySuccesses;
+    private final boolean perItemMetrics;
     
     /**
      * Private constructor for BatcherConfig.
@@ -23,6 +24,7 @@ public class BatcherConfig {
         this.atomicCommit = builder.atomicCommit;
         this.maxConcurrency = builder.maxConcurrency;
         this.autoReplaySuccesses = builder.autoReplaySuccesses;
+        this.perItemMetrics = builder.perItemMetrics;
     }
     
     /**
@@ -71,6 +73,15 @@ public class BatcherConfig {
     }
     
     /**
+     * Checks if per-item metrics tracking is enabled.
+     * 
+     * @return true if per-item metrics are enabled, false otherwise
+     */
+    public boolean isPerItemMetrics() {
+        return perItemMetrics;
+    }
+    
+    /**
      * Creates a new builder instance.
      * 
      * @return a new Builder instance
@@ -88,6 +99,7 @@ public class BatcherConfig {
         private boolean atomicCommit = false;
         private int maxConcurrency = 10;
         private boolean autoReplaySuccesses = false;
+        private boolean perItemMetrics = false;
         
         /**
          * Sets the batch size.
@@ -153,6 +165,21 @@ public class BatcherConfig {
          */
         public Builder autoReplaySuccesses(boolean autoReplaySuccesses) {
             this.autoReplaySuccesses = autoReplaySuccesses;
+            return this;
+        }
+        
+        /**
+         * Enables per-item metrics tracking.
+         * When enabled, metrics are recorded for each individual item:
+         * - vortex.item.submit.latency - Time from submit to batch completion
+         * - vortex.item.wait.time - Time item waits in queue
+         * - vortex.item.batch.size - Size of batch when item was processed
+         * 
+         * @param perItemMetrics true to enable per-item metrics
+         * @return this builder instance
+         */
+        public Builder perItemMetrics(boolean perItemMetrics) {
+            this.perItemMetrics = perItemMetrics;
             return this;
         }
         
