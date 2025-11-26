@@ -34,6 +34,9 @@ public class MicroBatcherTestUtils {
      * Waits for all pending batches to complete.
      * This method waits until the queue is empty and all in-flight batches are complete.
      * 
+     * <p>Note: This is a best-effort utility. In practice, tests should wait for their
+     * specific CompletableFuture instances rather than using this method.
+     * 
      * @param <T> the type of request elements
      * @param batcher the MicroBatcher instance
      * @param timeout the maximum time to wait
@@ -47,25 +50,34 @@ public class MicroBatcherTestUtils {
         
         // Wait for queue to be empty (checking queue depth via metrics)
         while (System.currentTimeMillis() < deadline) {
-            // Check if there are any pending requests by looking at queue depth
-            // Note: This is a best-effort check since we don't have direct access to the queue
-            Thread.sleep(10);
+            // Check if batcher is closed
+            if (batcher.isClosed()) {
+                // If closed, wait a bit more for any in-flight batches, then return
+                Thread.sleep(50);
+                return;
+            }
             
-            // If batcher is closed, we're done
-            try {
-                // Try to submit a dummy item to check if closed
-                // This is a workaround since we don't have direct access to the closed flag
-                // In practice, tests should wait for their specific futures
-            } catch (IllegalStateException e) {
-                if (e.getMessage().contains("closed")) {
-                    return; // Batcher is closed, no more batches
+            // Check queue depth via metrics
+            double queueDepth = batcher.getMeterRegistry()
+                .gauge("vortex.queue.depth", 0.0);
+            
+            // If queue is empty and batcher is not closed, we might be done
+            // But we need to account for in-flight batches, so wait a bit more
+            if (queueDepth == 0.0) {
+                Thread.sleep(50); // Give time for in-flight batches to complete
+                // Check again to make sure queue is still empty
+                double currentDepth = batcher.getMeterRegistry()
+                    .gauge("vortex.queue.depth", 0.0);
+                if (currentDepth == 0.0) {
+                    return; // Queue is empty and stayed empty
                 }
             }
+            
+            Thread.sleep(10);
         }
         
-        if (System.currentTimeMillis() >= deadline) {
-            throw new TimeoutException("Timeout waiting for batches to complete");
-        }
+        // Timeout reached
+        throw new TimeoutException("Timeout waiting for batches to complete");
     }
     
     /**

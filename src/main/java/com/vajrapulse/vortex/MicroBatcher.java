@@ -431,7 +431,18 @@ public class MicroBatcher<T> implements AutoCloseable {
         return currentLingerTime;
     }
     
-    boolean isClosed() {
+    /**
+     * Checks if the batcher is closed.
+     * 
+     * <p>Once closed, the batcher will reject new submissions and will not process
+     * any new batches. Items already in the queue may still be processed during
+     * the shutdown process.
+     * 
+     * <p>This method is thread-safe and can be called from any thread.
+     * 
+     * @return true if the batcher is closed, false otherwise
+     */
+    public boolean isClosed() {
         return closed;
     }
 }
