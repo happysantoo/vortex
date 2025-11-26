@@ -59,6 +59,7 @@ public class HttpBackendExample {
         BatcherConfig config = BatcherConfig.builder()
             .batchSize(10)
             .lingerTime(Duration.ofMillis(200))
+            .maxQueueSize(50)  // Larger queue for HTTP requests
             .build();
         
         try (MicroBatcher<String> batcher = new MicroBatcher<>(httpBackend, config)) {

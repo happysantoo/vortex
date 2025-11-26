@@ -31,7 +31,9 @@ java -cp "$(./gradlew -q printClasspath):examples" com.vajrapulse.vortex.example
 - **MetricsExample.java** - Metrics collection and monitoring
 - **HttpBackendExample.java** - HTTP backend integration
 - **CustomBackendReplayExample.java** - Custom backend with replay logic
-- **ExampleUsage.java** - Comprehensive usage example
+- **ExampleUsage.java** - Comprehensive usage example with submitWithCallback
+- **ExampleUsageSimplified.java** - Multiple usage patterns (fire-and-forget, callbacks, etc.)
+- **ExampleUsageWithBackpressure.java** - Backpressure handling and queue management
 
 ## Prerequisites
 

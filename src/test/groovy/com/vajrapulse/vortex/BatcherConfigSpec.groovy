@@ -273,5 +273,99 @@ class BatcherConfigSpec extends Specification {
         config.maxRetries == 0
         config.retryDelay == Duration.ZERO
     }
+
+    def "should default maxQueueSize to 2x batchSize"() {
+        when:
+        def config = BatcherConfig.builder()
+            .batchSize(10)
+            .build()
+
+        then:
+        config.maxQueueSize == 20 // 2x batchSize
+    }
+
+    def "should allow custom maxQueueSize"() {
+        when:
+        def config = BatcherConfig.builder()
+            .batchSize(10)
+            .maxQueueSize(50)
+            .build()
+
+        then:
+        config.maxQueueSize == 50
+    }
+
+    def "should allow maxQueueSize equal to batchSize"() {
+        when:
+        def config = BatcherConfig.builder()
+            .batchSize(10)
+            .maxQueueSize(10)
+            .build()
+
+        then:
+        config.maxQueueSize == 10
+    }
+
+    @Unroll
+    def "should reject maxQueueSize less than batchSize: batchSize=#batchSize, maxQueueSize=#maxQueueSize"() {
+        when:
+        BatcherConfig.builder()
+            .batchSize(batchSize)
+            .maxQueueSize(maxQueueSize)
+            .build()
+
+        then:
+        thrown(IllegalArgumentException)
+
+        where:
+        batchSize | maxQueueSize
+        10        | 9
+        10        | 5
+        10        | 0
+        5         | 4
+        100       | 50
+    }
+
+    def "should include maxQueueSize in builder chain"() {
+        when:
+        def config = BatcherConfig.builder()
+            .batchSize(5)
+            .maxQueueSize(25)
+            .lingerTime(Duration.ofMillis(100))
+            .build()
+
+        then:
+        config.batchSize == 5
+        config.maxQueueSize == 25
+        config.lingerTime == Duration.ofMillis(100)
+    }
+
+    def "should build config with all options including maxQueueSize"() {
+        when:
+        def config = BatcherConfig.builder()
+            .batchSize(20)
+            .lingerTime(Duration.ofMillis(200))
+            .maxQueueSize(100)
+            .atomicCommit(true)
+            .autoReplaySuccesses(true)
+            .perItemMetrics(true)
+            .debugMode(true)
+            .maxRetries(5)
+            .retryDelay(Duration.ofMillis(150))
+            .retryableErrorPredicate { it instanceof IOException }
+            .build()
+
+        then:
+        config.batchSize == 20
+        config.maxQueueSize == 100
+        config.lingerTime == Duration.ofMillis(200)
+        config.atomicCommit
+        config.autoReplaySuccesses
+        config.perItemMetrics
+        config.debugMode
+        config.maxRetries == 5
+        config.retryDelay == Duration.ofMillis(150)
+        config.retryableErrorPredicate != null
+    }
 }
 

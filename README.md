@@ -113,6 +113,7 @@ BatcherConfig config = BatcherConfig.builder()
     .maxRetries(0)                           // Max retries for failures (default: 0)
     .retryDelay(Duration.ZERO)               // Delay between retries (default: 0)
     .retryableErrorPredicate(e -> false)     // Which errors to retry (default: none)
+    .maxQueueSize(20)                        // Max queue size (default: 2 × batchSize)
     .build();
 ```
 
@@ -129,6 +130,7 @@ BatcherConfig config = BatcherConfig.builder()
 | `maxRetries` | `int` | 0 | Maximum number of retries for failed items |
 | `retryDelay` | `Duration` | 0ms | Delay between retry attempts |
 | `retryableErrorPredicate` | `Predicate<Throwable>` | `e -> false` | Determines which errors should be retried |
+| `maxQueueSize` | `int` | `2 × batchSize` | Maximum queue size for pending requests (backpressure control) |
 
 ### Smart Batching
 
@@ -208,6 +210,15 @@ CompletableFuture<Void> callbackFuture = batcher.submitWithCallback(
         }
     }
 );
+
+// Always handle exceptions to detect backpressure
+callbackFuture.exceptionally(throwable -> {
+    if (throwable.getCause() instanceof RejectedExecutionException) {
+        System.err.println("Request rejected: Queue is full (backpressure)");
+        // Handle backpressure: retry, log, or send to dead letter queue
+    }
+    return null;
+});
 ```
 
 ## Advanced Features
@@ -518,6 +529,54 @@ For a detailed explanation of the architecture, request flow, and design decisio
 - Use `retryDelay` to avoid overwhelming backends
 - Monitor `vortex.requests.failed` metric
 
+### Backpressure Handling
+
+The library provides built-in backpressure control through configurable queue size:
+
+**Queue Size Configuration:**
+- Default: `2 × batchSize` (e.g., batchSize=10 → queue=20 items)
+- Configurable via `maxQueueSize()` in `BatcherConfig`
+- Must be at least equal to `batchSize`
+
+**Backpressure Behavior:**
+- When queue is full, `submit()` waits up to 100ms for space
+- If still full after 100ms, returns `RejectedExecutionException`
+- Monitor `vortex.queue.depth` metric to detect backpressure early
+
+**Handling Rejections:**
+
+```java
+// Option 1: Handle in callback
+CompletableFuture<Void> future = batcher.submitWithCallback(
+    "item",
+    (item, result) -> { /* handle result */ }
+);
+future.exceptionally(throwable -> {
+    if (throwable.getCause() instanceof RejectedExecutionException) {
+        // Queue is full - handle backpressure
+        // Options: retry, log, send to dead letter queue, or fail fast
+        System.err.println("Request rejected: Queue full");
+    }
+    return null;
+});
+
+// Option 2: Handle in submit() future
+CompletableFuture<BatchResult<String>> future = batcher.submit("item");
+future.exceptionally(throwable -> {
+    if (throwable instanceof RejectedExecutionException) {
+        // Handle backpressure
+    }
+    return null;
+});
+```
+
+**Best Practices:**
+- Set `maxQueueSize` based on expected throughput and backend capacity
+- Monitor `vortex.queue.depth` to detect backpressure early
+- Handle `RejectedExecutionException` appropriately (retry, circuit breaker, etc.)
+- Consider increasing `maxQueueSize` for high-throughput scenarios
+- Use `submitWithCallback()` for cleaner error handling
+
 ### Performance Tuning
 
 - Enable `perItemMetrics` only when needed (adds overhead)
@@ -540,6 +599,7 @@ None - 0.0.2 is backward compatible with 0.0.1.
 - Per-item metrics (`perItemMetrics` flag)
 - Debug mode (`debugMode` flag)
 - Dynamic configuration (`updateBatchSize()`, `updateLingerTime()`)
+- Configurable queue size (`maxQueueSize`) for backpressure control
 - Enhanced error handling methods (`isCompleteFailure()`, `getFailureRate()`, `getFailuresByType()`)
 
 ### Recommended Updates
@@ -548,6 +608,8 @@ None - 0.0.2 is backward compatible with 0.0.1.
 2. Use `findItemResult()` instead of manual iteration
 3. Consider enabling retry for transient failures
 4. Use `submitWithCallback()` for cleaner async code
+5. Configure `maxQueueSize` based on your throughput requirements
+6. Always handle `RejectedExecutionException` to detect backpressure
 
 ## License
 

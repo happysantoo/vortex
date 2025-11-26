@@ -82,8 +82,8 @@ public class MicroBatcher<T> implements AutoCloseable {
         // Use virtual threads for executor
         this.executor = Executors.newVirtualThreadPerTaskExecutor();
         
-        // Queue size should be reasonable - use 2x batch size as default
-        this.queue = new LinkedBlockingQueue<>(config.getBatchSize() * 2);
+        // Queue size is configurable via BatcherConfig.maxQueueSize (defaults to 2x batch size)
+        this.queue = new LinkedBlockingQueue<>(config.getMaxQueueSize());
         
         // Initialize dynamic config from static config
         this.currentBatchSize = config.getBatchSize();

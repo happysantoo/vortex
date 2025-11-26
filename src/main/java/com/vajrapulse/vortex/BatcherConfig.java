@@ -16,6 +16,7 @@ public class BatcherConfig {
     private final int maxRetries;
     private final Duration retryDelay;
     private final Predicate<Throwable> retryableErrorPredicate;
+    private final int maxQueueSize;
     
     /**
      * Private constructor for BatcherConfig.
@@ -32,6 +33,8 @@ public class BatcherConfig {
         this.maxRetries = builder.maxRetries;
         this.retryDelay = builder.retryDelay;
         this.retryableErrorPredicate = builder.retryableErrorPredicate;
+        // Default to 2x batch size if not explicitly set
+        this.maxQueueSize = builder.maxQueueSize != null ? builder.maxQueueSize : builder.batchSize * 2;
     }
     
     /**
@@ -116,6 +119,15 @@ public class BatcherConfig {
     }
     
     /**
+     * Gets the maximum queue size.
+     * 
+     * @return the maximum queue size
+     */
+    public int getMaxQueueSize() {
+        return maxQueueSize;
+    }
+    
+    /**
      * Creates a new builder instance.
      * 
      * @return a new Builder instance
@@ -137,6 +149,7 @@ public class BatcherConfig {
         private int maxRetries = 0;
         private Duration retryDelay = Duration.ZERO;
         private Predicate<Throwable> retryableErrorPredicate = t -> false;
+        private Integer maxQueueSize = null; // null means use default (2x batchSize)
         
         /**
          * Sets the batch size.
@@ -265,6 +278,29 @@ public class BatcherConfig {
                 throw new IllegalArgumentException("Retryable error predicate must not be null");
             }
             this.retryableErrorPredicate = retryableErrorPredicate;
+            return this;
+        }
+        
+        /**
+         * Sets the maximum queue size for pending requests.
+         * When the queue is full, new submissions will be rejected with RejectedExecutionException
+         * after waiting up to 100ms.
+         * 
+         * <p>If not set, defaults to 2x the batch size to allow buffering of at least 2 batches.
+         * 
+         * <p>The queue size should be at least equal to the batch size to allow at least one
+         * full batch to be queued. Setting it too small may cause frequent rejections.
+         * 
+         * @param maxQueueSize the maximum queue size (must be at least batchSize)
+         * @return this builder instance
+         * @throws IllegalArgumentException if maxQueueSize is less than batchSize
+         */
+        public Builder maxQueueSize(int maxQueueSize) {
+            if (maxQueueSize < batchSize) {
+                throw new IllegalArgumentException(
+                    "Max queue size (" + maxQueueSize + ") must be at least equal to batch size (" + batchSize + ")");
+            }
+            this.maxQueueSize = maxQueueSize;
             return this;
         }
         
