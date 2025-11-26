@@ -10,7 +10,6 @@ public class BatcherConfig {
     private final int batchSize;
     private final Duration lingerTime;
     private final boolean atomicCommit;
-    private final int maxConcurrency;
     private final boolean autoReplaySuccesses;
     private final boolean perItemMetrics;
     private final boolean debugMode;
@@ -27,7 +26,6 @@ public class BatcherConfig {
         this.batchSize = builder.batchSize;
         this.lingerTime = builder.lingerTime;
         this.atomicCommit = builder.atomicCommit;
-        this.maxConcurrency = builder.maxConcurrency;
         this.autoReplaySuccesses = builder.autoReplaySuccesses;
         this.perItemMetrics = builder.perItemMetrics;
         this.debugMode = builder.debugMode;
@@ -61,15 +59,6 @@ public class BatcherConfig {
      */
     public boolean isAtomicCommit() {
         return atomicCommit;
-    }
-    
-    /**
-     * Gets the maximum concurrency.
-     * 
-     * @return the maximum concurrency
-     */
-    public int getMaxConcurrency() {
-        return maxConcurrency;
     }
     
     /**
@@ -142,7 +131,6 @@ public class BatcherConfig {
         private int batchSize = 10;
         private Duration lingerTime = Duration.ofMillis(100);
         private boolean atomicCommit = false;
-        private int maxConcurrency = 10;
         private boolean autoReplaySuccesses = false;
         private boolean perItemMetrics = false;
         private boolean debugMode = false;
@@ -188,21 +176,6 @@ public class BatcherConfig {
          */
         public Builder atomicCommit(boolean atomicCommit) {
             this.atomicCommit = atomicCommit;
-            return this;
-        }
-        
-        /**
-         * Sets the maximum concurrency.
-         * 
-         * @param maxConcurrency the maximum concurrency (must be positive)
-         * @return this builder instance
-         * @throws IllegalArgumentException if maxConcurrency is not positive
-         */
-        public Builder maxConcurrency(int maxConcurrency) {
-            if (maxConcurrency <= 0) {
-                throw new IllegalArgumentException("Max concurrency must be positive");
-            }
-            this.maxConcurrency = maxConcurrency;
             return this;
         }
         

@@ -104,5 +104,44 @@ class ItemResultSpec extends Specification {
         result.item == null
         result.error == error
     }
+
+    def "should throw exception when Failure record created with null error"() {
+        when:
+        new ItemResult.Failure<>("item1", null)
+
+        then:
+        thrown(IllegalArgumentException)
+    }
+
+    def "should create Failure record with valid error"() {
+        given:
+        def error = new RuntimeException("test error")
+
+        when:
+        def failure = new ItemResult.Failure<>("item1", error)
+
+        then:
+        failure.item == "item1"
+        failure.error == error
+        failure.getItem() == "item1"
+    }
+
+    def "should create Success record"() {
+        when:
+        def success = new ItemResult.Success<>("item1")
+
+        then:
+        success.item == "item1"
+        success.getItem() == "item1"
+    }
+
+    def "should create Success record with null item"() {
+        when:
+        def success = new ItemResult.Success<>(null)
+
+        then:
+        success.item == null
+        success.getItem() == null
+    }
 }
 

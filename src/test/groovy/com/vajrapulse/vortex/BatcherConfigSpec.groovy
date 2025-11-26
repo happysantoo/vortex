@@ -15,7 +15,6 @@ class BatcherConfigSpec extends Specification {
         config.batchSize == 10
         config.lingerTime == Duration.ofMillis(100)
         !config.atomicCommit
-        config.maxConcurrency == 10
         !config.autoReplaySuccesses
     }
 
@@ -25,7 +24,6 @@ class BatcherConfigSpec extends Specification {
             .batchSize(5)
             .lingerTime(Duration.ofSeconds(2))
             .atomicCommit(true)
-            .maxConcurrency(20)
             .autoReplaySuccesses(true)
             .build()
 
@@ -33,7 +31,6 @@ class BatcherConfigSpec extends Specification {
         config.batchSize == 5
         config.lingerTime == Duration.ofSeconds(2)
         config.atomicCommit
-        config.maxConcurrency == 20
         config.autoReplaySuccesses
     }
 
@@ -61,18 +58,6 @@ class BatcherConfigSpec extends Specification {
         lingerTime << [null, Duration.ofMillis(-1), Duration.ofSeconds(-1)]
     }
 
-    @Unroll
-    def "should reject invalid max concurrency: #concurrency"() {
-        when:
-        BatcherConfig.builder().maxConcurrency(concurrency).build()
-
-        then:
-        thrown(IllegalArgumentException)
-
-        where:
-        concurrency << [0, -1, -5]
-    }
-
     def "should allow zero linger time"() {
         when:
         def config = BatcherConfig.builder()
@@ -89,7 +74,6 @@ class BatcherConfigSpec extends Specification {
             .batchSize(3)
             .lingerTime(Duration.ofMillis(50))
             .atomicCommit(true)
-            .maxConcurrency(5)
             .autoReplaySuccesses(true)
             .build()
 
@@ -97,7 +81,6 @@ class BatcherConfigSpec extends Specification {
         config.batchSize == 3
         config.lingerTime == Duration.ofMillis(50)
         config.atomicCommit
-        config.maxConcurrency == 5
         config.autoReplaySuccesses
     }
 
@@ -228,6 +211,66 @@ class BatcherConfigSpec extends Specification {
             .build()
 
         then:
+        config.retryDelay == Duration.ZERO
+    }
+
+    def "should build config with all options set"() {
+        when:
+        def config = BatcherConfig.builder()
+            .batchSize(20)
+            .lingerTime(Duration.ofMillis(200))
+            .atomicCommit(true)
+            .autoReplaySuccesses(true)
+            .perItemMetrics(true)
+            .debugMode(true)
+            .maxRetries(5)
+            .retryDelay(Duration.ofMillis(150))
+            .retryableErrorPredicate { it instanceof IOException }
+            .build()
+
+        then:
+        config.batchSize == 20
+        config.lingerTime == Duration.ofMillis(200)
+        config.atomicCommit
+        config.autoReplaySuccesses
+        config.perItemMetrics
+        config.debugMode
+        config.maxRetries == 5
+        config.retryDelay == Duration.ofMillis(150)
+        config.retryableErrorPredicate != null
+    }
+
+    def "should build config multiple times with builder"() {
+        given:
+        def builder = BatcherConfig.builder()
+            .batchSize(5)
+            .lingerTime(Duration.ofMillis(50))
+
+        when:
+        def config1 = builder.build()
+        def config2 = builder
+            .batchSize(10)
+            .build()
+
+        then:
+        config1.batchSize == 5
+        config2.batchSize == 10
+        config1 != config2
+    }
+
+    def "should build config with zero values"() {
+        when:
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ZERO)
+            .maxRetries(0)
+            .retryDelay(Duration.ZERO)
+            .build()
+
+        then:
+        config.batchSize == 1
+        config.lingerTime == Duration.ZERO
+        config.maxRetries == 0
         config.retryDelay == Duration.ZERO
     }
 }

@@ -47,7 +47,6 @@ public class ExampleUsage {
             .batchSize(5)
             .lingerTime(Duration.ofMillis(200))
             .atomicCommit(false)
-            .maxConcurrency(10)
             .build();
         
         // Create the micro-batcher

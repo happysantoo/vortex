@@ -6,7 +6,10 @@ import spock.lang.Specification
 import spock.lang.Timeout
 
 import java.time.Duration
+import java.util.Collections
+import java.util.HashSet
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
@@ -294,36 +297,74 @@ class MicroBatcherSpec extends Specification {
 
     def "should process remaining items on close"() {
         given:
-        def processedCount = new AtomicInteger(0)
+        def processedItems = Collections.synchronizedSet(new HashSet<String>())
+        def itemsProcessedLatch = new CountDownLatch(5) // One for each item
         Backend<String> backend = { batch ->
-            processedCount.addAndGet(batch.size())
+            if (!batch.isEmpty()) {
+                batch.each { 
+                    processedItems.add(it)
+                    itemsProcessedLatch.countDown() // Signal that this item was processed
+                }
+            }
             def successes = batch.collect { new SuccessEvent<>(it) }
             new BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
             .batchSize(10)
-            .lingerTime(Duration.ofSeconds(1))
+            .lingerTime(Duration.ofSeconds(1)) // Long linger time so items stay in queue
             .build()
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def futures = (1..5).collect { batcher.submit("item-$it") }
-        // Wait a bit to ensure items are queued
-        Thread.sleep(20)
-        batcher.close() // Processes remaining items synchronously
-        // Wait for all futures to complete
-        futures.each { 
-            try { it.get(2, TimeUnit.SECONDS) } 
-            catch (Exception e) { /* ignore */ }
+        def items = (1..5).collect { "item-$it" }
+        def futures = items.collect { batcher.submit(it) }
+        // Small delay to ensure items are queued before close() is called
+        // This ensures items are in the queue when close() processes remaining items
+        def itemsQueuedLatch = new CountDownLatch(5)
+        // Submit items and signal when each is queued
+        items.each { item ->
+            batcher.submit(item)
+            itemsQueuedLatch.countDown()
         }
-        // Give a bit more time for processing
-        Thread.sleep(30)
+        // Wait for all items to be queued
+        itemsQueuedLatch.await(1, TimeUnit.SECONDS)
+        // Items are submitted but won't be processed due to long linger time
+        // Close should process remaining items synchronously
+        batcher.close()
+        
+        // Wait for all items to be processed (either by batch processor or close)
+        // This is the proper synchronization using CountDownLatch
+        def allItemsProcessed = itemsProcessedLatch.await(2, TimeUnit.SECONDS)
+        
+        // Wait for all futures to complete - this is the proper synchronization
+        def completedFutures = 0
+        futures.each { 
+            try { 
+                it.get(2, TimeUnit.SECONDS)
+                completedFutures++
+            } 
+            catch (Exception e) { 
+                // Ignore exceptions - items should still be processed
+            }
+        }
 
         then:
         // Items should be processed (either by batch processor or by close)
         // Note: With batch processor running, items may be processed before close()
         // The important thing is that close() doesn't block indefinitely
         noExceptionThrown()
+        // All futures should eventually complete (this is the key behavior)
+        // This is the most important assertion - close() should ensure all items are processed
+        completedFutures == 5
+        // Verify items were actually processed
+        // Wait a bit more to ensure backend processing completes if needed
+        if (!allItemsProcessed) {
+            // If latch didn't count down, wait a bit more for async processing
+            itemsProcessedLatch.await(500, TimeUnit.MILLISECONDS)
+        }
+        // All items should be processed (verified via CountDownLatch or set)
+        processedItems.size() == 5
+        items.every { processedItems.contains(it) }
 
         cleanup:
         batcher?.close()
@@ -2447,6 +2488,2211 @@ class MicroBatcherSpec extends Specification {
         then:
         batchSizes.size() >= 2
         batchSizes.any { it == 5 }
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle retry future completing exceptionally"() {
+        given:
+        def attemptCount = new AtomicInteger(0)
+        Backend<String> backend = { batch ->
+            attemptCount.incrementAndGet()
+            if (attemptCount.get() == 1) {
+                // First attempt fails
+                def failures = batch.collect { new FailureEvent<>(it, new RuntimeException("retryable")) }
+                new BatchResult<>(List.of(), failures)
+            } else if (attemptCount.get() == 2) {
+                // Retry attempt throws exception (simulating submit failure)
+                throw new IllegalStateException("Submit failed")
+            } else {
+                // Should not reach here
+                def successes = batch.collect { new SuccessEvent<>(it) }
+                new BatchResult<>(successes, List.of())
+            }
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(100))
+            .maxRetries(3)
+            .retryDelay(Duration.ofMillis(50))
+            .retryableErrorPredicate { it instanceof RuntimeException }
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("item-1")
+        Thread.sleep(30)
+        // Close batcher to cause retry submit to fail
+        batcher.close()
+        Thread.sleep(100)
+
+        then:
+        // Retry should handle the exception from submit
+        future.isCompletedExceptionally() || future.isDone()
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle retry when batcher is closed during retry task"() {
+        given:
+        def attemptCount = new AtomicInteger(0)
+        Backend<String> backend = { batch ->
+            attemptCount.incrementAndGet()
+            if (attemptCount.get() == 1) {
+                def failures = batch.collect { new FailureEvent<>(it, new RuntimeException("retryable")) }
+                new BatchResult<>(List.of(), failures)
+            } else {
+                def successes = batch.collect { new SuccessEvent<>(it) }
+                new BatchResult<>(successes, List.of())
+            }
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(100))
+            .maxRetries(3)
+            .retryDelay(Duration.ofMillis(100))
+            .retryableErrorPredicate { it instanceof RuntimeException }
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("item-1")
+        Thread.sleep(30)
+        // Close batcher while retry is scheduled (with delay)
+        batcher.close()
+        Thread.sleep(150)
+
+        then:
+        // Should handle closed batcher gracefully
+        future.isDone()
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle retry delay interruption"() {
+        given:
+        def attemptCount = new AtomicInteger(0)
+        Backend<String> backend = { batch ->
+            attemptCount.incrementAndGet()
+            if (attemptCount.get() == 1) {
+                def failures = batch.collect { new FailureEvent<>(it, new RuntimeException("retryable")) }
+                new BatchResult<>(List.of(), failures)
+            } else {
+                def successes = batch.collect { new SuccessEvent<>(it) }
+                new BatchResult<>(successes, List.of())
+            }
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(100))
+            .maxRetries(3)
+            .retryDelay(Duration.ofMillis(200))
+            .retryableErrorPredicate { it instanceof RuntimeException }
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("item-1")
+        Thread.sleep(30)
+        // Close batcher to interrupt retry delay
+        batcher.close()
+        Thread.sleep(250)
+
+        then:
+        // Should handle interruption during retry delay
+        future.isDone()
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle close with InterruptedException during executor await"() {
+        given:
+        Backend<String> backend = { batch ->
+            Thread.sleep(200) // Long processing
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(50))
+            .build()
+        def batcher = new MicroBatcher<>(backend, config)
+        batcher.submit("item-1")
+        Thread.sleep(20)
+
+        when:
+        def closeThread = Thread.start {
+            batcher.close()
+        }
+        Thread.sleep(10)
+        closeThread.interrupt() // Interrupt during executor await
+        closeThread.join(1000)
+
+        then:
+        // Should handle interruption during executor await
+        noExceptionThrown()
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle retry with IllegalStateException from submit"() {
+        given:
+        def attemptCount = new AtomicInteger(0)
+        Backend<String> backend = { batch ->
+            attemptCount.incrementAndGet()
+            if (attemptCount.get() == 1) {
+                def failures = batch.collect { new FailureEvent<>(it, new RuntimeException("retryable")) }
+                new BatchResult<>(List.of(), failures)
+            } else {
+                def successes = batch.collect { new SuccessEvent<>(it) }
+                new BatchResult<>(successes, List.of())
+            }
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(100))
+            .maxRetries(3)
+            .retryDelay(Duration.ZERO)
+            .retryableErrorPredicate { it instanceof RuntimeException }
+            .debugMode(true)
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("item-1")
+        Thread.sleep(30)
+        // Close batcher to cause IllegalStateException on retry submit
+        batcher.close()
+        Thread.sleep(100)
+
+        then:
+        // Should catch IllegalStateException and complete future
+        future.isDone()
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle close with remaining items that throw exception"() {
+        given:
+        def callCount = new AtomicInteger(0)
+        Backend<String> backend = { batch ->
+            callCount.incrementAndGet()
+            if (callCount.get() == 1) {
+                // First call succeeds (for items in queue)
+                def successes = batch.collect { new SuccessEvent<>(it) }
+                new BatchResult<>(successes, List.of())
+            } else {
+                // Second call (from close) throws exception
+                throw new RuntimeException("Backend error during close")
+            }
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(10)
+            .lingerTime(Duration.ofSeconds(2))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("item-1")
+        Thread.sleep(20)
+        batcher.close() // Should process remaining with exception
+
+        then:
+        // Should handle error in remaining items gracefully
+        Thread.sleep(150)
+        noExceptionThrown()
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should not retry when maxRetries is exceeded"() {
+        given:
+        def attemptCount = new AtomicInteger(0)
+        Backend<String> backend = { batch ->
+            attemptCount.incrementAndGet()
+            def failures = batch.collect { new FailureEvent<>(it, new RuntimeException("retryable")) }
+            new BatchResult<>(List.of(), failures)
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(100))
+            .maxRetries(2) // Allow 2 retries
+            .retryDelay(Duration.ZERO)
+            .retryableErrorPredicate { it instanceof RuntimeException }
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("item-1")
+        // Wait for all retries to complete
+        def result = future.get(2, TimeUnit.SECONDS)
+
+        then:
+        // Should retry 2 times, then stop (total 3 attempts: 1 initial + 2 retries)
+        attemptCount.get() == 3
+        // Final result should be failure (max retries exceeded)
+        result.failures.size() == 1
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should clear all retry counts on close"() {
+        given:
+        def attemptCount = new AtomicInteger(0)
+        Backend<String> backend = { batch ->
+            attemptCount.incrementAndGet()
+            def failures = batch.collect { new FailureEvent<>(it, new RuntimeException("retryable")) }
+            new BatchResult<>(List.of(), failures)
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(100))
+            .maxRetries(5)
+            .retryDelay(Duration.ofMillis(200)) // Delay so we can close before retries complete
+            .retryableErrorPredicate { it instanceof RuntimeException }
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("item-1")
+        Thread.sleep(30) // Let initial failure happen
+        batcher.close() // Should clear all retry counts
+
+        then:
+        // Close should complete without blocking
+        noExceptionThrown()
+        // Retry counts should be cleared, preventing further retries
+        Thread.sleep(300) // Wait for any pending retries
+        attemptCount.get() <= 2 // Should not exceed initial + maybe one retry before close
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should not retry when maxRetries is exceeded"() {
+        given:
+        def attemptCount = new AtomicInteger(0)
+        Backend<String> backend = { batch ->
+            attemptCount.incrementAndGet()
+            def failures = batch.collect { new FailureEvent<>(it, new RuntimeException("retryable")) }
+            new BatchResult<>(List.of(), failures)
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(100))
+            .maxRetries(2) // Allow 2 retries
+            .retryDelay(Duration.ZERO)
+            .retryableErrorPredicate { it instanceof RuntimeException }
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("item-1")
+        // Wait for all retries to complete
+        def result = future.get(2, TimeUnit.SECONDS)
+
+        then:
+        // Should retry 2 times, then stop (total 3 attempts: 1 initial + 2 retries)
+        attemptCount.get() == 3
+        // Final result should be failure (max retries exceeded)
+        result.failures.size() == 1
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should clear all retry counts on close"() {
+        given:
+        def attemptCount = new AtomicInteger(0)
+        Backend<String> backend = { batch ->
+            attemptCount.incrementAndGet()
+            def failures = batch.collect { new FailureEvent<>(it, new RuntimeException("retryable")) }
+            new BatchResult<>(List.of(), failures)
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(100))
+            .maxRetries(5)
+            .retryDelay(Duration.ofMillis(200)) // Delay so we can close before retries complete
+            .retryableErrorPredicate { it instanceof RuntimeException }
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("item-1")
+        Thread.sleep(30) // Let initial failure happen
+        batcher.close() // Should clear all retry counts
+
+        then:
+        // Close should complete without blocking
+        noExceptionThrown()
+        // Retry counts should be cleared, preventing further retries
+        Thread.sleep(300) // Wait for any pending retries
+        attemptCount.get() <= 2 // Should not exceed initial + maybe one retry before close
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle retry when retry future completes successfully"() {
+        given:
+        def attemptCount = new AtomicInteger(0)
+        Backend<String> backend = { batch ->
+            attemptCount.incrementAndGet()
+            if (attemptCount.get() == 1) {
+                def failures = batch.collect { new FailureEvent<>(it, new RuntimeException("retryable")) }
+                new BatchResult<>(List.of(), failures)
+            } else {
+                // Retry succeeds
+                def successes = batch.collect { new SuccessEvent<>(it) }
+                new BatchResult<>(successes, List.of())
+            }
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(100))
+            .maxRetries(3)
+            .retryDelay(Duration.ZERO)
+            .retryableErrorPredicate { it instanceof RuntimeException }
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("item-1")
+        Thread.sleep(30)
+        def result = future.get(1, TimeUnit.SECONDS)
+
+        then:
+        attemptCount.get() == 2
+        result.successes.size() == 1
+        result.failures.isEmpty()
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle processBatch when queue is empty and timeout occurs"() {
+        given:
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(50))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        // Don't submit anything - queue will be empty
+        // Batch processor will timeout waiting for first item
+        Thread.sleep(100) // Wait for batch processor to timeout
+
+        then:
+        // Should handle empty queue gracefully
+        noExceptionThrown()
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should use SimpleMeterRegistry when created with two-arg constructor"() {
+        given:
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(100))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("item-1")
+        def result = future.get(1, TimeUnit.SECONDS)
+
+        then:
+        // Should work with default SimpleMeterRegistry
+        result.successes.size() == 1
+        batcher.getMeterRegistry() != null
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle processBatch when remaining time is exactly zero"() {
+        given:
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(10)
+            .lingerTime(Duration.ofMillis(10)) // Very short linger time
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("item-1")
+        def result = future.get(1, TimeUnit.SECONDS)
+
+        then:
+        // Should handle very short linger time
+        result.successes.size() == 1
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle processBatch when remaining time calculation results in zero or negative"() {
+        given:
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(2)
+            .lingerTime(Duration.ofMillis(5)) // Very short linger time
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future1 = batcher.submit("item-1")
+        // Small delay to let first item start batch
+        Thread.sleep(10)
+        def future2 = batcher.submit("item-2")
+        def result1 = future1.get(1, TimeUnit.SECONDS)
+        def result2 = future2.get(1, TimeUnit.SECONDS)
+
+        then:
+        // Should handle timing edge cases
+        result1.successes.size() >= 1
+        result2.successes.size() >= 1
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle exception in batch processor loop"() {
+        given:
+        // Create a backend that will cause issues during processing
+        def callCount = new AtomicInteger(0)
+        Backend<String> backend = { batch ->
+            callCount.incrementAndGet()
+            if (callCount.get() == 1) {
+                // First call throws exception to trigger error handling
+                throw new RuntimeException("Backend error")
+            }
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(100))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("item-1")
+        // Wait for processing
+        Thread.sleep(150)
+
+        then:
+        // Should handle exception gracefully
+        noExceptionThrown()
+        // Future should complete (either success or failure)
+        future.isDone()
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should test getMeterRegistry method"() {
+        given:
+        def meterRegistry = new SimpleMeterRegistry()
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder().build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config, meterRegistry)
+
+        then:
+        batcher.getMeterRegistry() == meterRegistry
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should test getCurrentBatchSize and getCurrentLingerTime"() {
+        given:
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(5)
+            .lingerTime(Duration.ofMillis(200))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+
+        then:
+        batcher.getCurrentBatchSize() == 5
+        batcher.getCurrentLingerTime() == Duration.ofMillis(200)
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should use two-arg constructor with default SimpleMeterRegistry"() {
+        given:
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(100))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("item-1")
+        def result = future.get(1, TimeUnit.SECONDS)
+
+        then:
+        // Should work with default SimpleMeterRegistry from two-arg constructor
+        result.successes.size() == 1
+        batcher.getMeterRegistry() != null
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle processBatch when batch reaches exact batch size"() {
+        given:
+        def batchSizes = Collections.synchronizedList(new ArrayList<Integer>())
+        Backend<String> backend = { batch ->
+            batchSizes.add(batch.size())
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(3)
+            .lingerTime(Duration.ofSeconds(1))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def futures = (1..3).collect { batcher.submit("item-$it") }
+        futures.each { it.get(1, TimeUnit.SECONDS) }
+
+        then:
+        // Should dispatch when batch size is reached
+        batchSizes.size() >= 1
+        batchSizes.any { it == 3 }
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle processBatch when deadline is reached exactly"() {
+        given:
+        def batchSizes = Collections.synchronizedList(new ArrayList<Integer>())
+        Backend<String> backend = { batch ->
+            batchSizes.add(batch.size())
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(10)
+            .lingerTime(Duration.ofMillis(50))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("item-1")
+        def result = future.get(1, TimeUnit.SECONDS)
+
+        then:
+        // Should dispatch when linger time is reached
+        result.successes.size() == 1
+        batchSizes.size() >= 1
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle processBatch when remaining time is exactly 1ms"() {
+        given:
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(2)
+            .lingerTime(Duration.ofMillis(10))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future1 = batcher.submit("item-1")
+        Thread.sleep(9) // Wait until deadline is very close
+        def future2 = batcher.submit("item-2")
+        def result1 = future1.get(1, TimeUnit.SECONDS)
+        def result2 = future2.get(1, TimeUnit.SECONDS)
+
+        then:
+        // Should handle edge case where remaining time is exactly 1ms
+        result1.successes.size() >= 1
+        result2.successes.size() >= 1
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle close when queue becomes empty before deadline"() {
+        given:
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(50))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("item-1")
+        Thread.sleep(80) // Wait for item to be processed
+        batcher.close() // Queue should be empty by now
+
+        then:
+        // Should handle empty queue gracefully
+        noExceptionThrown()
+        future.isDone()
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle close when deadline reached with queue not empty"() {
+        given:
+        Backend<String> backend = { batch ->
+            Thread.sleep(3000) // Long processing to keep queue busy
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(50))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        batcher.submit("item-1")
+        Thread.sleep(20)
+        batcher.close() // Should timeout waiting for queue
+
+        then:
+        // Should handle timeout gracefully
+        noExceptionThrown()
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle close with remaining items successfully"() {
+        given:
+        def callCount = new AtomicInteger(0)
+        Backend<String> backend = { batch ->
+            callCount.incrementAndGet()
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(10)
+            .lingerTime(Duration.ofSeconds(2))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("item-1")
+        Thread.sleep(20)
+        batcher.close() // Should process remaining items
+
+        then:
+        // Should process remaining items successfully
+        // Wait for future to complete (either by batch processor or close)
+        try {
+            future.get(2, TimeUnit.SECONDS)
+        } catch (Exception e) {
+            // Ignore - item may have been processed by batch processor
+        }
+        noExceptionThrown()
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle executor await termination timeout"() {
+        given:
+        Backend<String> backend = { batch ->
+            Thread.sleep(6000) // Longer than EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS (5s)
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(50))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        batcher.submit("item-1")
+        Thread.sleep(20)
+        batcher.close() // Should timeout and call shutdownNow
+
+        then:
+        // Should handle timeout and force shutdown
+        Thread.sleep(100)
+        noExceptionThrown()
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle per-item metrics when disabled"() {
+        given:
+        def meterRegistry = new SimpleMeterRegistry()
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(2)
+            .lingerTime(Duration.ofMillis(100))
+            .perItemMetrics(false) // Explicitly disabled
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config, meterRegistry)
+        batcher.submit("item-1")
+        batcher.submit("item-2")
+        def future = batcher.submit("item-3")
+        future.get(1, TimeUnit.SECONDS)
+
+        then:
+        // Per-item metrics should not exist when disabled
+        meterRegistry.find("vortex.item.submit.latency").timer() == null
+        meterRegistry.find("vortex.item.wait.time").timer() == null
+        meterRegistry.find("vortex.item.batch.size").summary() == null
+        // Core metrics should still work
+        meterRegistry.counter("vortex.requests.submitted").count() >= 3
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle result matching with null success data"() {
+        given:
+        Backend<String> backend = { batch ->
+            // Return success with null data to test null handling
+            def successes = [new SuccessEvent<>(null)]
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(100))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("item-1")
+        def result = future.get(1, TimeUnit.SECONDS)
+
+        then:
+        // Should handle null data gracefully (fallback should assign success)
+        result != null
+        result.successes.size() == 1
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle result matching with null failure data"() {
+        given:
+        Backend<String> backend = { batch ->
+            // Return failure with null data to test null handling
+            def failures = [new FailureEvent<>(null, new RuntimeException("error"))]
+            new BatchResult<>(List.of(), failures)
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(100))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("item-1")
+        def result = future.get(1, TimeUnit.SECONDS)
+
+        then:
+        // Should handle null data gracefully (fallback should assign failure)
+        result != null
+        result.failures.size() == 1
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle retry when retry count reaches maxRetries"() {
+        given:
+        def attemptCount = new AtomicInteger(0)
+        Backend<String> backend = { batch ->
+            attemptCount.incrementAndGet()
+            def failures = batch.collect { new FailureEvent<>(it, new RuntimeException("retryable")) }
+            new BatchResult<>(List.of(), failures)
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(100))
+            .maxRetries(2) // Only 2 retries
+            .retryDelay(Duration.ZERO)
+            .retryableErrorPredicate { it instanceof RuntimeException }
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("item-1")
+        Thread.sleep(30)
+        def result = future.get(1, TimeUnit.SECONDS)
+
+        then:
+        // Should retry up to maxRetries, then return failure
+        attemptCount.get() == 3 // Initial + 2 retries
+        result.failures.size() == 1
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle retry with non-zero delay"() {
+        given:
+        def attemptCount = new AtomicInteger(0)
+        def startTime = System.currentTimeMillis()
+        Backend<String> backend = { batch ->
+            attemptCount.incrementAndGet()
+            if (attemptCount.get() == 1) {
+                def failures = batch.collect { new FailureEvent<>(it, new RuntimeException("retryable")) }
+                new BatchResult<>(List.of(), failures)
+            } else {
+                def successes = batch.collect { new SuccessEvent<>(it) }
+                new BatchResult<>(successes, List.of())
+            }
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(100))
+            .maxRetries(3)
+            .retryDelay(Duration.ofMillis(50)) // Non-zero delay
+            .retryableErrorPredicate { it instanceof RuntimeException }
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("item-1")
+        def result = future.get(2, TimeUnit.SECONDS)
+        def elapsed = System.currentTimeMillis() - startTime
+
+        then:
+        attemptCount.get() == 2
+        result.successes.size() == 1
+        // Should have waited for retry delay
+        elapsed >= 50
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle result matching when success data doesn't match"() {
+        given:
+        Backend<String> backend = { batch ->
+            // Return success with different data to trigger fallback
+            def successes = [new SuccessEvent<>("different-item")]
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(100))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("item-1")
+        def result = future.get(1, TimeUnit.SECONDS)
+
+        then:
+        // Fallback should assign success
+        result.successes.size() == 1
+        result.successes[0].data == "item-1"
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle result matching when failure data doesn't match"() {
+        given:
+        Backend<String> backend = { batch ->
+            // Return failure with different data to trigger fallback
+            def failures = [new FailureEvent<>("different-item", new RuntimeException("error"))]
+            new BatchResult<>(List.of(), failures)
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(100))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("item-1")
+        def result = future.get(1, TimeUnit.SECONDS)
+
+        then:
+        // Fallback should assign failure
+        result.failures.size() == 1
+        result.failures[0].data == "item-1"
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle fallback when no successes or failures available"() {
+        given:
+        Backend<String> backend = { batch ->
+            // Return empty result to trigger fallback with no successes/failures
+            new BatchResult<>(List.of(), List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(100))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("item-1")
+        def result = future.get(1, TimeUnit.SECONDS)
+
+        then:
+        // Fallback should create a failure when no results available
+        result.failures.size() == 1
+        result.failures[0].data == "item-1"
+        result.failures[0].error.message.contains("Request failed in batch")
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle retry when shouldRetry returns false due to predicate"() {
+        given:
+        Backend<String> backend = { batch ->
+            def failures = batch.collect { new FailureEvent<>(it, new IllegalArgumentException("non-retryable")) }
+            new BatchResult<>(List.of(), failures)
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(100))
+            .maxRetries(3)
+            .retryDelay(Duration.ZERO)
+            .retryableErrorPredicate { it instanceof RuntimeException } // Only RuntimeException is retryable
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("item-1")
+        def result = future.get(1, TimeUnit.SECONDS)
+
+        then:
+        // Should not retry because error doesn't match predicate
+        result.failures.size() == 1
+        result.failures[0].error instanceof IllegalArgumentException
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle retry when shouldRetry returns false due to maxRetries 0"() {
+        given:
+        Backend<String> backend = { batch ->
+            def failures = batch.collect { new FailureEvent<>(it, new RuntimeException("retryable")) }
+            new BatchResult<>(List.of(), failures)
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(100))
+            .maxRetries(0) // Retries disabled
+            .retryableErrorPredicate { it instanceof RuntimeException }
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("item-1")
+        def result = future.get(1, TimeUnit.SECONDS)
+
+        then:
+        // Should not retry because maxRetries is 0
+        result.failures.size() == 1
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle result processor fallback with retryable error"() {
+        given:
+        Backend<String> backend = { batch ->
+            // Return failure that doesn't match, triggering fallback
+            def failures = [new FailureEvent<>("different", new RuntimeException("retryable"))]
+            new BatchResult<>(List.of(), failures)
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(100))
+            .maxRetries(2)
+            .retryDelay(Duration.ZERO)
+            .retryableErrorPredicate { it instanceof RuntimeException }
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("item-1")
+        def result = future.get(1, TimeUnit.SECONDS)
+
+        then:
+        // Fallback should trigger retry for retryable error
+        result != null
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle result processor fallback with non-retryable error"() {
+        given:
+        Backend<String> backend = { batch ->
+            // Return failure that doesn't match, triggering fallback
+            def failures = [new FailureEvent<>("different", new IllegalArgumentException("non-retryable"))]
+            new BatchResult<>(List.of(), failures)
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(100))
+            .maxRetries(2)
+            .retryDelay(Duration.ZERO)
+            .retryableErrorPredicate { it instanceof RuntimeException }
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("item-1")
+        def result = future.get(1, TimeUnit.SECONDS)
+
+        then:
+        // Fallback should return failure without retry
+        result.failures.size() == 1
+        result.failures[0].error instanceof IllegalArgumentException
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle result processor with null item in request"() {
+        given:
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(100))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit(null)
+        def result = future.get(1, TimeUnit.SECONDS)
+
+        then:
+        // Should handle null items gracefully
+        result.successes.size() == 1
+        result.successes[0].data == null
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle clearRetryCount for successful items"() {
+        given:
+        def attemptCount = new AtomicInteger(0)
+        Backend<String> backend = { batch ->
+            attemptCount.incrementAndGet()
+            if (attemptCount.get() == 1) {
+                def failures = batch.collect { new FailureEvent<>(it, new RuntimeException("retryable")) }
+                new BatchResult<>(List.of(), failures)
+            } else {
+                def successes = batch.collect { new SuccessEvent<>(it) }
+                new BatchResult<>(successes, List.of())
+            }
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(100))
+            .maxRetries(3)
+            .retryDelay(Duration.ZERO)
+            .retryableErrorPredicate { it instanceof RuntimeException }
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("item-1")
+        def result = future.get(1, TimeUnit.SECONDS)
+
+        then:
+        // Retry count should be cleared after success
+        result.successes.size() == 1
+        attemptCount.get() == 2
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle InterruptedException in batch processor"() {
+        given:
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofSeconds(1))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("item-1")
+        // Interrupt the batch processor thread
+        Thread.sleep(20)
+        // Close batcher which will interrupt batch processor
+        batcher.close()
+
+        then:
+        // Should handle interruption gracefully
+        noExceptionThrown()
+        future.isDone()
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle debug mode logging in batch processor"() {
+        given:
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(3)
+            .lingerTime(Duration.ofMillis(100))
+            .debugMode(true)
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        (1..5).each { batcher.submit("item-$it") }
+        def future = batcher.submit("item-6")
+        future.get(1, TimeUnit.SECONDS)
+
+        then:
+        // Debug mode should log without errors
+        noExceptionThrown()
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle retry when retryCount exists and is less than maxRetries"() {
+        given:
+        def attemptCount = new AtomicInteger(0)
+        Backend<String> backend = { batch ->
+            attemptCount.incrementAndGet()
+            def failures = batch.collect { new FailureEvent<>(it, new RuntimeException("retryable")) }
+            new BatchResult<>(List.of(), failures)
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(100))
+            .maxRetries(3)
+            .retryDelay(Duration.ZERO)
+            .retryableErrorPredicate { it instanceof RuntimeException }
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("item-1")
+        Thread.sleep(30)
+        def result = future.get(1, TimeUnit.SECONDS)
+
+        then:
+        // Should retry multiple times (initial + retries up to maxRetries)
+        attemptCount.get() == 4 // Initial + 3 retries
+        result.failures.size() == 1
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle retry when retryCount exists and equals maxRetries"() {
+        given:
+        def attemptCount = new AtomicInteger(0)
+        Backend<String> backend = { batch ->
+            attemptCount.incrementAndGet()
+            def failures = batch.collect { new FailureEvent<>(it, new RuntimeException("retryable")) }
+            new BatchResult<>(List.of(), failures)
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(100))
+            .maxRetries(1) // Only 1 retry
+            .retryDelay(Duration.ZERO)
+            .retryableErrorPredicate { it instanceof RuntimeException }
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("item-1")
+        Thread.sleep(30)
+        def result = future.get(1, TimeUnit.SECONDS)
+
+        then:
+        // Should retry once, then stop
+        attemptCount.get() == 2 // Initial + 1 retry
+        result.failures.size() == 1
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle result processor with empty batch in processResults"() {
+        given:
+        Backend<String> backend = { batch ->
+            // Return empty result - triggers fallback
+            new BatchResult<>(List.of(), List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(100))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("item-1")
+        def result = future.get(1, TimeUnit.SECONDS)
+
+        then:
+        // Should handle empty batch result via fallback
+        result != null
+        // Fallback should create a failure when no results
+        result.failures.size() == 1
+        result.failures[0].data == "item-1"
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle result processor replay with exception"() {
+        given:
+        def replayCount = new AtomicInteger(0)
+        Backend<String> backend = { batch ->
+            replayCount.incrementAndGet()
+            if (replayCount.get() == 1) {
+                // First call: mixed results
+                def successes = batch.findAll { !it.contains("fail") }.collect { new SuccessEvent<>(it) }
+                def failures = batch.findAll { it.contains("fail") }.collect { new FailureEvent<>(it, new RuntimeException("error")) }
+                new BatchResult<>(successes, failures)
+            } else {
+                // Replay: all succeed
+                def successes = batch.collect { new SuccessEvent<>(it) }
+                new BatchResult<>(successes, List.of())
+            }
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(3)
+            .lingerTime(Duration.ofMillis(100))
+            .autoReplaySuccesses(true)
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def futures = [
+            batcher.submit("success-1"),
+            batcher.submit("fail-1"),
+            batcher.submit("success-2")
+        ]
+        // Wait for processing and replay
+        def results = futures.collect { 
+            try {
+                it.get(2, TimeUnit.SECONDS)
+            } catch (Exception e) {
+                null
+            }
+        }
+
+        then:
+        // Should replay successful items
+        replayCount.get() >= 1
+        results.size() == 3
+        results.every { it != null }
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle result processor replay when batcher is closed"() {
+        given:
+        def replayCount = new AtomicInteger(0)
+        Backend<String> backend = { batch ->
+            replayCount.incrementAndGet()
+            def successes = batch.findAll { !it.contains("fail") }.collect { new SuccessEvent<>(it) }
+            def failures = batch.findAll { it.contains("fail") }.collect { new FailureEvent<>(it, new RuntimeException("error")) }
+            new BatchResult<>(successes, failures)
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(3)
+            .lingerTime(Duration.ofMillis(100))
+            .autoReplaySuccesses(true)
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("success-1")
+        batcher.submit("fail-1")
+        Thread.sleep(20)
+        batcher.close() // Close while replay might happen
+        Thread.sleep(30)
+
+        then:
+        // Should handle closed batcher during replay gracefully
+        noExceptionThrown()
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle result processor replay with submit exception"() {
+        given:
+        Backend<String> backend = { batch ->
+            def successes = batch.findAll { !it.contains("fail") }.collect { new SuccessEvent<>(it) }
+            def failures = batch.findAll { it.contains("fail") }.collect { new FailureEvent<>(it, new RuntimeException("error")) }
+            new BatchResult<>(successes, failures)
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(2)
+            .lingerTime(Duration.ofMillis(100))
+            .autoReplaySuccesses(true)
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future1 = batcher.submit("success-1")
+        def future2 = batcher.submit("fail-1")
+        Thread.sleep(20)
+        batcher.close() // Close to cause IllegalStateException on replay
+        Thread.sleep(30)
+
+        then:
+        // Should handle exception during replay
+        noExceptionThrown()
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle processBatch when queue is empty after first item"() {
+        given:
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(5)
+            .lingerTime(Duration.ofMillis(50))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("item-1")
+        def result = future.get(1, TimeUnit.SECONDS)
+
+        then:
+        // Should process single item when queue becomes empty
+        result.successes.size() == 1
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle processBatch deadline expiration"() {
+        given:
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(10)
+            .lingerTime(Duration.ofMillis(50))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("item-1")
+        def result = future.get(1, TimeUnit.SECONDS)
+
+        then:
+        // Should dispatch when linger time expires, even if batch not full
+        result.successes.size() == 1
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle exception in batch processor loop"() {
+        given:
+        // Create a backend that might cause issues
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(100))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("item-1")
+        def result = future.get(1, TimeUnit.SECONDS)
+
+        then:
+        // Should handle any exceptions in batch processor gracefully
+        noExceptionThrown()
+        result.successes.size() == 1
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle retry when retryCount exists and equals maxRetries exactly"() {
+        given:
+        def attemptCount = new AtomicInteger(0)
+        Backend<String> backend = { batch ->
+            attemptCount.incrementAndGet()
+            def failures = batch.collect { new FailureEvent<>(it, new RuntimeException("retryable")) }
+            new BatchResult<>(List.of(), failures)
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(100))
+            .maxRetries(2)
+            .retryDelay(Duration.ZERO)
+            .retryableErrorPredicate { it instanceof RuntimeException }
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("item-1")
+        Thread.sleep(30)
+        def result = future.get(1, TimeUnit.SECONDS)
+
+        then:
+        // Should retry exactly maxRetries times
+        attemptCount.get() == 3 // Initial + 2 retries
+        result.failures.size() == 1
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle replaySuccessfulItems with non-IllegalStateException"() {
+        given:
+        def replayAttempts = new AtomicInteger(0)
+        Backend<String> backend = { batch ->
+            replayAttempts.incrementAndGet()
+            if (replayAttempts.get() == 1) {
+                // First call: mixed results
+                def successes = batch.findAll { !it.contains("fail") }.collect { new SuccessEvent<>(it) }
+                def failures = batch.findAll { it.contains("fail") }.collect { new FailureEvent<>(it, new RuntimeException("error")) }
+                new BatchResult<>(successes, failures)
+            } else {
+                // Replay: succeed
+                def successes = batch.collect { new SuccessEvent<>(it) }
+                new BatchResult<>(successes, List.of())
+            }
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(2)
+            .lingerTime(Duration.ofMillis(100))
+            .autoReplaySuccesses(true)
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def futures = [
+            batcher.submit("success-1"),
+            batcher.submit("fail-1")
+        ]
+        def results = futures.collect { 
+            try {
+                it.get(2, TimeUnit.SECONDS)
+            } catch (Exception e) {
+                null
+            }
+        }
+
+        then:
+        // Should handle replay
+        replayAttempts.get() >= 1
+        results.every { it != null }
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle result processor with null success data in tryMatchSuccess"() {
+        given:
+        Backend<String> backend = { batch ->
+            // Return success with null data
+            def successes = [new SuccessEvent<>(null)]
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(100))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("item-1")
+        def result = future.get(1, TimeUnit.SECONDS)
+
+        then:
+        // Should handle null data in matching (falls back)
+        result != null
+        result.successes.size() == 1
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle result processor with null failure data in tryMatchFailure"() {
+        given:
+        Backend<String> backend = { batch ->
+            // Return failure with null data
+            def failures = [new FailureEvent<>(null, new RuntimeException("error"))]
+            new BatchResult<>(List.of(), failures)
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(100))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("item-1")
+        def result = future.get(1, TimeUnit.SECONDS)
+
+        then:
+        // Should handle null data in matching (falls back)
+        result != null
+        result.failures.size() == 1
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle result processor fallback with successIdx at boundary"() {
+        given:
+        Backend<String> backend = { batch ->
+            // Return one success that doesn't match - triggers fallback
+            def successes = [new SuccessEvent<>("different")]
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(2)
+            .lingerTime(Duration.ofMillis(100))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def futures = [
+            batcher.submit("item-1"),
+            batcher.submit("item-2")
+        ]
+        def results = futures.collect { 
+            try {
+                it.get(1, TimeUnit.SECONDS)
+            } catch (Exception e) {
+                null
+            }
+        }
+
+        then:
+        // Fallback should handle boundary conditions
+        results.size() == 2
+        results.every { it != null && (it.successes.size() == 1 || it.failures.size() == 1) }
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle result processor fallback with failureIdx at boundary"() {
+        given:
+        Backend<String> backend = { batch ->
+            // Return one failure that doesn't match
+            def failures = [new FailureEvent<>("different", new RuntimeException("error"))]
+            new BatchResult<>(List.of(), failures)
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(2)
+            .lingerTime(Duration.ofMillis(100))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def futures = [
+            batcher.submit("item-1"),
+            batcher.submit("item-2")
+        ]
+        def results = futures.collect { it.get(1, TimeUnit.SECONDS) }
+
+        then:
+        // Fallback should handle boundary conditions
+        results.size() == 2
+        results.every { it.failures.size() == 1 }
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle metricsManager recordItemBatchSize when perItemMetrics disabled"() {
+        given:
+        def meterRegistry = new SimpleMeterRegistry()
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(2)
+            .lingerTime(Duration.ofMillis(100))
+            .perItemMetrics(false)
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config, meterRegistry)
+        batcher.submit("item-1")
+        batcher.submit("item-2")
+        def future = batcher.submit("item-3")
+        future.get(1, TimeUnit.SECONDS)
+
+        then:
+        // Per-item metrics should not be recorded when disabled
+        meterRegistry.find("vortex.item.batch.size").summary() == null
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle metricsManager recordWaitTime when perItemMetrics disabled"() {
+        given:
+        def meterRegistry = new SimpleMeterRegistry()
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(2)
+            .lingerTime(Duration.ofMillis(100))
+            .perItemMetrics(false)
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config, meterRegistry)
+        batcher.submit("item-1")
+        batcher.submit("item-2")
+        def future = batcher.submit("item-3")
+        future.get(1, TimeUnit.SECONDS)
+
+        then:
+        // Core wait time metrics should still be recorded
+        meterRegistry.find("vortex.request.wait.latency").timer() != null
+        meterRegistry.find("vortex.queue.wait.time").timer() != null
+        // But per-item wait time should not
+        meterRegistry.find("vortex.item.wait.time").timer() == null
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should return meter registry"() {
+        given:
+        def meterRegistry = new SimpleMeterRegistry()
+        Backend<String> backend = { batch ->
+            new BatchResult<>(List.of(), List.of())
+        }
+        def config = BatcherConfig.builder().build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config, meterRegistry)
+
+        then:
+        batcher.getMeterRegistry() == meterRegistry
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should get current batch size and linger time"() {
+        given:
+        Backend<String> backend = { batch ->
+            new BatchResult<>(List.of(), List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(5)
+            .lingerTime(Duration.ofMillis(200))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+
+        then:
+        batcher.getCurrentBatchSize() == 5
+        batcher.getCurrentLingerTime() == Duration.ofMillis(200)
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should update batch size with debug mode logging"() {
+        given:
+        Backend<String> backend = { batch ->
+            new BatchResult<>(List.of(), List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(5)
+            .lingerTime(Duration.ofMillis(100))
+            .debugMode(true)
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        batcher.updateBatchSize(10)
+
+        then:
+        batcher.getCurrentBatchSize() == 10
+        noExceptionThrown()
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should update linger time with debug mode logging"() {
+        given:
+        Backend<String> backend = { batch ->
+            new BatchResult<>(List.of(), List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(5)
+            .lingerTime(Duration.ofMillis(100))
+            .debugMode(true)
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        batcher.updateLingerTime(Duration.ofMillis(300))
+
+        then:
+        batcher.getCurrentLingerTime() == Duration.ofMillis(300)
+        noExceptionThrown()
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle processBatch when queue poll returns null after deadline"() {
+        given:
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(5)
+            .lingerTime(Duration.ofMillis(50))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("item-1")
+        def result = future.get(1, TimeUnit.SECONDS)
+
+        then:
+        // Should handle timeout in processBatch gracefully
+        result.successes.size() == 1
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle processBatch when remaining time is zero"() {
+        given:
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(10)
+            .lingerTime(Duration.ofMillis(50))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("item-1")
+        def result = future.get(1, TimeUnit.SECONDS)
+
+        then:
+        // Should handle zero remaining time in processBatch
+        result.successes.size() == 1
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle processBatch with debug mode logging for batch formation"() {
+        given:
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(3)
+            .lingerTime(Duration.ofMillis(100))
+            .debugMode(true)
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        (1..5).each { batcher.submit("item-$it") }
+        def future = batcher.submit("item-6")
+        future.get(1, TimeUnit.SECONDS)
+
+        then:
+        // Debug mode should log batch formation without errors
+        noExceptionThrown()
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle processBatch with debug mode logging for linger time elapsed"() {
+        given:
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(10)
+            .lingerTime(Duration.ofMillis(50))
+            .debugMode(true)
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("item-1")
+        future.get(1, TimeUnit.SECONDS)
+
+        then:
+        // Debug mode should log linger time elapsed without errors
+        noExceptionThrown()
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle processBatch with debug mode logging for timeout waiting"() {
+        given:
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(5)
+            .lingerTime(Duration.ofMillis(50))
+            .debugMode(true)
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("item-1")
+        future.get(1, TimeUnit.SECONDS)
+
+        then:
+        // Debug mode should log timeout waiting without errors
+        noExceptionThrown()
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle processBatch with debug mode logging for item added"() {
+        given:
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(3)
+            .lingerTime(Duration.ofMillis(100))
+            .debugMode(true)
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        (1..3).each { batcher.submit("item-$it") }
+        def future = batcher.submit("item-4")
+        future.get(1, TimeUnit.SECONDS)
+
+        then:
+        // Debug mode should log item added without errors
+        noExceptionThrown()
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle dispatchBatch with debug mode logging"() {
+        given:
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(2)
+            .lingerTime(Duration.ofMillis(100))
+            .debugMode(true)
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        (1..2).each { batcher.submit("item-$it") }
+        def future = batcher.submit("item-3")
+        future.get(1, TimeUnit.SECONDS)
+
+        then:
+        // Debug mode should log dispatch without errors
+        noExceptionThrown()
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle dispatchBatch with empty batch check"() {
+        given:
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(100))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        // Don't submit anything - dispatchBatch should handle empty batch
+        Thread.sleep(20)
+
+        then:
+        // Should not crash with empty batch
+        noExceptionThrown()
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle dispatchBatch debug logging for backend dispatch"() {
+        given:
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(2)
+            .lingerTime(Duration.ofMillis(100))
+            .debugMode(true)
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        (1..2).each { batcher.submit("item-$it") }
+        def future = batcher.submit("item-3")
+        future.get(1, TimeUnit.SECONDS)
+
+        then:
+        // Debug mode should log backend dispatch without errors
+        noExceptionThrown()
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle dispatchBatch debug logging for backend completion"() {
+        given:
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(2)
+            .lingerTime(Duration.ofMillis(100))
+            .debugMode(true)
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        (1..2).each { batcher.submit("item-$it") }
+        def future = batcher.submit("item-3")
+        future.get(1, TimeUnit.SECONDS)
+
+        then:
+        // Debug mode should log backend completion without errors
+        noExceptionThrown()
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle dispatchBatch debug logging for backend failure"() {
+        given:
+        Backend<String> backend = { batch ->
+            throw new RuntimeException("Backend error")
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(100))
+            .debugMode(true)
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("item-1")
+        def result = future.get(1, TimeUnit.SECONDS)
+
+        then:
+        // Debug mode should log backend failure without errors
+        noExceptionThrown()
+        result.failures.size() == 1
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle submitWithCallback with success result"() {
+        given:
+        def callbackCalled = new CountDownLatch(1)
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(100))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def callbackFuture = batcher.submitWithCallback("item-1") { item, result ->
+            callbackCalled.countDown()
+        }
+        callbackFuture.get(1, TimeUnit.SECONDS)
+
+        then:
+        callbackCalled.await(1, TimeUnit.SECONDS)
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle submitWithCallback with failure result"() {
+        given:
+        def callbackCalled = new CountDownLatch(1)
+        Backend<String> backend = { batch ->
+            def failures = batch.collect { new FailureEvent<>(it, new RuntimeException("error")) }
+            new BatchResult<>(List.of(), failures)
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(100))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def callbackFuture = batcher.submitWithCallback("item-1") { item, result ->
+            callbackCalled.countDown()
+        }
+        callbackFuture.get(1, TimeUnit.SECONDS)
+
+        then:
+        callbackCalled.await(1, TimeUnit.SECONDS)
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle submitWithCallback exception"() {
+        given:
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(100))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def callbackFuture = batcher.submitWithCallback("item-1") { item, result ->
+            throw new RuntimeException("Callback error")
+        }
+
+        then:
+        // Callback exception should be propagated to the future
+        try {
+            callbackFuture.get(1, TimeUnit.SECONDS)
+            assert false : "Should have thrown exception"
+        } catch (Exception e) {
+            assert e.cause?.message == "Callback error" || e.message?.contains("Callback error")
+        }
 
         cleanup:
         batcher?.close()

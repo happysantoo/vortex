@@ -107,7 +107,6 @@ BatcherConfig config = BatcherConfig.builder()
     .batchSize(10)                          // Max items per batch (default: 10)
     .lingerTime(Duration.ofMillis(100))     // Max wait time (default: 100ms)
     .atomicCommit(false)                     // All-or-nothing mode (default: false)
-    .maxConcurrency(10)                      // Max concurrent batches (default: 10)
     .autoReplaySuccesses(false)              // Auto-replay successful items (default: false)
     .perItemMetrics(false)                   // Enable per-item metrics (default: false)
     .debugMode(false)                        // Enable debug logging (default: false)
@@ -124,7 +123,6 @@ BatcherConfig config = BatcherConfig.builder()
 | `batchSize` | `int` | 10 | Maximum number of requests per batch |
 | `lingerTime` | `Duration` | 100ms | Maximum time to wait before dispatching a batch |
 | `atomicCommit` | `boolean` | false | If true, entire batch fails if any request fails |
-| `maxConcurrency` | `int` | 10 | Maximum concurrent batch dispatches (less relevant with virtual threads) |
 | `autoReplaySuccesses` | `boolean` | false | Automatically replay successful items when batch has mixed results |
 | `perItemMetrics` | `boolean` | false | Enable detailed per-item metrics (adds overhead) |
 | `debugMode` | `boolean` | false | Enable detailed debug logging |
