@@ -48,6 +48,8 @@ tasks.test {
     testLogging {
         events("passed", "skipped", "failed")
     }
+    // Run tests in parallel for faster execution
+    maxParallelForks = Runtime.getRuntime().availableProcessors()
 }
 
 tasks.jacocoTestReport {

@@ -1,7 +1,5 @@
 package com.vajrapulse.vortex;
 
-import io.micrometer.core.instrument.Counter;
-import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -13,7 +11,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * A lightweight micro-batcher that groups requests and dispatches them to a backend.
@@ -24,6 +21,12 @@ import java.util.concurrent.ConcurrentHashMap;
 public class MicroBatcher<T> implements AutoCloseable {
     private static final Logger logger = LoggerFactory.getLogger(MicroBatcher.class);
     
+    // Configuration constants
+    private static final int QUEUE_OFFER_TIMEOUT_MS = 100;
+    private static final int CLOSE_QUEUE_WAIT_TIMEOUT_MS = 2000;
+    private static final int CLOSE_POLL_INTERVAL_MS = 10;
+    private static final int EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS = 5;
+    
     private final Backend<T> backend;
     private final BatcherConfig config;
     private final MeterRegistry meterRegistry;
@@ -33,27 +36,15 @@ public class MicroBatcher<T> implements AutoCloseable {
     
     private volatile boolean closed = false;
     
-    // Track retry counts for items (item -> retry count)
-    private final ConcurrentHashMap<T, AtomicInteger> retryCounts = new ConcurrentHashMap<>();
+    // Dynamic configuration (mutable, thread-safe)
+    private volatile int currentBatchSize;
+    private volatile Duration currentLingerTime;
     
-    // Metrics
-    private final Counter requestsSubmitted;
-    private final Counter batchesDispatched;
-    private final Counter requestsSucceeded;
-    private final Counter requestsFailed;
-    private final Counter requestsReplayed;
-    private final Timer batchDispatchLatency;
-    private final Timer requestWaitLatency;
-    private final Timer queueWaitTime; // Additional metric for queue wait time with percentiles
+    // Helper classes
     private final AtomicInteger queueDepth = new AtomicInteger(0);
-    
-    // Per-item metrics (only created if perItemMetrics is enabled)
-    private final Timer itemSubmitLatency;
-    private final Timer itemWaitTime;
-    private final io.micrometer.core.instrument.DistributionSummary itemBatchSize;
-    
-    // Batch size distribution metrics
-    private final io.micrometer.core.instrument.DistributionSummary batchSizeHistogram;
+    private final MetricsManager metrics;
+    private final RetryManager<T> retryManager;
+    private final ResultProcessor<T> resultProcessor;
     
     /**
      * Creates a new MicroBatcher with a default SimpleMeterRegistry.
@@ -94,68 +85,19 @@ public class MicroBatcher<T> implements AutoCloseable {
         // Queue size should be reasonable - use 2x batch size as default
         this.queue = new LinkedBlockingQueue<>(config.getBatchSize() * 2);
         
-        // Register metrics
-        this.requestsSubmitted = Counter.builder("vortex.requests.submitted")
-            .description("Total number of requests submitted")
-            .register(meterRegistry);
+        // Initialize dynamic config from static config
+        this.currentBatchSize = config.getBatchSize();
+        this.currentLingerTime = config.getLingerTime();
         
-        this.batchesDispatched = Counter.builder("vortex.batches.dispatched")
-            .description("Total number of batches dispatched")
-            .register(meterRegistry);
-        
-        this.requestsSucceeded = Counter.builder("vortex.requests.succeeded")
-            .description("Total number of requests that succeeded")
-            .register(meterRegistry);
-        
-        this.requestsFailed = Counter.builder("vortex.requests.failed")
-            .description("Total number of requests that failed")
-            .register(meterRegistry);
-        
-        this.requestsReplayed = Counter.builder("vortex.requests.replayed")
-            .description("Total number of successful requests that were replayed")
-            .register(meterRegistry);
-        
-        this.batchDispatchLatency = Timer.builder("vortex.batch.dispatch.latency")
-            .description("Time taken to dispatch a batch")
-            .register(meterRegistry);
-        
-        this.requestWaitLatency = Timer.builder("vortex.request.wait.latency")
-            .description("Time a request waits before being batched")
-            .register(meterRegistry);
-        
-        // Queue wait time metric with percentiles
-        this.queueWaitTime = Timer.builder("vortex.queue.wait.time")
-            .description("Distribution of queue wait times")
-            .publishPercentiles(0.5, 0.95, 0.99) // p50, p95, p99
-            .register(meterRegistry);
-        
-        // Batch size distribution metrics
-        this.batchSizeHistogram = io.micrometer.core.instrument.DistributionSummary.builder("vortex.batch.size")
-            .description("Distribution of batch sizes")
-            .register(meterRegistry);
-        
-        // Per-item metrics (only created if enabled)
-        Timer itemSubmitLatencyTemp = null;
-        Timer itemWaitTimeTemp = null;
-        io.micrometer.core.instrument.DistributionSummary itemBatchSizeTemp = null;
-        if (config.isPerItemMetrics()) {
-            itemSubmitLatencyTemp = Timer.builder("vortex.item.submit.latency")
-                .description("Time from submit to batch completion (per item)")
-                .register(meterRegistry);
-            itemWaitTimeTemp = Timer.builder("vortex.item.wait.time")
-                .description("Time item waits in queue before batching")
-                .register(meterRegistry);
-            itemBatchSizeTemp = io.micrometer.core.instrument.DistributionSummary.builder("vortex.item.batch.size")
-                .description("Size of batch when item was processed")
-                .register(meterRegistry);
-        }
-        this.itemSubmitLatency = itemSubmitLatencyTemp;
-        this.itemWaitTime = itemWaitTimeTemp;
-        this.itemBatchSize = itemBatchSizeTemp;
-        
-        Gauge.builder("vortex.queue.depth", queueDepth, AtomicInteger::get)
-            .description("Current depth of the request queue")
-            .register(meterRegistry);
+        // Initialize helper classes
+        // NOTE: RetryManager and ResultProcessor receive this::submit as a parameter.
+        // This creates a circular dependency, but it's safe because:
+        // 1. The lambda captures 'this' but doesn't execute until after construction completes
+        // 2. submit() checks 'closed' flag before processing, preventing issues during shutdown
+        // 3. All required fields (queue, executor, metrics) are initialized before this point
+        this.metrics = new MetricsManager(meterRegistry, config, queueDepth);
+        this.retryManager = new RetryManager<>(config, executor, this::submit, () -> closed);
+        this.resultProcessor = new ResultProcessor<>(config, backend, metrics, retryManager, this::submit);
         
         // Start the batch processor
         startBatchProcessor();
@@ -164,20 +106,29 @@ public class MicroBatcher<T> implements AutoCloseable {
     /**
      * Submits a request to be batched and dispatched.
      * 
+     * <p>This method is thread-safe and can be called from multiple threads concurrently.
+     * The request will be added to the batching queue and processed according to the
+     * configured batch size and linger time settings.
+     * 
+     * <p>If the batcher is closed, this method will throw {@link IllegalStateException}.
+     * If the queue is full, the returned future will complete exceptionally with
+     * {@link RejectedExecutionException}.
+     * 
      * @param data the request data
      * @return a CompletableFuture that completes with the batch result
+     * @throws IllegalStateException if the batcher is closed
      */
     public CompletableFuture<BatchResult<T>> submit(T data) {
         if (closed) {
             throw new IllegalStateException("MicroBatcher is closed");
         }
         
-        requestsSubmitted.increment();
+        metrics.recordRequestSubmitted();
         CompletableFuture<BatchResult<T>> future = new CompletableFuture<>();
         PendingRequest<T> request = new PendingRequest<>(data, future);
         
         try {
-            if (!queue.offer(request, 100, TimeUnit.MILLISECONDS)) {
+            if (!queue.offer(request, QUEUE_OFFER_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
                 future.completeExceptionally(new RejectedExecutionException("Queue is full"));
                 return future;
             }
@@ -194,9 +145,16 @@ public class MicroBatcher<T> implements AutoCloseable {
      * Submits an item and registers a callback for when its batch completes.
      * The callback receives the item and its result (success or failure).
      * 
+     * <p>This method is thread-safe and provides a convenient way to handle results
+     * without manually extracting them from the BatchResult.
+     * 
+     * <p>If the callback throws an exception, the returned future will complete
+     * exceptionally with that exception.
+     * 
      * @param item the item to submit
      * @param callback callback to execute when batch completes, receives (item, ItemResult)
      * @return CompletableFuture that completes when the callback finishes
+     * @throws IllegalStateException if the batcher is closed
      */
     public CompletableFuture<Void> submitWithCallback(T item, java.util.function.BiConsumer<T, ItemResult<T>> callback) {
         CompletableFuture<BatchResult<T>> future = submit(item);
@@ -208,7 +166,6 @@ public class MicroBatcher<T> implements AutoCloseable {
     }
     
     private void startBatchProcessor() {
-        // Process batches - handles both size and time-based triggers
         executor.submit(() -> {
             while (!closed || !queue.isEmpty()) {
                 try {
@@ -217,8 +174,7 @@ public class MicroBatcher<T> implements AutoCloseable {
                     Thread.currentThread().interrupt();
                     break;
                 } catch (Exception e) {
-                    // Log error but continue processing
-                    System.err.println("Error in batch processor: " + e.getMessage());
+                    logger.error("Error in batch processor", e);
                 }
             }
         });
@@ -227,8 +183,11 @@ public class MicroBatcher<T> implements AutoCloseable {
     private void processBatch() throws InterruptedException {
         List<PendingRequest<T>> batch = new ArrayList<>();
         
+        Duration lingerTime = currentLingerTime;
+        int batchSize = currentBatchSize;
+        
         // Wait for first item with timeout based on linger time
-        PendingRequest<T> first = queue.poll(config.getLingerTime().toMillis(), TimeUnit.MILLISECONDS);
+        PendingRequest<T> first = queue.poll(lingerTime.toMillis(), TimeUnit.MILLISECONDS);
         if (first == null) {
             return;
         }
@@ -241,15 +200,14 @@ public class MicroBatcher<T> implements AutoCloseable {
         }
         
         // Collect up to batchSize items, respecting linger time
-        // Whichever comes first: batch size reached or linger time elapsed
-        long deadline = System.nanoTime() + config.getLingerTime().toNanos();
-        while (batch.size() < config.getBatchSize()) {
+        long deadline = System.nanoTime() + lingerTime.toNanos();
+        while (batch.size() < batchSize) {
             long remaining = deadline - System.nanoTime();
             if (remaining <= 0) {
                 if (config.isDebugMode()) {
                     logger.debug("Linger time elapsed, batch size: {}", batch.size());
                 }
-                break; // Linger time elapsed
+                break;
             }
             
             PendingRequest<T> next = queue.poll(
@@ -260,7 +218,7 @@ public class MicroBatcher<T> implements AutoCloseable {
                 if (config.isDebugMode()) {
                     logger.debug("Timeout waiting for next item, batch size: {}", batch.size());
                 }
-                break; // Timeout - trigger batch
+                break;
             }
             batch.add(next);
             queueDepth.decrementAndGet();
@@ -283,7 +241,7 @@ public class MicroBatcher<T> implements AutoCloseable {
             return;
         }
         
-        batchesDispatched.increment();
+        metrics.recordBatchDispatched();
         
         if (config.isDebugMode()) {
             long waitTime = batch.stream()
@@ -292,17 +250,13 @@ public class MicroBatcher<T> implements AutoCloseable {
             logger.debug("Dispatching batch: size={}, avgWaitTimeNs={}", batch.size(), waitTime);
         }
         
-        // Record batch size distribution
-        batchSizeHistogram.record(batch.size());
+        metrics.recordBatchSize(batch.size());
         
-        @SuppressWarnings("null") // meterRegistry is checked for null in constructor
-        Timer.Sample sample = Timer.start(meterRegistry);
+        Timer.Sample sample = metrics.startBatchDispatchTimer();
         
         // Record per-item batch size if enabled
-        if (config.isPerItemMetrics() && itemBatchSize != null) {
-            for (PendingRequest<T> req : batch) {
-                itemBatchSize.record(batch.size());
-            }
+        if (config.isPerItemMetrics()) {
+            metrics.recordItemBatchSize(batch.size());
         }
         
         List<T> dataList = batch.stream()
@@ -310,355 +264,59 @@ public class MicroBatcher<T> implements AutoCloseable {
             .toList();
         
         // Execute backend dispatch on a virtual thread
-        // Virtual threads are perfect for I/O-bound operations like HTTP calls, DB queries
         executor.submit(() -> {
             try {
                 if (config.isDebugMode()) {
                     logger.debug("Calling backend.dispatch() for batch of size: {}", dataList.size());
                 }
                 BatchResult<T> result = backend.dispatch(dataList);
-                @SuppressWarnings("null") // batchDispatchLatency is initialized in constructor
-                Timer timer = batchDispatchLatency;
-                long dispatchTime = sample.stop(timer);
+                metrics.recordBatchDispatchLatency(sample);
                 if (config.isDebugMode()) {
-                    logger.debug("Backend dispatch completed: successes={}, failures={}, dispatchTimeNs={}", 
-                        result.getSuccesses().size(), result.getFailures().size(), dispatchTime);
+                    logger.debug("Backend dispatch completed: successes={}, failures={}", 
+                        result.getSuccesses().size(), result.getFailures().size());
                 }
-                processBatchResults(batch, result);
+                resultProcessor.processResults(batch, result);
             } catch (Exception e) {
-                @SuppressWarnings("null") // batchDispatchLatency is initialized in constructor
-                Timer timer = batchDispatchLatency;
-                sample.stop(timer);
+                metrics.recordBatchDispatchLatency(sample);
                 if (config.isDebugMode()) {
                     logger.debug("Backend dispatch failed", e);
                 }
-                handleBatchFailure(batch, e);
+                resultProcessor.processFailure(batch, e);
             }
         });
     }
     
-    private void processBatchResults(List<PendingRequest<T>> batch, BatchResult<T> result) {
-        if (config.isAtomicCommit() && !result.isAllSuccess()) {
-            // In atomic mode, if any fails, all fail
-            @SuppressWarnings("null") // requestWaitLatency and queueWaitTime are initialized in constructor
-            Timer waitLatency = requestWaitLatency;
-            Timer queueWait = queueWaitTime;
-            long batchCompletionTime = System.nanoTime();
-            RuntimeException atomicError = new RuntimeException("Batch failed due to atomic commit requirement");
-            for (PendingRequest<T> req : batch) {
-                long waitTime = batchCompletionTime - req.getTimestamp();
-                waitLatency.record(waitTime, TimeUnit.NANOSECONDS);
-                queueWait.record(waitTime, TimeUnit.NANOSECONDS);
-                
-                // Record per-item metrics if enabled
-                if (config.isPerItemMetrics()) {
-                    if (itemWaitTime != null) {
-                        itemWaitTime.record(waitTime, TimeUnit.NANOSECONDS);
-                    }
-                    if (itemSubmitLatency != null) {
-                        itemSubmitLatency.record(waitTime, TimeUnit.NANOSECONDS);
-                    }
-                }
-                
-                // Check if we should retry this failure
-                if (shouldRetry(req.getData(), atomicError)) {
-                    scheduleRetry(req.getData(), atomicError, req.getFuture());
-                } else {
-                    requestsFailed.increment();
-                    req.getFuture().complete(new BatchResult<>(
-                        List.of(),
-                        List.of(new FailureEvent<>(req.getData(), atomicError))
-                    ));
-                }
-            }
-        } else {
-            // Map results back to individual requests
-            // Assumes backend returns results in same order as input
-            List<SuccessEvent<T>> successes = result.getSuccesses();
-            List<FailureEvent<T>> failures = result.getFailures();
-            
-            // Check if replay is needed: backend decides first, config is fallback
-            // Only replay when we have both successes and failures
-            boolean shouldReplay = false;
-            if (!successes.isEmpty() && !failures.isEmpty()) {
-                // Backend can decide if replay is needed based on the result
-                // If backend returns true, replay. If false, check config as fallback.
-                // This allows backends to opt-in explicitly, while config provides default behavior
-                boolean backendWantsReplay = backend.shouldReplaySuccesses(result);
-                if (backendWantsReplay) {
-                    shouldReplay = true;
-                } else {
-                    // Backend said no or used default - use config as fallback
-                    shouldReplay = config.isAutoReplaySuccesses();
-                }
-            }
-            
-            // Replay successful items if needed
-            if (shouldReplay) {
-                replaySuccessfulItems(successes);
-            }
-            
-            int successIdx = 0;
-            int failureIdx = 0;
-            
-            @SuppressWarnings("null") // requestWaitLatency and queueWaitTime are initialized in constructor
-            Timer waitLatency = requestWaitLatency;
-            Timer queueWait = queueWaitTime;
-            long batchCompletionTime = System.nanoTime();
-            for (PendingRequest<T> req : batch) {
-                long waitTime = batchCompletionTime - req.getTimestamp();
-                waitLatency.record(waitTime, TimeUnit.NANOSECONDS);
-                queueWait.record(waitTime, TimeUnit.NANOSECONDS);
-                
-                // Record per-item metrics if enabled
-                if (config.isPerItemMetrics()) {
-                    if (itemWaitTime != null) {
-                        itemWaitTime.record(waitTime, TimeUnit.NANOSECONDS);
-                    }
-                    if (itemSubmitLatency != null) {
-                        itemSubmitLatency.record(waitTime, TimeUnit.NANOSECONDS);
-                    }
-                }
-                
-                // Check if this request succeeded or failed
-                // Backend should maintain order, but we handle mismatches gracefully
-                boolean matched = false;
-                if (successIdx < successes.size()) {
-                    T successData = successes.get(successIdx).getData();
-                    if (successData != null && successData.equals(req.getData())) {
-                        requestsSucceeded.increment();
-                        req.getFuture().complete(new BatchResult<>(
-                            List.of(successes.get(successIdx)),
-                            List.of()
-                        ));
-                        successIdx++;
-                        matched = true;
-                    }
-                }
-                if (!matched && failureIdx < failures.size()) {
-                    T failureData = failures.get(failureIdx).getData();
-                    if (failureData != null && failureData.equals(req.getData())) {
-                        FailureEvent<T> failure = failures.get(failureIdx);
-                        Throwable error = failure.getError();
-                        
-                        // Check if we should retry this failure
-                        if (shouldRetry(req.getData(), error)) {
-                            scheduleRetry(req.getData(), error, req.getFuture());
-                        } else {
-                            requestsFailed.increment();
-                            req.getFuture().complete(new BatchResult<>(
-                                List.of(),
-                                List.of(failure)
-                            ));
-                        }
-                        failureIdx++;
-                        matched = true;
-                    }
-                }
-                if (!matched) {
-                    // Fallback: if order doesn't match, distribute proportionally
-                    if (successIdx < successes.size()) {
-                        requestsSucceeded.increment();
-                        req.getFuture().complete(new BatchResult<>(
-                            List.of(new SuccessEvent<>(req.getData())),
-                            List.of()
-                        ));
-                        successIdx++;
-                    } else {
-                        Throwable failureError = failureIdx < failures.size() ?
-                            failures.get(failureIdx).getError() :
-                            new RuntimeException("Request failed in batch");
-                        
-                        // Check if we should retry this failure
-                        if (shouldRetry(req.getData(), failureError)) {
-                            scheduleRetry(req.getData(), failureError, req.getFuture());
-                        } else {
-                            requestsFailed.increment();
-                            req.getFuture().complete(new BatchResult<>(
-                                List.of(),
-                                List.of(new FailureEvent<>(req.getData(), failureError))
-                            ));
-                        }
-                        if (failureIdx < failures.size()) {
-                            failureIdx++;
-                        }
-                    }
-                }
-            }
-            
-            // Clean up retry counts for successful items
-            for (SuccessEvent<T> success : successes) {
-                retryCounts.remove(success.getData());
-            }
-        }
-    }
-    
     /**
-     * Checks if a failed item should be retried.
+     * Closes the batcher, gracefully shutting down processing.
      * 
-     * @param item the item that failed
-     * @param error the error that occurred
-     * @return true if the item should be retried, false otherwise
-     */
-    private boolean shouldRetry(T item, Throwable error) {
-        if (config.getMaxRetries() <= 0) {
-            return false; // Retry disabled
-        }
-        
-        if (!config.getRetryableErrorPredicate().test(error)) {
-            return false; // Error is not retryable
-        }
-        
-        // Check retry count
-        AtomicInteger retryCount = retryCounts.get(item);
-        if (retryCount == null) {
-            return true; // First failure, can retry
-        }
-        
-        return retryCount.get() < config.getMaxRetries();
-    }
-    
-    /**
-     * Schedules a retry for a failed item after the configured retry delay.
-     * The original future will be completed when the retry finishes.
+     * <p>This method:
+     * <ul>
+     *   <li>Stops accepting new submissions (subsequent calls to submit() will throw IllegalStateException)</li>
+     *   <li>Waits for the batch processor to finish processing items already in the queue (up to 2 seconds)</li>
+     *   <li>Shuts down the executor gracefully, allowing in-flight batches to complete (up to 5 seconds)</li>
+     *   <li>Processes any remaining items synchronously after executor shutdown</li>
+     * </ul>
      * 
-     * @param item the item to retry
-     * @param error the error that occurred
-     * @param originalFuture the original future to complete when retry finishes
+     * <p>Note: Items submitted after close() is called will be rejected. Items already in the queue
+     * will be processed, but there's no guarantee all items will be processed if shutdown times out.
+     * 
+     * <p>This method is idempotent - calling it multiple times has no additional effect.
+     * 
+     * <p>Thread safety: This method is thread-safe and can be called from any thread.
      */
-    private void scheduleRetry(T item, Throwable error, CompletableFuture<BatchResult<T>> originalFuture) {
-        // Increment retry count
-        AtomicInteger retryCount = retryCounts.computeIfAbsent(item, k -> new AtomicInteger(0));
-        int currentRetries = retryCount.incrementAndGet();
-        
-        if (config.isDebugMode()) {
-            logger.debug("Scheduling retry {} for item: {}, error: {}", 
-                currentRetries, item, error.getClass().getSimpleName());
-        }
-        
-        // Schedule retry after delay
-        Runnable retryTask = () -> {
-            try {
-                if (closed) {
-                    retryCounts.remove(item);
-                    originalFuture.complete(new BatchResult<>(
-                        List.of(),
-                        List.of(new FailureEvent<>(item, new IllegalStateException("Batcher is closed"))))
-                    );
-                    return;
-                }
-                
-                CompletableFuture<BatchResult<T>> retryFuture = submit(item);
-                // Complete original future when retry completes
-                retryFuture.whenComplete((result, throwable) -> {
-                    if (throwable != null) {
-                        // Retry submission failed
-                        retryCounts.remove(item);
-                        originalFuture.completeExceptionally(throwable);
-                    } else {
-                        // Retry completed, use its result
-                        originalFuture.complete(result);
-                    }
-                });
-            } catch (IllegalStateException e) {
-                // Batcher is closed, can't retry
-                if (config.isDebugMode()) {
-                    logger.debug("Cannot retry item {} - batcher is closed", item);
-                }
-                retryCounts.remove(item);
-                originalFuture.complete(new BatchResult<>(
-                    List.of(),
-                    List.of(new FailureEvent<>(item, e)))
-                );
-            }
-        };
-        
-        if (config.getRetryDelay().isZero()) {
-            // No delay, retry immediately
-            executor.submit(retryTask);
-        } else {
-            // Schedule retry after delay
-            executor.submit(() -> {
-                try {
-                    Thread.sleep(config.getRetryDelay().toMillis());
-                    retryTask.run();
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    retryCounts.remove(item);
-                    originalFuture.complete(new BatchResult<>(
-                        List.of(),
-                        List.of(new FailureEvent<>(item, e)))
-                    );
-                }
-            });
-        }
-    }
-    
-    /**
-     * Replays successful items by re-submitting them to the batcher.
-     * This allows successful items to be processed again before returning failures.
-     */
-    private void replaySuccessfulItems(List<SuccessEvent<T>> successes) {
-        for (SuccessEvent<T> success : successes) {
-            try {
-                // Re-submit the successful item for another attempt
-                submit(success.getData());
-                requestsReplayed.increment();
-            } catch (IllegalStateException e) {
-                // Batcher is closed, skip replay
-                break;
-            } catch (Exception e) {
-                // Log but continue with other replays
-                System.err.println("Error replaying successful item: " + e.getMessage());
-            }
-        }
-    }
-    
-    private void handleBatchFailure(List<PendingRequest<T>> batch, Throwable error) {
-        @SuppressWarnings("null") // requestWaitLatency and queueWaitTime are initialized in constructor
-        Timer waitLatency = requestWaitLatency;
-        Timer queueWait = queueWaitTime;
-        long batchCompletionTime = System.nanoTime();
-        for (PendingRequest<T> req : batch) {
-            long waitTime = batchCompletionTime - req.getTimestamp();
-            waitLatency.record(waitTime, TimeUnit.NANOSECONDS);
-            queueWait.record(waitTime, TimeUnit.NANOSECONDS);
-            
-            // Record per-item metrics if enabled
-            if (config.isPerItemMetrics()) {
-                if (itemWaitTime != null) {
-                    itemWaitTime.record(waitTime, TimeUnit.NANOSECONDS);
-                }
-                if (itemSubmitLatency != null) {
-                    itemSubmitLatency.record(waitTime, TimeUnit.NANOSECONDS);
-                }
-            }
-            
-            // Check if we should retry this failure
-            if (shouldRetry(req.getData(), error)) {
-                scheduleRetry(req.getData(), error, req.getFuture());
-            } else {
-                requestsFailed.increment();
-                req.getFuture().complete(new BatchResult<>(
-                    List.of(),
-                    List.of(new FailureEvent<>(req.getData(), error))
-                ));
-            }
-        }
-    }
-    
     @Override
     public void close() {
         closed = true;
         
-        // Clear retry counts
-        retryCounts.clear();
+        retryManager.clearAll();
         
         // Wait for batch processor to finish processing queue (with timeout)
-        long deadline = System.currentTimeMillis() + 2000; // 2 second timeout
+        // NOTE: This is a best-effort wait. Items submitted after close() is called
+        // will be rejected, but items already in the queue will be processed.
+        long deadline = System.currentTimeMillis() + CLOSE_QUEUE_WAIT_TIMEOUT_MS;
         while (!queue.isEmpty() && System.currentTimeMillis() < deadline) {
             try {
-                Thread.sleep(10);
+                Thread.sleep(CLOSE_POLL_INTERVAL_MS);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 break;
@@ -669,8 +327,7 @@ public class MicroBatcher<T> implements AutoCloseable {
         executor.shutdown();
         
         try {
-            // Wait for in-flight batches to complete
-            if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+            if (!executor.awaitTermination(EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
                 executor.shutdownNow();
             }
         } catch (InterruptedException e) {
@@ -688,9 +345,9 @@ public class MicroBatcher<T> implements AutoCloseable {
             
             try {
                 BatchResult<T> result = backend.dispatch(dataList);
-                processBatchResults(remaining, result);
+                resultProcessor.processResults(remaining, result);
             } catch (Exception e) {
-                handleBatchFailure(remaining, e);
+                resultProcessor.processFailure(remaining, e);
             }
         }
     }
@@ -703,5 +360,78 @@ public class MicroBatcher<T> implements AutoCloseable {
     public MeterRegistry getMeterRegistry() {
         return meterRegistry;
     }
+    
+    /**
+     * Updates the batch size dynamically at runtime.
+     * The new batch size will be used for future batches (not the current batch being formed).
+     * 
+     * <p>Thread safety: This method is thread-safe. Updates to batch size are immediately visible
+     * to the batch processor, but may not affect a batch currently being formed.
+     * 
+     * @param newBatchSize the new batch size (must be positive)
+     * @throws IllegalArgumentException if newBatchSize is not positive
+     * @throws IllegalStateException if the batcher is closed
+     */
+    public void updateBatchSize(int newBatchSize) {
+        if (closed) {
+            throw new IllegalStateException("MicroBatcher is closed");
+        }
+        if (newBatchSize <= 0) {
+            throw new IllegalArgumentException("Batch size must be positive");
+        }
+        
+        if (config.isDebugMode()) {
+            logger.debug("Updating batch size from {} to {}", currentBatchSize, newBatchSize);
+        }
+        
+        this.currentBatchSize = newBatchSize;
+    }
+    
+    /**
+     * Updates the linger time dynamically at runtime.
+     * The new linger time will be used for future batches (not the current batch being formed).
+     * 
+     * <p>Thread safety: This method is thread-safe. Updates to linger time are immediately visible
+     * to the batch processor, but may not affect a batch currently being formed.
+     * 
+     * @param newLingerTime the new linger time (must be non-negative)
+     * @throws IllegalArgumentException if newLingerTime is null or negative
+     * @throws IllegalStateException if the batcher is closed
+     */
+    public void updateLingerTime(Duration newLingerTime) {
+        if (closed) {
+            throw new IllegalStateException("MicroBatcher is closed");
+        }
+        if (newLingerTime == null || newLingerTime.isNegative()) {
+            throw new IllegalArgumentException("Linger time must be non-negative");
+        }
+        
+        if (config.isDebugMode()) {
+            logger.debug("Updating linger time from {} to {}", currentLingerTime, newLingerTime);
+        }
+        
+        this.currentLingerTime = newLingerTime;
+    }
+    
+    /**
+     * Gets the current batch size (may differ from initial config if updated dynamically).
+     * 
+     * @return the current batch size
+     */
+    public int getCurrentBatchSize() {
+        return currentBatchSize;
+    }
+    
+    /**
+     * Gets the current linger time (may differ from initial config if updated dynamically).
+     * 
+     * @return the current linger time
+     */
+    public Duration getCurrentLingerTime() {
+        return currentLingerTime;
+    }
+    
+    boolean isClosed() {
+        return closed;
+    }
 }
-
