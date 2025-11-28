@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.0.3] - 2025-11-28
 
+### Added
+- **MetricsProvider Interface**: New interface for convenient, domain-specific metrics access
+  - `getFailureRate()` - Current failure rate (0.0 to 1.0)
+  - `getSuccessRate()` - Current success rate (0.0 to 1.0)
+  - `getTotalSubmitted()`, `getTotalSucceeded()`, `getTotalFailed()` - Request counts
+  - `getQueueDepth()` - Current queue depth
+  - `getAverageDispatchLatency()`, `getP95DispatchLatency()`, `getP99DispatchLatency()` - Latency metrics
+  - Enables adaptive batching, circuit breakers, auto-scaling, and health monitoring
+  - Access via `batcher.getMetricsProvider()`
+- **AdaptiveBatchingExample**: New example demonstrating adaptive batch sizing based on metrics
+
 ### Performance Improvements
 - **Eliminated Redundant Queue Depth Tracking**: Removed manual `AtomicInteger` tracking in favor of direct `queue.size()` calls, reducing atomic operations and memory footprint
 - **Hash-Based Result Matching**: Optimized result matching from O(n) linear search to O(1) hash lookup using `HashMap`, providing 20-40% improvement for large batches (50+ items)

@@ -306,7 +306,62 @@ Debug mode logs:
 
 ## Metrics
 
-The library exposes comprehensive Micrometer metrics:
+The library exposes comprehensive Micrometer metrics and provides a convenient `MetricsProvider` interface for easy access.
+
+### Using MetricsProvider (Recommended)
+
+The `MetricsProvider` interface provides convenient, domain-specific access to key metrics:
+
+```java
+MetricsProvider metrics = batcher.getMetricsProvider();
+
+// Get failure rate (0.0 to 1.0)
+double failureRate = metrics.getFailureRate();
+
+// Get success rate (0.0 to 1.0)
+double successRate = metrics.getSuccessRate();
+
+// Get queue depth
+int queueDepth = metrics.getQueueDepth();
+
+// Get totals
+long submitted = metrics.getTotalSubmitted();
+long succeeded = metrics.getTotalSucceeded();
+long failed = metrics.getTotalFailed();
+
+// Get latency metrics
+double avgLatency = metrics.getAverageDispatchLatency();
+double p95Latency = metrics.getP95DispatchLatency();
+double p99Latency = metrics.getP99DispatchLatency();
+```
+
+**Use Cases:**
+- **Adaptive Batch Sizing**: Adjust batch size based on failure rate
+- **Circuit Breaker**: Open circuit when failure rate exceeds threshold
+- **Auto-Scaling**: Scale backend workers based on queue depth
+- **Health Monitoring**: Check system health using success/failure rates
+
+**Example - Adaptive Batching:**
+```java
+MetricsProvider metrics = batcher.getMetricsProvider();
+
+// Adjust batch size based on failure rate
+if (metrics.getFailureRate() > 0.1) {
+    batcher.updateBatchSize(5); // Reduce batch size
+} else if (metrics.getFailureRate() < 0.01) {
+    batcher.updateBatchSize(20); // Increase batch size
+}
+```
+
+### Direct MeterRegistry Access
+
+For advanced use cases, you can access the underlying Micrometer registry:
+
+```java
+MeterRegistry registry = batcher.getMeterRegistry();
+double queueDepth = registry.gauge("vortex.queue.depth", 0.0);
+long submitted = registry.counter("vortex.requests.submitted").count();
+```
 
 ### Core Metrics
 
@@ -611,6 +666,3 @@ None - 0.0.3 is backward compatible with 0.0.2 and 0.0.1.
 5. Configure `maxQueueSize` based on your throughput requirements
 6. Always handle `RejectedExecutionException` to detect backpressure
 
-## License
-
-MIT

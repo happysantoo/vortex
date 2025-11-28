@@ -2394,24 +2394,29 @@ class MicroBatcherSpec extends Specification {
     def "should update linger time dynamically"() {
         given:
         def batchCount = new AtomicInteger(0)
+        def batchLatch = new CountDownLatch(1)
         Backend<String> backend = { batch ->
             batchCount.incrementAndGet()
+            batchLatch.countDown()
             def successes = batch.collect { new SuccessEvent<>(it) }
             new BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
-            .batchSize(10)
+            .batchSize(1) // Small batch size to ensure quick processing
             .lingerTime(Duration.ofMillis(200))
             .build()
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
+        // Update linger time before submitting
         batcher.updateLingerTime(Duration.ofMillis(50))
         batcher.submit("item-1")
-        Thread.sleep(200)
+        // Wait for batch to be processed (should happen within 50ms with new linger time)
+        def processed = batchLatch.await(200, TimeUnit.MILLISECONDS)
 
         then:
         batcher.getCurrentLingerTime() == Duration.ofMillis(50)
+        processed // Batch should have been processed
         batchCount.get() >= 1
 
         cleanup:

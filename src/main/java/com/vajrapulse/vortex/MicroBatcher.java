@@ -365,10 +365,50 @@ public class MicroBatcher<T> implements AutoCloseable {
     /**
      * Gets the MeterRegistry used for metrics.
      * 
+     * <p>This provides direct access to the underlying Micrometer registry
+     * for advanced use cases. For most use cases, consider using
+     * {@link #getMetricsProvider()} instead, which provides a simpler,
+     * domain-specific API.
+     * 
      * @return the meter registry
      */
     public MeterRegistry getMeterRegistry() {
         return meterRegistry;
+    }
+    
+    /**
+     * Returns a MetricsProvider that provides real-time access to batcher metrics.
+     * 
+     * <p>The MetricsProvider offers convenient access to key metrics for:
+     * <ul>
+     *   <li>Adaptive batch sizing based on failure rate</li>
+     *   <li>Circuit breaker patterns</li>
+     *   <li>Auto-scaling decisions</li>
+     *   <li>Health monitoring</li>
+     * </ul>
+     * 
+     * <p>Example usage:
+     * <pre>{@code
+     * MetricsProvider metrics = batcher.getMetricsProvider();
+     * 
+     * // Adaptive batch sizing
+     * if (metrics.getFailureRate() > 0.1) {
+     *     batcher.updateBatchSize(5); // Reduce batch size
+     * }
+     * 
+     * // Health check
+     * boolean isHealthy = metrics.getFailureRate() < 0.05 
+     *     && metrics.getQueueDepth() < 100;
+     * }</pre>
+     * 
+     * <p>The returned MetricsProvider is a live view of current metrics.
+     * Each method call queries the underlying metrics in real-time.
+     * 
+     * @return a MetricsProvider instance providing real-time metrics
+     * @since 0.0.3
+     */
+    public MetricsProvider getMetricsProvider() {
+        return metrics.getMetricsProvider();
     }
     
     /**
