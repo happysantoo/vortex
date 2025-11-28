@@ -21,18 +21,23 @@ class RetryManager<T> {
     private final Function<T, CompletableFuture<BatchResult<T>>> submitFunction;
     private final java.util.function.Supplier<Boolean> isClosedSupplier;
     private final ConcurrentHashMap<T, AtomicInteger> retryCounts = new ConcurrentHashMap<>();
+    private final boolean debugMode;
     
     RetryManager(BatcherConfig config, ExecutorService executor, 
                  Function<T, CompletableFuture<BatchResult<T>>> submitFunction,
-                 java.util.function.Supplier<Boolean> isClosedSupplier) {
+                 java.util.function.Supplier<Boolean> isClosedSupplier,
+                 boolean debugMode) {
         this.config = config;
         this.executor = executor;
         this.submitFunction = submitFunction;
         this.isClosedSupplier = isClosedSupplier;
+        this.debugMode = debugMode;
     }
     
     boolean shouldRetry(T item, Throwable error) {
-        if (config.getMaxRetries() <= 0) {
+        // Cache maxRetries to avoid repeated method calls (optimization)
+        int maxRetries = config.getMaxRetries();
+        if (maxRetries <= 0) {
             return false;
         }
         
@@ -41,18 +46,14 @@ class RetryManager<T> {
         }
         
         AtomicInteger retryCount = retryCounts.get(item);
-        if (retryCount == null) {
-            return true;
-        }
-        
-        return retryCount.get() < config.getMaxRetries();
+        return retryCount == null || retryCount.get() < maxRetries;
     }
     
     void scheduleRetry(T item, Throwable error, CompletableFuture<BatchResult<T>> originalFuture) {
         AtomicInteger retryCount = retryCounts.computeIfAbsent(item, k -> new AtomicInteger(0));
         int currentRetries = retryCount.incrementAndGet();
         
-        if (config.isDebugMode()) {
+        if (debugMode) {
             logger.debug("Scheduling retry {} for item: {}, error: {}", 
                 currentRetries, item, error.getClass().getSimpleName());
         }
@@ -78,7 +79,7 @@ class RetryManager<T> {
                     }
                 });
             } catch (IllegalStateException e) {
-                if (config.isDebugMode()) {
+                if (debugMode) {
                     logger.debug("Cannot retry item {} - batcher is closed", item);
                 }
                 retryCounts.remove(item);

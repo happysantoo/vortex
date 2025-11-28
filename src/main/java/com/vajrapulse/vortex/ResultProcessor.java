@@ -3,7 +3,10 @@ package com.vajrapulse.vortex;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -17,15 +20,18 @@ class ResultProcessor<T> {
     private final MetricsManager metrics;
     private final RetryManager<T> retryManager;
     private final java.util.function.Function<T, CompletableFuture<BatchResult<T>>> submitFunction;
+    private final boolean debugMode;
     
     ResultProcessor(BatcherConfig config, Backend<T> backend, 
                    MetricsManager metrics, RetryManager<T> retryManager,
-                   java.util.function.Function<T, CompletableFuture<BatchResult<T>>> submitFunction) {
+                   java.util.function.Function<T, CompletableFuture<BatchResult<T>>> submitFunction,
+                   boolean debugMode) {
         this.config = config;
         this.backend = backend;
         this.metrics = metrics;
         this.retryManager = retryManager;
         this.submitFunction = submitFunction;
+        this.debugMode = debugMode;
     }
     
     void processResults(List<PendingRequest<T>> batch, BatchResult<T> result) {
@@ -58,9 +64,9 @@ class ResultProcessor<T> {
     /**
      * Processes non-atomic batch results by mapping backend results back to individual requests.
      * 
-     * Matching Strategy:
-     * 1. First, attempts to match each request with results by data equality (assumes backend maintains order)
-     * 2. Matches successes first, then failures, using index-based iteration
+     * Matching Strategy (Optimized with Hash-Based Lookup):
+     * 1. Build hash maps for O(1) lookup instead of O(n) linear search
+     * 2. First, attempts to match each request with results by data equality
      * 3. If exact match fails (e.g., backend returns results in different order), uses fallback:
      *    - Distributes remaining successes/failures proportionally to unmatched requests
      *    - This ensures all requests get a result even if backend doesn't maintain order
@@ -80,32 +86,89 @@ class ResultProcessor<T> {
             }
         }
         
-        // Map results back to requests
+        // Build hash maps for O(1) lookup (optimization: O(n) -> O(1) per request)
+        Map<T, SuccessEvent<T>> successMap = new HashMap<>();
+        for (SuccessEvent<T> success : successes) {
+            T data = success.getData();
+            if (data != null) {
+                successMap.put(data, success);
+            }
+        }
+        
+        Map<T, FailureEvent<T>> failureMap = new HashMap<>();
+        for (FailureEvent<T> failure : failures) {
+            T data = failure.getData();
+            if (data != null) {
+                failureMap.put(data, failure);
+            }
+        }
+        
+        // Track used results for fallback logic
+        Map<T, Boolean> usedSuccesses = new HashMap<>();
+        Map<T, Boolean> usedFailures = new HashMap<>();
+        
+        // Build lists of unmatched results for fallback
+        List<SuccessEvent<T>> unmatchedSuccesses = new ArrayList<>();
+        List<FailureEvent<T>> unmatchedFailures = new ArrayList<>();
+        
+        // Map results back to requests using O(1) hash lookup
         long batchCompletionTime = System.nanoTime();
-        int successIdx = 0;
-        int failureIdx = 0;
         
         for (PendingRequest<T> req : batch) {
             recordMetrics(req, batchCompletionTime);
             
-            boolean matched = tryMatchSuccess(req, successes, successIdx);
-            if (matched) {
-                successIdx++;
-                continue;
+            T data = req.getData();
+            boolean matched = false;
+            
+            // Try to match with success (O(1) lookup)
+            SuccessEvent<T> success = successMap.get(data);
+            if (success != null && !usedSuccesses.getOrDefault(data, false)) {
+                metrics.recordRequestSucceeded();
+                req.getFuture().complete(new BatchResult<>(
+                    List.of(success),
+                    List.of()
+                ));
+                usedSuccesses.put(data, true);
+                matched = true;
             }
             
-            matched = tryMatchFailure(req, failures, failureIdx);
-            if (matched) {
-                failureIdx++;
-                continue;
+            // Try to match with failure if not already matched (O(1) lookup)
+            if (!matched) {
+                FailureEvent<T> failure = failureMap.get(data);
+                if (failure != null && !usedFailures.getOrDefault(data, false)) {
+                    Throwable error = failure.getError();
+                    
+                    if (retryManager.shouldRetry(data, error)) {
+                        retryManager.scheduleRetry(data, error, req.getFuture());
+                    } else {
+                        metrics.recordRequestFailed();
+                        req.getFuture().complete(new BatchResult<>(
+                            List.of(),
+                            List.of(failure)
+                        ));
+                    }
+                    usedFailures.put(data, true);
+                    matched = true;
+                }
             }
             
-            // Fallback: distribute proportionally
-            handleFallback(req, successes, failures, successIdx, failureIdx);
-            if (successIdx < successes.size()) {
-                successIdx++;
-            } else if (failureIdx < failures.size()) {
-                failureIdx++;
+            // Fallback: distribute proportionally if no exact match
+            if (!matched) {
+                // Collect unmatched results for fallback
+                if (unmatchedSuccesses.isEmpty() && unmatchedFailures.isEmpty()) {
+                    for (SuccessEvent<T> s : successes) {
+                        if (!usedSuccesses.getOrDefault(s.getData(), false)) {
+                            unmatchedSuccesses.add(s);
+                        }
+                    }
+                    for (FailureEvent<T> f : failures) {
+                        if (!usedFailures.getOrDefault(f.getData(), false)) {
+                            unmatchedFailures.add(f);
+                        }
+                    }
+                }
+                
+                handleFallback(req, unmatchedSuccesses, unmatchedFailures);
             }
         }
         
@@ -115,56 +178,35 @@ class ResultProcessor<T> {
         }
     }
     
-    private boolean tryMatchSuccess(PendingRequest<T> req, List<SuccessEvent<T>> successes, int successIdx) {
-        if (successIdx < successes.size()) {
-            T successData = successes.get(successIdx).getData();
-            if (successData != null && successData.equals(req.getData())) {
-                metrics.recordRequestSucceeded();
-                req.getFuture().complete(new BatchResult<>(
-                    List.of(successes.get(successIdx)),
-                    List.of()
-                ));
-                return true;
-            }
-        }
-        return false;
-    }
+    // Removed tryMatchSuccess and tryMatchFailure - now using hash-based lookup in processNonAtomicResults
     
-    private boolean tryMatchFailure(PendingRequest<T> req, List<FailureEvent<T>> failures, int failureIdx) {
-        if (failureIdx < failures.size()) {
-            T failureData = failures.get(failureIdx).getData();
-            if (failureData != null && failureData.equals(req.getData())) {
-                FailureEvent<T> failure = failures.get(failureIdx);
-                Throwable error = failure.getError();
-                
-                if (retryManager.shouldRetry(req.getData(), error)) {
-                    retryManager.scheduleRetry(req.getData(), error, req.getFuture());
-                } else {
-                    metrics.recordRequestFailed();
-                    req.getFuture().complete(new BatchResult<>(
-                        List.of(),
-                        List.of(failure)
-                    ));
-                }
-                return true;
-            }
-        }
-        return false;
-    }
-    
-    private void handleFallback(PendingRequest<T> req, List<SuccessEvent<T>> successes, 
-                                List<FailureEvent<T>> failures, int successIdx, int failureIdx) {
-        if (successIdx < successes.size()) {
+    private void handleFallback(PendingRequest<T> req, List<SuccessEvent<T>> unmatchedSuccesses, 
+                                List<FailureEvent<T>> unmatchedFailures) {
+        if (!unmatchedSuccesses.isEmpty()) {
+            // Use first unmatched success and remove it
+            SuccessEvent<T> success = unmatchedSuccesses.remove(0);
             metrics.recordRequestSucceeded();
             req.getFuture().complete(new BatchResult<>(
                 List.of(new SuccessEvent<>(req.getData())),
                 List.of()
             ));
-        } else {
-            Throwable failureError = failureIdx < failures.size() ?
-                failures.get(failureIdx).getError() :
-                new RuntimeException("Request failed in batch");
+        } else if (!unmatchedFailures.isEmpty()) {
+            // Use first unmatched failure and remove it
+            FailureEvent<T> failure = unmatchedFailures.remove(0);
+            Throwable failureError = failure.getError();
             
+            if (retryManager.shouldRetry(req.getData(), failureError)) {
+                retryManager.scheduleRetry(req.getData(), failureError, req.getFuture());
+            } else {
+                metrics.recordRequestFailed();
+                req.getFuture().complete(new BatchResult<>(
+                    List.of(),
+                    List.of(new FailureEvent<>(req.getData(), failureError))
+                ));
+            }
+        } else {
+            // No unmatched results available - treat as failure
+            Throwable failureError = new RuntimeException("Request failed in batch");
             if (retryManager.shouldRetry(req.getData(), failureError)) {
                 retryManager.scheduleRetry(req.getData(), failureError, req.getFuture());
             } else {

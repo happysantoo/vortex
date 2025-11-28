@@ -10,7 +10,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.LockSupport;
 
 /**
  * A lightweight micro-batcher that groups requests and dispatches them to a backend.
@@ -40,8 +40,10 @@ public class MicroBatcher<T> implements AutoCloseable {
     private volatile int currentBatchSize;
     private volatile Duration currentLingerTime;
     
+    // Cached configuration for performance
+    private final boolean debugMode;
+    
     // Helper classes
-    private final AtomicInteger queueDepth = new AtomicInteger(0);
     private final MetricsManager metrics;
     private final RetryManager<T> retryManager;
     private final ResultProcessor<T> resultProcessor;
@@ -89,15 +91,18 @@ public class MicroBatcher<T> implements AutoCloseable {
         this.currentBatchSize = config.getBatchSize();
         this.currentLingerTime = config.getLingerTime();
         
+        // Cache debug mode for performance (avoid repeated method calls in hot paths)
+        this.debugMode = config.isDebugMode();
+        
         // Initialize helper classes
         // NOTE: RetryManager and ResultProcessor receive this::submit as a parameter.
         // This creates a circular dependency, but it's safe because:
         // 1. The lambda captures 'this' but doesn't execute until after construction completes
         // 2. submit() checks 'closed' flag before processing, preventing issues during shutdown
         // 3. All required fields (queue, executor, metrics) are initialized before this point
-        this.metrics = new MetricsManager(meterRegistry, config, queueDepth);
-        this.retryManager = new RetryManager<>(config, executor, this::submit, () -> closed);
-        this.resultProcessor = new ResultProcessor<>(config, backend, metrics, retryManager, this::submit);
+        this.metrics = new MetricsManager(meterRegistry, config, queue);
+        this.retryManager = new RetryManager<>(config, executor, this::submit, () -> closed, debugMode);
+        this.resultProcessor = new ResultProcessor<>(config, backend, metrics, retryManager, this::submit, debugMode);
         
         // Start the batch processor
         startBatchProcessor();
@@ -132,7 +137,6 @@ public class MicroBatcher<T> implements AutoCloseable {
                 future.completeExceptionally(new RejectedExecutionException("Queue is full"));
                 return future;
             }
-            queueDepth.incrementAndGet();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             future.completeExceptionally(e);
@@ -181,10 +185,12 @@ public class MicroBatcher<T> implements AutoCloseable {
     }
     
     private void processBatch() throws InterruptedException {
-        List<PendingRequest<T>> batch = new ArrayList<>();
+        // Pre-size batch list to avoid resizing
+        int batchSize = currentBatchSize;
+        List<PendingRequest<T>> batch = new ArrayList<>(batchSize);
         
         Duration lingerTime = currentLingerTime;
-        int batchSize = currentBatchSize;
+        long lingerTimeNanos = lingerTime.toNanos();
         
         // Wait for first item with timeout based on linger time
         PendingRequest<T> first = queue.poll(lingerTime.toMillis(), TimeUnit.MILLISECONDS);
@@ -193,43 +199,40 @@ public class MicroBatcher<T> implements AutoCloseable {
         }
         
         batch.add(first);
-        queueDepth.decrementAndGet();
         
-        if (config.isDebugMode()) {
+        if (debugMode) {
             logger.debug("Starting batch formation, first item: {}", first.getData());
         }
         
         // Collect up to batchSize items, respecting linger time
-        long deadline = System.nanoTime() + lingerTime.toNanos();
+        long deadline = System.nanoTime() + lingerTimeNanos;
         while (batch.size() < batchSize) {
-            long remaining = deadline - System.nanoTime();
-            if (remaining <= 0) {
-                if (config.isDebugMode()) {
+            long remainingNanos = deadline - System.nanoTime();
+            if (remainingNanos <= 0) {
+                if (debugMode) {
                     logger.debug("Linger time elapsed, batch size: {}", batch.size());
                 }
                 break;
             }
             
-            PendingRequest<T> next = queue.poll(
-                Math.max(1, Duration.ofNanos(remaining).toMillis()),
-                TimeUnit.MILLISECONDS
-            );
+            // Convert nanos to millis directly (optimization: avoid Duration object creation)
+            long remainingMillis = Math.max(1, remainingNanos / 1_000_000);
+            PendingRequest<T> next = queue.poll(remainingMillis, TimeUnit.MILLISECONDS);
             if (next == null) {
-                if (config.isDebugMode()) {
+                if (debugMode) {
                     logger.debug("Timeout waiting for next item, batch size: {}", batch.size());
                 }
                 break;
             }
             batch.add(next);
-            queueDepth.decrementAndGet();
-            if (config.isDebugMode()) {
+            if (debugMode) {
                 logger.debug("Added item to batch, current size: {}, queue depth: {}", 
-                    batch.size(), queueDepth.get());
+                    batch.size(), queue.size());
             }
         }
         
         if (!batch.isEmpty()) {
-            if (config.isDebugMode()) {
+            if (debugMode) {
                 logger.debug("Dispatching batch of size: {}", batch.size());
             }
             dispatchBatch(batch);
@@ -243,11 +246,15 @@ public class MicroBatcher<T> implements AutoCloseable {
         
         metrics.recordBatchDispatched();
         
-        if (config.isDebugMode()) {
-            long waitTime = batch.stream()
-                .mapToLong(req -> System.nanoTime() - req.getTimestamp())
-                .sum() / batch.size();
-            logger.debug("Dispatching batch: size={}, avgWaitTimeNs={}", batch.size(), waitTime);
+        // Calculate average wait time inline (optimization: avoid stream overhead)
+        if (debugMode) {
+            long totalWait = 0;
+            long now = System.nanoTime();
+            for (PendingRequest<T> req : batch) {
+                totalWait += now - req.getTimestamp();
+            }
+            long avgWaitTime = totalWait / batch.size();
+            logger.debug("Dispatching batch: size={}, avgWaitTimeNs={}", batch.size(), avgWaitTime);
         }
         
         metrics.recordBatchSize(batch.size());
@@ -259,26 +266,28 @@ public class MicroBatcher<T> implements AutoCloseable {
             metrics.recordItemBatchSize(batch.size());
         }
         
-        List<T> dataList = batch.stream()
-            .map(PendingRequest::getData)
-            .toList();
+        // Create data list with pre-sized ArrayList (optimization: avoid stream overhead)
+        List<T> dataList = new ArrayList<>(batch.size());
+        for (PendingRequest<T> req : batch) {
+            dataList.add(req.getData());
+        }
         
         // Execute backend dispatch on a virtual thread
         executor.submit(() -> {
             try {
-                if (config.isDebugMode()) {
+                if (debugMode) {
                     logger.debug("Calling backend.dispatch() for batch of size: {}", dataList.size());
                 }
                 BatchResult<T> result = backend.dispatch(dataList);
                 metrics.recordBatchDispatchLatency(sample);
-                if (config.isDebugMode()) {
+                if (debugMode) {
                     logger.debug("Backend dispatch completed: successes={}, failures={}", 
                         result.getSuccesses().size(), result.getFailures().size());
                 }
                 resultProcessor.processResults(batch, result);
             } catch (Exception e) {
                 metrics.recordBatchDispatchLatency(sample);
-                if (config.isDebugMode()) {
+                if (debugMode) {
                     logger.debug("Backend dispatch failed", e);
                 }
                 resultProcessor.processFailure(batch, e);
@@ -314,11 +323,10 @@ public class MicroBatcher<T> implements AutoCloseable {
         // NOTE: This is a best-effort wait. Items submitted after close() is called
         // will be rejected, but items already in the queue will be processed.
         long deadline = System.currentTimeMillis() + CLOSE_QUEUE_WAIT_TIMEOUT_MS;
+        long pollIntervalNanos = TimeUnit.MILLISECONDS.toNanos(CLOSE_POLL_INTERVAL_MS);
         while (!queue.isEmpty() && System.currentTimeMillis() < deadline) {
-            try {
-                Thread.sleep(CLOSE_POLL_INTERVAL_MS);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
+            LockSupport.parkNanos(pollIntervalNanos);
+            if (Thread.currentThread().isInterrupted()) {
                 break;
             }
         }
@@ -339,9 +347,11 @@ public class MicroBatcher<T> implements AutoCloseable {
         List<PendingRequest<T>> remaining = new ArrayList<>();
         queue.drainTo(remaining);
         if (!remaining.isEmpty()) {
-            List<T> dataList = remaining.stream()
-                .map(PendingRequest::getData)
-                .toList();
+            // Create data list with pre-sized ArrayList (optimization: avoid stream overhead)
+            List<T> dataList = new ArrayList<>(remaining.size());
+            for (PendingRequest<T> req : remaining) {
+                dataList.add(req.getData());
+            }
             
             try {
                 BatchResult<T> result = backend.dispatch(dataList);
@@ -380,7 +390,7 @@ public class MicroBatcher<T> implements AutoCloseable {
             throw new IllegalArgumentException("Batch size must be positive");
         }
         
-        if (config.isDebugMode()) {
+        if (debugMode) {
             logger.debug("Updating batch size from {} to {}", currentBatchSize, newBatchSize);
         }
         
@@ -406,7 +416,7 @@ public class MicroBatcher<T> implements AutoCloseable {
             throw new IllegalArgumentException("Linger time must be non-negative");
         }
         
-        if (config.isDebugMode()) {
+        if (debugMode) {
             logger.debug("Updating linger time from {} to {}", currentLingerTime, newLingerTime);
         }
         

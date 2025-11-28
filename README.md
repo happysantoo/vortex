@@ -2,7 +2,7 @@
 
 A lightweight Java 21 library for micro-batching requests to any backend. Built with virtual threads, smart batching (size or time-based), comprehensive metrics, and production-ready features.
 
-**Version**: 0.0.2
+**Version**: 0.0.3
 
 ## Features
 
@@ -29,7 +29,7 @@ A lightweight Java 21 library for micro-batching requests to any backend. Built 
 <dependency>
     <groupId>com.vajrapulse</groupId>
     <artifactId>vortex</artifactId>
-    <version>0.0.2</version>
+    <version>0.0.3</version>
 </dependency>
 ```
 
@@ -37,7 +37,7 @@ A lightweight Java 21 library for micro-batching requests to any backend. Built 
 
 ```kotlin
 dependencies {
-    implementation("com.vajrapulse:vortex:0.0.2")
+    implementation("com.vajrapulse:vortex:0.0.3")
 }
 ```
 
@@ -58,10 +58,10 @@ Backend<String> backend = batch -> {
     
     for (String item : batch) {
         try {
-            // Process item (e.g., HTTP call, database query)
-            // Can throw Exception if processing fails
+        // Process item (e.g., HTTP call, database query)
+        // Can throw Exception if processing fails
             processItem(item);
-            successes.add(new SuccessEvent<>(item));
+        successes.add(new SuccessEvent<>(item));
         } catch (Exception e) {
             failures.add(new FailureEvent<>(item, e));
         }
@@ -378,27 +378,27 @@ Replay can be controlled in two ways:
 
 Implement `shouldReplaySuccesses()` in your Backend:
 
-```java
-Backend<String> backend = new Backend<String>() {
-    @Override
-    public BatchResult<String> dispatch(List<String> batch) throws Exception {
-        // Your dispatch logic
-        return new BatchResult<>(successes, failures);
-    }
-    
-    @Override
-    public boolean shouldReplaySuccesses(BatchResult<String> result) {
-        // Atomic backend: replay when there are failures
-        return !result.getFailures().isEmpty() && !result.getSuccesses().isEmpty();
-    }
-};
-```
+   ```java
+   Backend<String> backend = new Backend<String>() {
+       @Override
+       public BatchResult<String> dispatch(List<String> batch) throws Exception {
+           // Your dispatch logic
+           return new BatchResult<>(successes, failures);
+       }
+       
+       @Override
+       public boolean shouldReplaySuccesses(BatchResult<String> result) {
+           // Atomic backend: replay when there are failures
+           return !result.getFailures().isEmpty() && !result.getSuccesses().isEmpty();
+       }
+   };
+   ```
 
 #### 2. Config Fallback
 
 Use `autoReplaySuccesses(true)` in BatcherConfig:
-- Only used if backend doesn't override `shouldReplaySuccesses()`
-- Default: `false`
+   - Only used if backend doesn't override `shouldReplaySuccesses()`
+   - Default: `false`
 
 ### Behavior
 
@@ -588,7 +588,7 @@ future.exceptionally(throwable -> {
 
 ### Breaking Changes
 
-None - 0.0.2 is backward compatible with 0.0.1.
+None - 0.0.3 is backward compatible with 0.0.2 and 0.0.1.
 
 ### New Features
 

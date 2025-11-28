@@ -2,8 +2,8 @@ package com.vajrapulse.vortex;
 
 import io.micrometer.core.instrument.*;
 
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Manages all metrics for the MicroBatcher.
@@ -12,7 +12,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 class MetricsManager {
     private final MeterRegistry meterRegistry;
     private final BatcherConfig config;
-    private final AtomicInteger queueDepth;
+    private final BlockingQueue<?> queue;
     
     // Core metrics
     private final Counter requestsSubmitted;
@@ -30,10 +30,10 @@ class MetricsManager {
     private final Timer itemWaitTime;
     private final DistributionSummary itemBatchSize;
     
-    MetricsManager(MeterRegistry meterRegistry, BatcherConfig config, AtomicInteger queueDepth) {
+    MetricsManager(MeterRegistry meterRegistry, BatcherConfig config, BlockingQueue<?> queue) {
         this.meterRegistry = meterRegistry;
         this.config = config;
-        this.queueDepth = queueDepth;
+        this.queue = queue;
         
         // Initialize core metrics
         this.requestsSubmitted = Counter.builder("vortex.requests.submitted")
@@ -90,8 +90,8 @@ class MetricsManager {
             this.itemBatchSize = null;
         }
         
-        // Register queue depth gauge
-        Gauge.builder("vortex.queue.depth", queueDepth, AtomicInteger::get)
+        // Register queue depth gauge (use queue.size() directly - optimization: no redundant tracking)
+        Gauge.builder("vortex.queue.depth", queue, BlockingQueue::size)
             .description("Current depth of the request queue")
             .register(meterRegistry);
     }
