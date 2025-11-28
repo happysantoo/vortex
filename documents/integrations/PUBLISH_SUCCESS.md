@@ -1,6 +1,13 @@
 # Maven Central Publishing - SUCCESS! ✅
 
-## Deployment Status
+## Latest Deployment Status (0.0.2)
+
+**Deployment ID**: `dfd8dadc-020e-421f-a7fa-44be74fee97c`  
+**Version**: `0.0.2`  
+**Status**: Uploaded successfully, processing by Central Portal  
+**Date**: November 28, 2025
+
+## Previous Deployment (0.0.1)
 
 **Deployment ID**: `eed6d204-1832-47eb-aac6-10aba1df878a`  
 **Version**: `0.0.1`  
@@ -19,8 +26,10 @@ The vajrapulse project uses a **direct API approach** with the Central Portal, n
 
 2. **Create Bundle and Upload**:
    ```bash
-   ./scripts/publish-to-central.sh 0.0.1
+   ./scripts/publish-to-central.sh
    ```
+   
+   **Note**: The script now auto-detects the version from `build.gradle.kts`, so you don't need to pass the version argument. You can still override it if needed: `./scripts/publish-to-central.sh 0.0.3`
 
 The script:
 - Verifies all artifacts exist (jar, pom, sources, javadoc)
@@ -43,7 +52,8 @@ The token is `base64(username:password)` and is stored in `~/.gradle/gradle.prop
 Monitor deployment at: https://central.sonatype.com/
 
 After processing (usually a few minutes), artifacts will be available at:
-- https://repo1.maven.org/maven2/com/vajrapulse/vortex/0.0.1/
+- https://repo1.maven.org/maven2/com/vajrapulse/vortex/0.0.2/
+- https://repo1.maven.org/maven2/com/vajrapulse/vortex/0.0.1/ (previous version)
 
 ## Why This Approach
 

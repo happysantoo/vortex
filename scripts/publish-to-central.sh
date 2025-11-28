@@ -4,7 +4,20 @@
 
 set -euo pipefail
 
-VERSION="${1:-0.0.1}"
+# Read version from build.gradle.kts if not provided as argument
+if [[ -z "${1:-}" ]]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+    VERSION=$(grep 'version =' "${PROJECT_ROOT}/build.gradle.kts" | sed 's/.*version = "\(.*\)".*/\1/')
+    if [[ -z "${VERSION}" ]] || [[ "${VERSION}" == *"version"* ]]; then
+        echo "ERROR: Could not determine version from build.gradle.kts"
+        echo "Please provide version as argument: $0 <version>"
+        exit 1
+    fi
+    echo "Auto-detected version from build.gradle.kts: ${VERSION}"
+else
+    VERSION="${1}"
+fi
 GROUP_PATH="com/vajrapulse"
 ARTIFACT="vortex"
 REPO_ROOT="${HOME}/.m2/repository"
