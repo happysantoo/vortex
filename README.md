@@ -632,6 +632,8 @@ future.exceptionally(throwable -> {
 - Consider increasing `maxQueueSize` for high-throughput scenarios
 - Use `submitWithCallback()` for cleaner error handling
 
+**For detailed backpressure handling strategies, see [Backpressure Guide](documents/guides/BACKPRESSURE_GUIDE.md)**
+
 ### Performance Tuning
 
 - Enable `perItemMetrics` only when needed (adds overhead)

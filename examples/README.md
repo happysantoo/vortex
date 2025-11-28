@@ -30,11 +30,16 @@ java -cp "$(./gradlew -q printClasspath):examples" com.vajrapulse.vortex.example
 - **TimeBasedBatchingExample.java** - Time-based batching (linger time)
 - **MetricsExample.java** - Metrics collection and monitoring
 - **AdaptiveBatchingExample.java** - Adaptive batching using MetricsProvider (NEW in 0.0.3)
+- **BackpressureExample.java** - Comprehensive backpressure handling examples (NEW in 0.0.3)
+  - Basic backpressure detection
+  - Proactive monitoring
+  - Retry with exponential backoff
+  - Circuit breaker pattern
+  - Rate limiting strategy
 - **HttpBackendExample.java** - HTTP backend integration
 - **CustomBackendReplayExample.java** - Custom backend with replay logic
 - **ExampleUsage.java** - Comprehensive usage example with submitWithCallback
 - **ExampleUsageSimplified.java** - Multiple usage patterns (fire-and-forget, callbacks, etc.)
-- **ExampleUsageWithBackpressure.java** - Backpressure handling and queue management
 
 ## Prerequisites
 
