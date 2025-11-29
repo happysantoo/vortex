@@ -584,6 +584,53 @@ For a detailed explanation of the architecture, request flow, and design decisio
 - Use `retryDelay` to avoid overwhelming backends
 - Monitor `vortex.requests.failed` metric
 
+### Observability and Tracing (Phase 1)
+
+Vortex is designed to integrate cleanly with tracing and observability systems without adding extra dependencies.
+
+- **Tracing Hook**: Configure an optional `BatchTracingHook` via `BatcherConfig`:
+
+```java
+BatchTracingHook tracingHook = new BatchTracingHook() {
+    @Override
+    public void onSubmit(Object item) {
+        // Start or link a span for item submission
+    }
+
+    @Override
+    public void onBatchDispatchStart(List<?> batchItems) {
+        // Record batch dispatch start
+    }
+
+    @Override
+    public void onBatchDispatchSuccess(List<?> batchItems, BatchResult<?> result) {
+        // Record successful dispatch
+    }
+
+    @Override
+    public void onBatchDispatchFailure(List<?> batchItems, Throwable error) {
+        // Record failed dispatch
+    }
+
+    @Override
+    public void onRetry(Object item, Throwable cause) {
+        // Record retry event
+    }
+};
+
+BatcherConfig config = BatcherConfig.builder()
+    .batchSize(10)
+    .lingerTime(Duration.ofMillis(50))
+    .tracingHook(tracingHook)
+    .build();
+```
+
+- **MetricsProvider Enhancements**:
+  - `getTotalRetried()` - total number of retried requests
+  - `getTotalRejected()` - total number of requests rejected due to backpressure
+
+These hooks and metrics can be wired into OpenTelemetry, Zipkin, or any other observability stack by implementing `BatchTracingHook` in your application.
+
 ### Backpressure Handling
 
 The library provides built-in backpressure control through configurable queue size:

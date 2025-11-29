@@ -20,6 +20,8 @@ class MetricsManager {
     private final Counter requestsSucceeded;
     private final Counter requestsFailed;
     private final Counter requestsReplayed;
+    private final Counter requestsRetried;
+    private final Counter requestsRejected;
     private final Timer batchDispatchLatency;
     private final Timer requestWaitLatency;
     private final Timer queueWaitTime;
@@ -54,6 +56,14 @@ class MetricsManager {
         
         this.requestsReplayed = Counter.builder("vortex.requests.replayed")
             .description("Total number of successful requests that were replayed")
+            .register(meterRegistry);
+        
+        this.requestsRetried = Counter.builder("vortex.requests.retried")
+            .description("Total number of requests that were retried")
+            .register(meterRegistry);
+        
+        this.requestsRejected = Counter.builder("vortex.requests.rejected")
+            .description("Total number of requests rejected due to backpressure (queue full)")
             .register(meterRegistry);
         
         this.batchDispatchLatency = Timer.builder("vortex.batch.dispatch.latency")
@@ -114,6 +124,14 @@ class MetricsManager {
     
     void recordRequestReplayed() {
         requestsReplayed.increment();
+    }
+    
+    void recordRequestRetried() {
+        requestsRetried.increment();
+    }
+    
+    void recordRequestRejected() {
+        requestsRejected.increment();
     }
     
     Timer.Sample startBatchDispatchTimer() {
@@ -191,6 +209,16 @@ class MetricsManager {
             @Override
             public long getTotalReplayed() {
                 return (long) requestsReplayed.count();
+            }
+            
+            @Override
+            public long getTotalRetried() {
+                return (long) requestsRetried.count();
+            }
+            
+            @Override
+            public long getTotalRejected() {
+                return (long) requestsRejected.count();
             }
             
             @Override

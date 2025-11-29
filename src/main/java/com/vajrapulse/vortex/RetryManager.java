@@ -20,17 +20,20 @@ class RetryManager<T> {
     private final ExecutorService executor;
     private final Function<T, CompletableFuture<BatchResult<T>>> submitFunction;
     private final java.util.function.Supplier<Boolean> isClosedSupplier;
+    private final MetricsManager metrics;
     private final ConcurrentHashMap<T, AtomicInteger> retryCounts = new ConcurrentHashMap<>();
     private final boolean debugMode;
     
-    RetryManager(BatcherConfig config, ExecutorService executor, 
+    RetryManager(BatcherConfig config, ExecutorService executor,
                  Function<T, CompletableFuture<BatchResult<T>>> submitFunction,
                  java.util.function.Supplier<Boolean> isClosedSupplier,
+                 MetricsManager metrics,
                  boolean debugMode) {
         this.config = config;
         this.executor = executor;
         this.submitFunction = submitFunction;
         this.isClosedSupplier = isClosedSupplier;
+        this.metrics = metrics;
         this.debugMode = debugMode;
     }
     
@@ -52,6 +55,7 @@ class RetryManager<T> {
     void scheduleRetry(T item, Throwable error, CompletableFuture<BatchResult<T>> originalFuture) {
         AtomicInteger retryCount = retryCounts.computeIfAbsent(item, k -> new AtomicInteger(0));
         int currentRetries = retryCount.incrementAndGet();
+        metrics.recordRequestRetried();
         
         if (debugMode) {
             logger.debug("Scheduling retry {} for item: {}, error: {}", 

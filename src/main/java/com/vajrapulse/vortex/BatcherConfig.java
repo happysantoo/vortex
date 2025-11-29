@@ -17,6 +17,7 @@ public class BatcherConfig {
     private final Duration retryDelay;
     private final Predicate<Throwable> retryableErrorPredicate;
     private final int maxQueueSize;
+    private final BatchTracingHook tracingHook;
     
     /**
      * Private constructor for BatcherConfig.
@@ -35,6 +36,7 @@ public class BatcherConfig {
         this.retryableErrorPredicate = builder.retryableErrorPredicate;
         // Default to 2x batch size if not explicitly set
         this.maxQueueSize = builder.maxQueueSize != null ? builder.maxQueueSize : builder.batchSize * 2;
+        this.tracingHook = builder.tracingHook;
     }
     
     /**
@@ -128,6 +130,21 @@ public class BatcherConfig {
     }
     
     /**
+     * Gets the optional tracing hook.
+     *
+     * <p>When configured, the tracing hook receives notifications about key
+     * lifecycle events (submissions, batch dispatch, retries). This can be used
+     * to integrate with tracing or observability systems without adding
+     * additional dependencies to the core library.
+     *
+     * @return the tracing hook, or {@code null} if not configured
+     * @since 0.0.3
+     */
+    public BatchTracingHook getTracingHook() {
+        return tracingHook;
+    }
+    
+    /**
      * Creates a new builder instance.
      * 
      * @return a new Builder instance
@@ -150,6 +167,7 @@ public class BatcherConfig {
         private Duration retryDelay = Duration.ZERO;
         private Predicate<Throwable> retryableErrorPredicate = t -> false;
         private Integer maxQueueSize = null; // null means use default (2x batchSize)
+        private BatchTracingHook tracingHook = null;
         
         /**
          * Sets the batch size.
@@ -301,6 +319,28 @@ public class BatcherConfig {
                     "Max queue size (" + maxQueueSize + ") must be at least equal to batch size (" + batchSize + ")");
             }
             this.maxQueueSize = maxQueueSize;
+            return this;
+        }
+        
+        /**
+         * Sets an optional tracing hook for observability.
+         *
+         * <p>The tracing hook is notified of key lifecycle events such as:
+         * <ul>
+         *   <li>Item submissions</li>
+         *   <li>Batch dispatch start/success/failure</li>
+         *   <li>Scheduled retries</li>
+         * </ul>
+         *
+         * <p>This allows applications to integrate Vortex with tracing systems
+         * such as OpenTelemetry without introducing additional dependencies in
+         * the core library.
+         *
+         * @param tracingHook the tracing hook implementation (may be null)
+         * @return this builder instance
+         */
+        public Builder tracingHook(BatchTracingHook tracingHook) {
+            this.tracingHook = tracingHook;
             return this;
         }
         

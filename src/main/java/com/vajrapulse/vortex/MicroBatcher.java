@@ -42,6 +42,7 @@ public class MicroBatcher<T> implements AutoCloseable {
     
     // Cached configuration for performance
     private final boolean debugMode;
+    private final BatchTracingHook tracingHook;
     
     // Helper classes
     private final MetricsManager metrics;
@@ -91,8 +92,9 @@ public class MicroBatcher<T> implements AutoCloseable {
         this.currentBatchSize = config.getBatchSize();
         this.currentLingerTime = config.getLingerTime();
         
-        // Cache debug mode for performance (avoid repeated method calls in hot paths)
+        // Cached configuration for performance / observability
         this.debugMode = config.isDebugMode();
+        this.tracingHook = config.getTracingHook();
         
         // Initialize helper classes
         // NOTE: RetryManager and ResultProcessor receive this::submit as a parameter.
@@ -101,7 +103,7 @@ public class MicroBatcher<T> implements AutoCloseable {
         // 2. submit() checks 'closed' flag before processing, preventing issues during shutdown
         // 3. All required fields (queue, executor, metrics) are initialized before this point
         this.metrics = new MetricsManager(meterRegistry, config, queue);
-        this.retryManager = new RetryManager<>(config, executor, this::submit, () -> closed, debugMode);
+        this.retryManager = new RetryManager<>(config, executor, this::submit, () -> closed, metrics, debugMode);
         this.resultProcessor = new ResultProcessor<>(config, backend, metrics, retryManager, this::submit, debugMode);
         
         // Start the batch processor
@@ -128,12 +130,23 @@ public class MicroBatcher<T> implements AutoCloseable {
             throw new IllegalStateException("MicroBatcher is closed");
         }
         
+        if (tracingHook != null) {
+            try {
+                tracingHook.onSubmit(data);
+            } catch (Exception e) {
+                if (debugMode) {
+                    logger.debug("Tracing hook onSubmit failed", e);
+                }
+            }
+        }
+        
         metrics.recordRequestSubmitted();
         CompletableFuture<BatchResult<T>> future = new CompletableFuture<>();
         PendingRequest<T> request = new PendingRequest<>(data, future);
         
         try {
             if (!queue.offer(request, QUEUE_OFFER_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
+                metrics.recordRequestRejected();
                 future.completeExceptionally(new RejectedExecutionException("Queue is full"));
                 return future;
             }
@@ -244,6 +257,22 @@ public class MicroBatcher<T> implements AutoCloseable {
             return;
         }
         
+        // Build data list once so it can be reused for dispatch, metrics, and tracing
+        List<T> dataList = new ArrayList<>(batch.size());
+        for (PendingRequest<T> req : batch) {
+            dataList.add(req.getData());
+        }
+        
+        if (tracingHook != null) {
+            try {
+                tracingHook.onBatchDispatchStart(dataList);
+            } catch (Exception e) {
+                if (debugMode) {
+                    logger.debug("Tracing hook onBatchDispatchStart failed", e);
+                }
+            }
+        }
+        
         metrics.recordBatchDispatched();
         
         // Calculate average wait time inline (optimization: avoid stream overhead)
@@ -266,12 +295,6 @@ public class MicroBatcher<T> implements AutoCloseable {
             metrics.recordItemBatchSize(batch.size());
         }
         
-        // Create data list with pre-sized ArrayList (optimization: avoid stream overhead)
-        List<T> dataList = new ArrayList<>(batch.size());
-        for (PendingRequest<T> req : batch) {
-            dataList.add(req.getData());
-        }
-        
         // Execute backend dispatch on a virtual thread
         executor.submit(() -> {
             try {
@@ -280,6 +303,15 @@ public class MicroBatcher<T> implements AutoCloseable {
                 }
                 BatchResult<T> result = backend.dispatch(dataList);
                 metrics.recordBatchDispatchLatency(sample);
+                if (tracingHook != null) {
+                    try {
+                        tracingHook.onBatchDispatchSuccess(dataList, result);
+                    } catch (Exception e) {
+                        if (debugMode) {
+                            logger.debug("Tracing hook onBatchDispatchSuccess failed", e);
+                        }
+                    }
+                }
                 if (debugMode) {
                     logger.debug("Backend dispatch completed: successes={}, failures={}", 
                         result.getSuccesses().size(), result.getFailures().size());
@@ -287,6 +319,15 @@ public class MicroBatcher<T> implements AutoCloseable {
                 resultProcessor.processResults(batch, result);
             } catch (Exception e) {
                 metrics.recordBatchDispatchLatency(sample);
+                if (tracingHook != null) {
+                    try {
+                        tracingHook.onBatchDispatchFailure(dataList, e);
+                    } catch (Exception hookError) {
+                        if (debugMode) {
+                            logger.debug("Tracing hook onBatchDispatchFailure failed", hookError);
+                        }
+                    }
+                }
                 if (debugMode) {
                     logger.debug("Backend dispatch failed", e);
                 }

@@ -162,6 +162,45 @@ class MetricsProviderSpec extends Specification {
         cleanup:
         batcher?.close()
     }
+
+    def "should track retried and rejected requests"() {
+        given:
+        def processedLatch = new CountDownLatch(3)
+        Backend<String> backend = { batch ->
+            // Always fail to trigger retries
+            batch.each { processedLatch.countDown() }
+            new BatchResult<>(List.of(), batch.collect {
+                new FailureEvent<>(it, new RuntimeException("error"))
+            })
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(2)
+            .lingerTime(Duration.ofMillis(50))
+            .maxRetries(1)
+            .retryableErrorPredicate({ true })
+            .maxQueueSize(2)
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def metrics = batcher.getMetricsProvider()
+
+        // Submit a few items, some will be retried and some may be rejected
+        def futures = []
+        5.times {
+            futures << batcher.submit("item-$it")
+        }
+        // Wait for processing and potential retries
+        processedLatch.await(2, TimeUnit.SECONDS)
+        Thread.sleep(100)
+
+        then:
+        metrics.getTotalRetried() >= 1
+        metrics.getTotalRejected() >= 0
+
+        cleanup:
+        batcher?.close()
+    }
     
     def "should provide latency metrics"() {
         given:

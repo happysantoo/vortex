@@ -92,7 +92,7 @@ public interface MetricsProvider {
      * 
      * @return total number of replayed requests
      */
-    long getTotalReplayed();
+            long getTotalReplayed();
     
     /**
      * Returns the current depth of the request queue.
@@ -109,7 +109,30 @@ public interface MetricsProvider {
      * 
      * @return total number of batches dispatched
      */
-    long getTotalBatchesDispatched();
+            long getTotalBatchesDispatched();
+
+            /**
+             * Returns the total number of requests that were retried.
+             *
+             * <p>This includes all retry attempts scheduled due to transient
+             * failures that matched the configured retry predicate.
+             *
+             * @return total number of retried requests
+             * @since 0.0.3
+             */
+            long getTotalRetried();
+
+            /**
+             * Returns the total number of requests that were rejected due to backpressure.
+             *
+             * <p>Rejections occur when the internal queue is full (reached
+             * {@code maxQueueSize}) and {@code submit()} cannot enqueue the
+             * request within the configured offer timeout.
+             *
+             * @return total number of rejected requests
+             * @since 0.0.3
+             */
+            long getTotalRejected();
     
     /**
      * Returns the average batch dispatch latency in milliseconds.
