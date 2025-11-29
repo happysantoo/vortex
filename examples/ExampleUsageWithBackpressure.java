@@ -59,10 +59,10 @@ public class ExampleUsageWithBackpressure {
             // OPTION 1: Handle RejectedExecutionException in callback
             // When queue is full, the future completes exceptionally
             System.out.println("=== Submitting 20 items (queue max = 10) ===");
-            for (int i = 0; i < 20; i++) {
-                final int idx = i;
+            for (int requestIndex = 0; requestIndex < 20; requestIndex++) {
+                final int requestId = requestIndex;
                 CompletableFuture<Void> callback = batcher.submitWithCallback(
-                    "Request-" + idx,
+                    "Request-" + requestId,
                     (item, result) -> {
                         if (result instanceof ItemResult.Success) {
                             successes.incrementAndGet();
@@ -78,12 +78,12 @@ public class ExampleUsageWithBackpressure {
                 callback.exceptionally(throwable -> {
                     if (throwable.getCause() instanceof RejectedExecutionException) {
                         rejections.incrementAndGet();
-                        System.out.println("⚠ Request " + idx + " REJECTED: Queue is full");
+                        System.out.println("⚠ Request " + requestId + " REJECTED: Queue is full");
                         // Option: Retry, log, or send to dead letter queue
                         return null;
                     }
                     // Other exceptions
-                    System.out.println("⚠ Request " + idx + " ERROR: " + throwable.getMessage());
+                    System.out.println("⚠ Request " + requestId + " ERROR: " + throwable.getMessage());
                     return null;
                 });
                 

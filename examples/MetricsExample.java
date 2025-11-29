@@ -36,8 +36,8 @@ public class MetricsExample {
         try (MicroBatcher<String> batcher = new MicroBatcher<>(backend, config, registry)) {
             List<CompletableFuture<BatchResult<String>>> futures = new ArrayList<>();
             
-            for (int i = 0; i < 20; i++) {
-                futures.add(batcher.submit("Item-" + i));
+            for (int itemIndex = 0; itemIndex < 20; itemIndex++) {
+                futures.add(batcher.submit("Item-" + itemIndex));
             }
             
             // Wait for all to complete

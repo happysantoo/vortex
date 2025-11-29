@@ -31,8 +31,8 @@ public class TimeBasedBatchingExample {
         
         try (MicroBatcher<String> batcher = new MicroBatcher<>(backend, config)) {
             // Submit items slowly - they'll batch by time, not size
-            for (int i = 0; i < 5; i++) {
-                batcher.submit("Item-" + i);
+            for (int itemIndex = 0; itemIndex < 5; itemIndex++) {
+                batcher.submit("Item-" + itemIndex);
                 Thread.sleep(100); // Submit every 100ms
             }
             

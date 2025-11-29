@@ -44,29 +44,31 @@ public class AdaptiveBatchingExample {
             MetricsProvider metrics = batcher.getMetricsProvider();
             
             // Adaptive batching loop
-            for (int i = 0; i < 100; i++) {
+            for (int requestIndex = 0; requestIndex < 100; requestIndex++) {
                 // Check metrics and adjust batch size
                 double failureRate = metrics.getFailureRate();
                 int queueDepth = metrics.getQueueDepth();
                 
-                if (i > 0 && i % 10 == 0) { // Adjust every 10 items
+                if (requestIndex > 0 && requestIndex % 10 == 0) { // Adjust every 10 items
                     if (failureRate > 0.2) {
                         // High failure rate - reduce batch size
-                        int newSize = Math.max(2, batcher.getCurrentBatchSize() - 2);
-                        batcher.updateBatchSize(newSize);
+                        int currentBatchSize = batcher.diagnostics().getCurrentBatchSize();
+                        int newBatchSize = Math.max(2, currentBatchSize - 2);
+                        batcher.updateBatchSize(newBatchSize);
                         System.out.printf("High failure rate (%.2f%%) - Reducing batch size to %d%n", 
-                            failureRate * 100, newSize);
+                            failureRate * 100, newBatchSize);
                     } else if (failureRate < 0.05 && queueDepth < 5) {
                         // Low failure rate and low queue - increase batch size
-                        int newSize = Math.min(20, batcher.getCurrentBatchSize() + 2);
-                        batcher.updateBatchSize(newSize);
+                        int currentBatchSize = batcher.diagnostics().getCurrentBatchSize();
+                        int newBatchSize = Math.min(20, currentBatchSize + 2);
+                        batcher.updateBatchSize(newBatchSize);
                         System.out.printf("Low failure rate (%.2f%%) - Increasing batch size to %d%n", 
-                            failureRate * 100, newSize);
+                            failureRate * 100, newBatchSize);
                     }
                 }
                 
                 // Submit items (mix of success and failure)
-                String item = (i % 5 == 0) ? "fail-" + i : "success-" + i;
+                String item = (requestIndex % 5 == 0) ? "fail-" + requestIndex : "success-" + requestIndex;
                 batcher.submit(item);
                 
                 Thread.sleep(10);

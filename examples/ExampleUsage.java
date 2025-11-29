@@ -61,15 +61,15 @@ public class ExampleUsage {
             // - If queue is full, submit() waits up to 100ms, then rejects with RejectedExecutionException
             // - Always handle exceptions to detect backpressure!
             List<CompletableFuture<Void>> callbacks = new ArrayList<>();
-            for (int i = 0; i < 15; i++) {
-                final int idx = i;
+            for (int requestIndex = 0; requestIndex < 15; requestIndex++) {
+                final int requestId = requestIndex;
                 CompletableFuture<Void> callback = batcher.submitWithCallback(
-                    "Request-" + idx,
+                    "Request-" + requestId,
                     (item, result) -> {
                         if (result instanceof ItemResult.Success) {
-                            System.out.println("Request " + idx + " succeeded: " + item);
+                            System.out.println("Request " + requestId + " succeeded: " + item);
                         } else if (result instanceof ItemResult.Failure) {
-                            System.out.println("Request " + idx + " failed: " + 
+                            System.out.println("Request " + requestId + " failed: " + 
                                 ((ItemResult.Failure<String>) result).error().getMessage());
                         }
                     }
@@ -78,10 +78,10 @@ public class ExampleUsage {
                 // Handle backpressure: queue full or other errors
                 callback.exceptionally(throwable -> {
                     if (throwable.getCause() instanceof RejectedExecutionException) {
-                        System.err.println("⚠ Request " + idx + " REJECTED: Queue is full (backpressure)");
+                        System.err.println("⚠ Request " + requestId + " REJECTED: Queue is full (backpressure)");
                         // Options: retry, log, send to dead letter queue, or fail fast
                     } else {
-                        System.err.println("⚠ Request " + idx + " ERROR: " + throwable.getMessage());
+                        System.err.println("⚠ Request " + requestId + " ERROR: " + throwable.getMessage());
                     }
                     return null; // Complete exceptionally handled
                 });

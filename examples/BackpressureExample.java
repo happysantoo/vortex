@@ -69,8 +69,8 @@ public class BackpressureExample {
             
             // Submit more items than the queue can handle
             List<CompletableFuture<BatchResult<String>>> futures = new ArrayList<>();
-            for (int i = 0; i < 50; i++) {
-                final int itemId = i;
+            for (int itemIndex = 0; itemIndex < 50; itemIndex++) {
+                final int itemId = itemIndex;
                 CompletableFuture<BatchResult<String>> future = batcher.submit("item-" + itemId);
                 
                 future.whenComplete((result, throwable) -> {
@@ -125,7 +125,7 @@ public class BackpressureExample {
             MetricsProvider metrics = batcher.getMetricsProvider();
             
             // Simulate high load with monitoring
-            for (int i = 0; i < 100; i++) {
+            for (int requestIndex = 0; requestIndex < 100; requestIndex++) {
                 // Check queue depth before submitting
                 int queueDepth = metrics.getQueueDepth();
                 int maxQueueSize = config.getMaxQueueSize();
@@ -141,7 +141,7 @@ public class BackpressureExample {
                     Thread.sleep(10);
                 }
                 
-                batcher.submit("item-" + i)
+                batcher.submit("item-" + requestIndex)
                     .whenComplete((result, throwable) -> {
                         if (throwable instanceof RejectedExecutionException) {
                             System.out.println("  ❌ Rejection occurred despite monitoring!");
@@ -188,8 +188,8 @@ public class BackpressureExample {
             AtomicInteger retryCount = new AtomicInteger(0);
             
             // Submit with retry logic
-            for (int i = 0; i < 30; i++) {
-                final int itemId = i;
+            for (int itemIndex = 0; itemIndex < 30; itemIndex++) {
+                final int itemId = itemIndex;
                 submitWithRetry(batcher, "item-" + itemId, 0, successCount, retryCount);
             }
             
@@ -269,7 +269,7 @@ public class BackpressureExample {
             
             CircuitBreaker circuitBreaker = new CircuitBreaker(0.3, 5); // 30% threshold, 5 consecutive failures
             
-            for (int i = 0; i < 50; i++) {
+            for (int requestIndex = 0; requestIndex < 50; requestIndex++) {
                 // Check circuit breaker state
                 if (circuitBreaker.isOpen()) {
                     System.out.println("  🔴 Circuit breaker OPEN - Rejecting submissions");
@@ -277,7 +277,7 @@ public class BackpressureExample {
                     continue;
                 }
                 
-                CompletableFuture<BatchResult<String>> future = batcher.submit("item-" + i);
+                CompletableFuture<BatchResult<String>> future = batcher.submit("item-" + requestIndex);
                 
                 future.whenComplete((result, throwable) -> {
                     if (throwable instanceof RejectedExecutionException) {

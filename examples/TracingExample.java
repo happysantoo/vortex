@@ -135,8 +135,8 @@ public class TracingExample {
         try (MicroBatcher<String> batcher = new MicroBatcher<>(backend, config)) {
             System.out.println("Submitting 5 items...\n");
             
-            for (int i = 0; i < 5; i++) {
-                CompletableFuture<BatchResult<String>> future = batcher.submit("Item-" + i);
+            for (int itemIndex = 0; itemIndex < 5; itemIndex++) {
+                CompletableFuture<BatchResult<String>> future = batcher.submit("Item-" + itemIndex);
                 future.thenAccept(result -> 
                     System.out.println("Result: " + result.getSuccesses().size() + " successes\n")
                 );
@@ -157,8 +157,8 @@ public class TracingExample {
         try (MicroBatcher<String> otelBatcher = new MicroBatcher<>(backend, otelConfig)) {
             System.out.println("Submitting 3 items with OTEL-style tracing...\n");
             
-            for (int i = 0; i < 3; i++) {
-                otelBatcher.submit("OTEL-Item-" + i);
+            for (int itemIndex = 0; itemIndex < 3; itemIndex++) {
+                otelBatcher.submit("OTEL-Item-" + itemIndex);
             }
             
             Thread.sleep(300); // Wait for processing
