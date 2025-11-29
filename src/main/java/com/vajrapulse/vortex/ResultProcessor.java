@@ -87,6 +87,9 @@ class ResultProcessor<T> {
         }
         
         // Build hash maps for O(1) lookup (optimization: O(n) -> O(1) per request)
+        // Note: If backend returns multiple results with the same data value, only the last one
+        // will be retained in the map. This is expected behavior - backends should return unique
+        // data values per request, or handle duplicates explicitly.
         Map<T, SuccessEvent<T>> successMap = new HashMap<>();
         for (SuccessEvent<T> success : successes) {
             T data = success.getData();
@@ -106,10 +109,6 @@ class ResultProcessor<T> {
         // Track used results for fallback logic
         Map<T, Boolean> usedSuccesses = new HashMap<>();
         Map<T, Boolean> usedFailures = new HashMap<>();
-        
-        // Build lists of unmatched results for fallback
-        List<SuccessEvent<T>> unmatchedSuccesses = new ArrayList<>();
-        List<FailureEvent<T>> unmatchedFailures = new ArrayList<>();
         
         // Map results back to requests using O(1) hash lookup
         long batchCompletionTime = System.nanoTime();
@@ -151,23 +150,31 @@ class ResultProcessor<T> {
                     matched = true;
                 }
             }
+        }
+        
+        // Collect unmatched results once after all exact matches are found
+        List<SuccessEvent<T>> unmatchedSuccesses = new ArrayList<>();
+        for (SuccessEvent<T> s : successes) {
+            if (!usedSuccesses.getOrDefault(s.getData(), false)) {
+                unmatchedSuccesses.add(s);
+            }
+        }
+        
+        List<FailureEvent<T>> unmatchedFailures = new ArrayList<>();
+        for (FailureEvent<T> f : failures) {
+            if (!usedFailures.getOrDefault(f.getData(), false)) {
+                unmatchedFailures.add(f);
+            }
+        }
+        
+        // Handle unmatched requests with fallback distribution
+        for (PendingRequest<T> req : batch) {
+            // Check if this request was matched in the first pass
+            T data = req.getData();
+            boolean wasMatched = usedSuccesses.getOrDefault(data, false) || 
+                                usedFailures.getOrDefault(data, false);
             
-            // Fallback: distribute proportionally if no exact match
-            if (!matched) {
-                // Collect unmatched results for fallback
-                if (unmatchedSuccesses.isEmpty() && unmatchedFailures.isEmpty()) {
-                    for (SuccessEvent<T> s : successes) {
-                        if (!usedSuccesses.getOrDefault(s.getData(), false)) {
-                            unmatchedSuccesses.add(s);
-                        }
-                    }
-                    for (FailureEvent<T> f : failures) {
-                        if (!usedFailures.getOrDefault(f.getData(), false)) {
-                            unmatchedFailures.add(f);
-                        }
-                    }
-                }
-                
+            if (!wasMatched) {
                 handleFallback(req, unmatchedSuccesses, unmatchedFailures);
             }
         }
@@ -184,7 +191,10 @@ class ResultProcessor<T> {
                                 List<FailureEvent<T>> unmatchedFailures) {
         if (!unmatchedSuccesses.isEmpty()) {
             // Use first unmatched success and remove it
-            SuccessEvent<T> success = unmatchedSuccesses.remove(0);
+            // Note: We use req.getData() instead of success.getData() because in fallback mode,
+            // the backend result's data doesn't match the request's data (that's why we're in fallback).
+            // We preserve the request's identity while using the success status from the backend.
+            unmatchedSuccesses.remove(0);
             metrics.recordRequestSucceeded();
             req.getFuture().complete(new BatchResult<>(
                 List.of(new SuccessEvent<>(req.getData())),
@@ -192,6 +202,7 @@ class ResultProcessor<T> {
             ));
         } else if (!unmatchedFailures.isEmpty()) {
             // Use first unmatched failure and remove it
+            // Note: We use req.getData() to preserve request identity, but use the error from the failure event
             FailureEvent<T> failure = unmatchedFailures.remove(0);
             Throwable failureError = failure.getError();
             

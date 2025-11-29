@@ -58,10 +58,10 @@ Backend<String> backend = batch -> {
     
     for (String item : batch) {
         try {
-        // Process item (e.g., HTTP call, database query)
-        // Can throw Exception if processing fails
+            // Process item (e.g., HTTP call, database query)
+            // Can throw Exception if processing fails
             processItem(item);
-        successes.add(new SuccessEvent<>(item));
+            successes.add(new SuccessEvent<>(item));
         } catch (Exception e) {
             failures.add(new FailureEvent<>(item, e));
         }
