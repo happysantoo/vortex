@@ -631,6 +631,22 @@ BatcherConfig config = BatcherConfig.builder()
 
 These hooks and metrics can be wired into OpenTelemetry, Zipkin, or any other observability stack by implementing `BatchTracingHook` in your application.
 
+#### Diagnostics API
+
+For lightweight health checks and dashboards, use the diagnostics view:
+
+```java
+MicroBatcher<String> batcher = new MicroBatcher<>(backend, config);
+BatcherDiagnostics diag = batcher.diagnostics();
+
+boolean closed = diag.isClosed();
+int currentBatchSize = diag.getCurrentBatchSize();
+Duration currentLinger = diag.getCurrentLingerTime();
+int queueDepth = diag.getQueueDepth();
+```
+
+This API is read-only and safe to call from any thread. It is ideal for exposing state via health endpoints or operational dashboards without accessing internal fields.
+
 ### Backpressure Handling
 
 The library provides built-in backpressure control through configurable queue size:

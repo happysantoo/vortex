@@ -536,4 +536,38 @@ public class MicroBatcher<T> implements AutoCloseable {
     public boolean isClosed() {
         return closed;
     }
+
+    /**
+     * Returns a lightweight diagnostics view of the current batcher state.
+     *
+     * <p>The diagnostics view is read-only and safe to call concurrently from
+     * any thread. It is intended for use in health checks, dashboards, and
+     * operational tooling.
+     *
+     * @return diagnostics view exposing current state
+     * @since 0.0.3
+     */
+    public BatcherDiagnostics diagnostics() {
+        return new BatcherDiagnostics() {
+            @Override
+            public boolean isClosed() {
+                return closed;
+            }
+
+            @Override
+            public int getCurrentBatchSize() {
+                return currentBatchSize;
+            }
+
+            @Override
+            public Duration getCurrentLingerTime() {
+                return currentLingerTime;
+            }
+
+            @Override
+            public int getQueueDepth() {
+                return queue.size();
+            }
+        };
+    }
 }

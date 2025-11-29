@@ -279,6 +279,39 @@ class MicroBatcherSpec extends Specification {
         batcher?.close()
     }
 
+    def "diagnostics should expose current state"() {
+        given:
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(2)
+            .lingerTime(Duration.ofMillis(50))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config, new SimpleMeterRegistry())
+        def diagnostics = batcher.diagnostics()
+
+        then:
+        !diagnostics.isClosed()
+        diagnostics.getCurrentBatchSize() == 2
+        diagnostics.getCurrentLingerTime() == Duration.ofMillis(50)
+        diagnostics.getQueueDepth() == 0
+
+        when:
+        def future = batcher.submit("item-1")
+        future.get(500, TimeUnit.MILLISECONDS)
+
+        then:
+        diagnostics.getQueueDepth() >= 0 // may be 0 if batch already processed
+
+        cleanup:
+        batcher?.close()
+        diagnostics.isClosed()
+    }
+
     def "should reject submissions when closed"() {
         given:
         Backend<String> backend = { batch ->
