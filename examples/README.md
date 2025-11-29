@@ -29,6 +29,10 @@ java -cp "$(./gradlew -q printClasspath):examples" com.vajrapulse.vortex.example
 - **AutoReplayExample.java** - Automatic replay of successful items
 - **TimeBasedBatchingExample.java** - Time-based batching (linger time)
 - **MetricsExample.java** - Metrics collection and monitoring
+- **TracingExample.java** - BatchTracingHook integration for observability (NEW in 0.0.3)
+  - Logging-based tracing hook
+  - OpenTelemetry-style integration pattern
+  - Retry event tracing
 - **AdaptiveBatchingExample.java** - Adaptive batching using MetricsProvider (NEW in 0.0.3)
 - **BackpressureExample.java** - Comprehensive backpressure handling examples (NEW in 0.0.3)
   - Basic backpressure detection
