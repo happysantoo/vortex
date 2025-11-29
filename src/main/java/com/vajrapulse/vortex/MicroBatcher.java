@@ -10,7 +10,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.LockSupport;
 
 /**
  * A lightweight micro-batcher that groups requests and dispatches them to a backend.
@@ -40,8 +40,11 @@ public class MicroBatcher<T> implements AutoCloseable {
     private volatile int currentBatchSize;
     private volatile Duration currentLingerTime;
     
+    // Cached configuration for performance
+    private final boolean debugMode;
+    private final BatchTracingHook tracingHook;
+    
     // Helper classes
-    private final AtomicInteger queueDepth = new AtomicInteger(0);
     private final MetricsManager metrics;
     private final RetryManager<T> retryManager;
     private final ResultProcessor<T> resultProcessor;
@@ -89,15 +92,19 @@ public class MicroBatcher<T> implements AutoCloseable {
         this.currentBatchSize = config.getBatchSize();
         this.currentLingerTime = config.getLingerTime();
         
+        // Cached configuration for performance / observability
+        this.debugMode = config.isDebugMode();
+        this.tracingHook = config.getTracingHook();
+        
         // Initialize helper classes
         // NOTE: RetryManager and ResultProcessor receive this::submit as a parameter.
         // This creates a circular dependency, but it's safe because:
         // 1. The lambda captures 'this' but doesn't execute until after construction completes
         // 2. submit() checks 'closed' flag before processing, preventing issues during shutdown
         // 3. All required fields (queue, executor, metrics) are initialized before this point
-        this.metrics = new MetricsManager(meterRegistry, config, queueDepth);
-        this.retryManager = new RetryManager<>(config, executor, this::submit, () -> closed);
-        this.resultProcessor = new ResultProcessor<>(config, backend, metrics, retryManager, this::submit);
+        this.metrics = new MetricsManager(meterRegistry, config, queue);
+        this.retryManager = new RetryManager<>(config, executor, this::submit, () -> closed, metrics, debugMode);
+        this.resultProcessor = new ResultProcessor<>(config, backend, metrics, retryManager, this::submit, debugMode);
         
         // Start the batch processor
         startBatchProcessor();
@@ -123,16 +130,26 @@ public class MicroBatcher<T> implements AutoCloseable {
             throw new IllegalStateException("MicroBatcher is closed");
         }
         
+        if (tracingHook != null) {
+            try {
+                tracingHook.onSubmit(data);
+            } catch (Exception e) {
+                if (debugMode) {
+                    logger.debug("Tracing hook onSubmit failed", e);
+                }
+            }
+        }
+        
         metrics.recordRequestSubmitted();
         CompletableFuture<BatchResult<T>> future = new CompletableFuture<>();
         PendingRequest<T> request = new PendingRequest<>(data, future);
         
         try {
             if (!queue.offer(request, QUEUE_OFFER_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
+                metrics.recordRequestRejected();
                 future.completeExceptionally(new RejectedExecutionException("Queue is full"));
                 return future;
             }
-            queueDepth.incrementAndGet();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             future.completeExceptionally(e);
@@ -181,10 +198,12 @@ public class MicroBatcher<T> implements AutoCloseable {
     }
     
     private void processBatch() throws InterruptedException {
-        List<PendingRequest<T>> batch = new ArrayList<>();
+        // Pre-size batch list to avoid resizing
+        int batchSize = currentBatchSize;
+        List<PendingRequest<T>> batch = new ArrayList<>(batchSize);
         
         Duration lingerTime = currentLingerTime;
-        int batchSize = currentBatchSize;
+        long lingerTimeNanos = lingerTime.toNanos();
         
         // Wait for first item with timeout based on linger time
         PendingRequest<T> first = queue.poll(lingerTime.toMillis(), TimeUnit.MILLISECONDS);
@@ -193,43 +212,40 @@ public class MicroBatcher<T> implements AutoCloseable {
         }
         
         batch.add(first);
-        queueDepth.decrementAndGet();
         
-        if (config.isDebugMode()) {
+        if (debugMode) {
             logger.debug("Starting batch formation, first item: {}", first.getData());
         }
         
         // Collect up to batchSize items, respecting linger time
-        long deadline = System.nanoTime() + lingerTime.toNanos();
+        long deadline = System.nanoTime() + lingerTimeNanos;
         while (batch.size() < batchSize) {
-            long remaining = deadline - System.nanoTime();
-            if (remaining <= 0) {
-                if (config.isDebugMode()) {
+            long remainingNanos = deadline - System.nanoTime();
+            if (remainingNanos <= 0) {
+                if (debugMode) {
                     logger.debug("Linger time elapsed, batch size: {}", batch.size());
                 }
                 break;
             }
             
-            PendingRequest<T> next = queue.poll(
-                Math.max(1, Duration.ofNanos(remaining).toMillis()),
-                TimeUnit.MILLISECONDS
-            );
+            // Convert nanos to millis directly (optimization: avoid Duration object creation)
+            long remainingMillis = Math.max(1, remainingNanos / 1_000_000);
+            PendingRequest<T> next = queue.poll(remainingMillis, TimeUnit.MILLISECONDS);
             if (next == null) {
-                if (config.isDebugMode()) {
+                if (debugMode) {
                     logger.debug("Timeout waiting for next item, batch size: {}", batch.size());
                 }
                 break;
             }
             batch.add(next);
-            queueDepth.decrementAndGet();
-            if (config.isDebugMode()) {
+            if (debugMode) {
                 logger.debug("Added item to batch, current size: {}, queue depth: {}", 
-                    batch.size(), queueDepth.get());
+                    batch.size(), queue.size());
             }
         }
         
         if (!batch.isEmpty()) {
-            if (config.isDebugMode()) {
+            if (debugMode) {
                 logger.debug("Dispatching batch of size: {}", batch.size());
             }
             dispatchBatch(batch);
@@ -241,13 +257,33 @@ public class MicroBatcher<T> implements AutoCloseable {
             return;
         }
         
+        // Build data list once so it can be reused for dispatch, metrics, and tracing
+        List<T> dataList = new ArrayList<>(batch.size());
+        for (PendingRequest<T> req : batch) {
+            dataList.add(req.getData());
+        }
+        
+        if (tracingHook != null) {
+            try {
+                tracingHook.onBatchDispatchStart(dataList);
+            } catch (Exception e) {
+                if (debugMode) {
+                    logger.debug("Tracing hook onBatchDispatchStart failed", e);
+                }
+            }
+        }
+        
         metrics.recordBatchDispatched();
         
-        if (config.isDebugMode()) {
-            long waitTime = batch.stream()
-                .mapToLong(req -> System.nanoTime() - req.getTimestamp())
-                .sum() / batch.size();
-            logger.debug("Dispatching batch: size={}, avgWaitTimeNs={}", batch.size(), waitTime);
+        // Calculate average wait time inline (optimization: avoid stream overhead)
+        if (debugMode) {
+            long totalWait = 0;
+            long now = System.nanoTime();
+            for (PendingRequest<T> req : batch) {
+                totalWait += now - req.getTimestamp();
+            }
+            long avgWaitTime = totalWait / batch.size();
+            logger.debug("Dispatching batch: size={}, avgWaitTimeNs={}", batch.size(), avgWaitTime);
         }
         
         metrics.recordBatchSize(batch.size());
@@ -259,26 +295,40 @@ public class MicroBatcher<T> implements AutoCloseable {
             metrics.recordItemBatchSize(batch.size());
         }
         
-        List<T> dataList = batch.stream()
-            .map(PendingRequest::getData)
-            .toList();
-        
         // Execute backend dispatch on a virtual thread
         executor.submit(() -> {
             try {
-                if (config.isDebugMode()) {
+                if (debugMode) {
                     logger.debug("Calling backend.dispatch() for batch of size: {}", dataList.size());
                 }
                 BatchResult<T> result = backend.dispatch(dataList);
                 metrics.recordBatchDispatchLatency(sample);
-                if (config.isDebugMode()) {
+                if (tracingHook != null) {
+                    try {
+                        tracingHook.onBatchDispatchSuccess(dataList, result);
+                    } catch (Exception e) {
+                        if (debugMode) {
+                            logger.debug("Tracing hook onBatchDispatchSuccess failed", e);
+                        }
+                    }
+                }
+                if (debugMode) {
                     logger.debug("Backend dispatch completed: successes={}, failures={}", 
                         result.getSuccesses().size(), result.getFailures().size());
                 }
                 resultProcessor.processResults(batch, result);
             } catch (Exception e) {
                 metrics.recordBatchDispatchLatency(sample);
-                if (config.isDebugMode()) {
+                if (tracingHook != null) {
+                    try {
+                        tracingHook.onBatchDispatchFailure(dataList, e);
+                    } catch (Exception hookError) {
+                        if (debugMode) {
+                            logger.debug("Tracing hook onBatchDispatchFailure failed", hookError);
+                        }
+                    }
+                }
+                if (debugMode) {
                     logger.debug("Backend dispatch failed", e);
                 }
                 resultProcessor.processFailure(batch, e);
@@ -314,11 +364,10 @@ public class MicroBatcher<T> implements AutoCloseable {
         // NOTE: This is a best-effort wait. Items submitted after close() is called
         // will be rejected, but items already in the queue will be processed.
         long deadline = System.currentTimeMillis() + CLOSE_QUEUE_WAIT_TIMEOUT_MS;
+        long pollIntervalNanos = TimeUnit.MILLISECONDS.toNanos(CLOSE_POLL_INTERVAL_MS);
         while (!queue.isEmpty() && System.currentTimeMillis() < deadline) {
-            try {
-                Thread.sleep(CLOSE_POLL_INTERVAL_MS);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
+            LockSupport.parkNanos(pollIntervalNanos);
+            if (Thread.currentThread().isInterrupted()) {
                 break;
             }
         }
@@ -339,9 +388,11 @@ public class MicroBatcher<T> implements AutoCloseable {
         List<PendingRequest<T>> remaining = new ArrayList<>();
         queue.drainTo(remaining);
         if (!remaining.isEmpty()) {
-            List<T> dataList = remaining.stream()
-                .map(PendingRequest::getData)
-                .toList();
+            // Create data list with pre-sized ArrayList (optimization: avoid stream overhead)
+            List<T> dataList = new ArrayList<>(remaining.size());
+            for (PendingRequest<T> req : remaining) {
+                dataList.add(req.getData());
+            }
             
             try {
                 BatchResult<T> result = backend.dispatch(dataList);
@@ -355,10 +406,50 @@ public class MicroBatcher<T> implements AutoCloseable {
     /**
      * Gets the MeterRegistry used for metrics.
      * 
+     * <p>This provides direct access to the underlying Micrometer registry
+     * for advanced use cases. For most use cases, consider using
+     * {@link #getMetricsProvider()} instead, which provides a simpler,
+     * domain-specific API.
+     * 
      * @return the meter registry
      */
     public MeterRegistry getMeterRegistry() {
         return meterRegistry;
+    }
+    
+    /**
+     * Returns a MetricsProvider that provides real-time access to batcher metrics.
+     * 
+     * <p>The MetricsProvider offers convenient access to key metrics for:
+     * <ul>
+     *   <li>Adaptive batch sizing based on failure rate</li>
+     *   <li>Circuit breaker patterns</li>
+     *   <li>Auto-scaling decisions</li>
+     *   <li>Health monitoring</li>
+     * </ul>
+     * 
+     * <p>Example usage:
+     * <pre>{@code
+     * MetricsProvider metrics = batcher.getMetricsProvider();
+     * 
+     * // Adaptive batch sizing
+     * if (metrics.getFailureRate() > 0.1) {
+     *     batcher.updateBatchSize(5); // Reduce batch size
+     * }
+     * 
+     * // Health check
+     * boolean isHealthy = metrics.getFailureRate() < 0.05 
+     *     && metrics.getQueueDepth() < 100;
+     * }</pre>
+     * 
+     * <p>The returned MetricsProvider is a live view of current metrics.
+     * Each method call queries the underlying metrics in real-time.
+     * 
+     * @return a MetricsProvider instance providing real-time metrics
+     * @since 0.0.3
+     */
+    public MetricsProvider getMetricsProvider() {
+        return metrics.getMetricsProvider();
     }
     
     /**
@@ -380,7 +471,7 @@ public class MicroBatcher<T> implements AutoCloseable {
             throw new IllegalArgumentException("Batch size must be positive");
         }
         
-        if (config.isDebugMode()) {
+        if (debugMode) {
             logger.debug("Updating batch size from {} to {}", currentBatchSize, newBatchSize);
         }
         
@@ -406,7 +497,7 @@ public class MicroBatcher<T> implements AutoCloseable {
             throw new IllegalArgumentException("Linger time must be non-negative");
         }
         
-        if (config.isDebugMode()) {
+        if (debugMode) {
             logger.debug("Updating linger time from {} to {}", currentLingerTime, newLingerTime);
         }
         
@@ -444,5 +535,39 @@ public class MicroBatcher<T> implements AutoCloseable {
      */
     public boolean isClosed() {
         return closed;
+    }
+
+    /**
+     * Returns a lightweight diagnostics view of the current batcher state.
+     *
+     * <p>The diagnostics view is read-only and safe to call concurrently from
+     * any thread. It is intended for use in health checks, dashboards, and
+     * operational tooling.
+     *
+     * @return diagnostics view exposing current state
+     * @since 0.0.3
+     */
+    public BatcherDiagnostics diagnostics() {
+        return new BatcherDiagnostics() {
+            @Override
+            public boolean isClosed() {
+                return closed;
+            }
+
+            @Override
+            public int getCurrentBatchSize() {
+                return currentBatchSize;
+            }
+
+            @Override
+            public Duration getCurrentLingerTime() {
+                return currentLingerTime;
+            }
+
+            @Override
+            public int getQueueDepth() {
+                return queue.size();
+            }
+        };
     }
 }

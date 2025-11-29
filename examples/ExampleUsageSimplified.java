@@ -34,8 +34,8 @@ public class ExampleUsageSimplified {
         // Just submit items without tracking - good for logging, metrics, etc.
         System.out.println("\n=== Option 1: Fire-and-Forget ===");
         try (MicroBatcher<String> batcher = new MicroBatcher<>(backend, config)) {
-            for (int i = 0; i < 10; i++) {
-                batcher.submit("Item-" + i);
+            for (int itemIndex = 0; itemIndex < 10; itemIndex++) {
+                batcher.submit("Item-" + itemIndex);
                 // No tracking needed - items will be processed asynchronously
             }
             Thread.sleep(500); // Give time for processing
@@ -48,10 +48,10 @@ public class ExampleUsageSimplified {
         System.out.println("\n=== Option 2: Callback-Based ===");
         try (MicroBatcher<String> batcher = new MicroBatcher<>(backend, config)) {
             List<CompletableFuture<Void>> callbacks = new ArrayList<>();
-            for (int i = 0; i < 10; i++) {
-                final int idx = i;
+            for (int itemIndex = 0; itemIndex < 10; itemIndex++) {
+                final int itemId = itemIndex;
                 CompletableFuture<Void> callback = batcher.submitWithCallback(
-                    "Item-" + idx,
+                    "Item-" + itemId,
                     (item, result) -> {
                         if (result instanceof ItemResult.Success) {
                             System.out.println("✓ " + item + " succeeded");
@@ -63,7 +63,7 @@ public class ExampleUsageSimplified {
                 // Handle backpressure (queue full)
                 callback.exceptionally(throwable -> {
                     if (throwable.getCause() instanceof java.util.concurrent.RejectedExecutionException) {
-                        System.err.println("⚠ " + idx + " rejected: Queue full");
+                        System.err.println("⚠ " + itemId + " rejected: Queue full");
                     }
                     return null;
                 });
@@ -80,8 +80,8 @@ public class ExampleUsageSimplified {
         System.out.println("\n=== Option 3: Batch Wait ===");
         try (MicroBatcher<String> batcher = new MicroBatcher<>(backend, config)) {
             List<CompletableFuture<BatchResult<String>>> futures = new ArrayList<>();
-            for (int i = 0; i < 10; i++) {
-                futures.add(batcher.submit("Item-" + i));
+            for (int itemIndex = 0; itemIndex < 10; itemIndex++) {
+                futures.add(batcher.submit("Item-" + itemIndex));
             }
             // Wait for all to complete
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).get();
@@ -95,8 +95,8 @@ public class ExampleUsageSimplified {
         System.out.println("\n=== Option 4: Stream-Based ===");
         try (MicroBatcher<String> batcher = new MicroBatcher<>(backend, config)) {
             List<CompletableFuture<Void>> results = java.util.stream.IntStream.range(0, 10)
-                .mapToObj(i -> batcher.submitWithCallback(
-                    "Item-" + i,
+                .mapToObj(itemIndex -> batcher.submitWithCallback(
+                    "Item-" + itemIndex,
                     (item, result) -> System.out.println("Processed: " + item)
                 ))
                 .toList();

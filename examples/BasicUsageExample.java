@@ -29,8 +29,8 @@ public class BasicUsageExample {
             .build();
         
         try (MicroBatcher<String> batcher = new MicroBatcher<>(backend, config)) {
-            for (int i = 0; i < 12; i++) {
-                CompletableFuture<BatchResult<String>> future = batcher.submit("Item-" + i);
+            for (int itemIndex = 0; itemIndex < 12; itemIndex++) {
+                CompletableFuture<BatchResult<String>> future = batcher.submit("Item-" + itemIndex);
                 future.thenAccept(result -> 
                     System.out.println("Completed: " + result.getSuccesses().size() + " successes")
                 );

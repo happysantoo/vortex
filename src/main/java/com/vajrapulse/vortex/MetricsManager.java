@@ -2,8 +2,8 @@ package com.vajrapulse.vortex;
 
 import io.micrometer.core.instrument.*;
 
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Manages all metrics for the MicroBatcher.
@@ -12,7 +12,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 class MetricsManager {
     private final MeterRegistry meterRegistry;
     private final BatcherConfig config;
-    private final AtomicInteger queueDepth;
+    private final BlockingQueue<?> queue;
     
     // Core metrics
     private final Counter requestsSubmitted;
@@ -20,6 +20,8 @@ class MetricsManager {
     private final Counter requestsSucceeded;
     private final Counter requestsFailed;
     private final Counter requestsReplayed;
+    private final Counter requestsRetried;
+    private final Counter requestsRejected;
     private final Timer batchDispatchLatency;
     private final Timer requestWaitLatency;
     private final Timer queueWaitTime;
@@ -30,10 +32,10 @@ class MetricsManager {
     private final Timer itemWaitTime;
     private final DistributionSummary itemBatchSize;
     
-    MetricsManager(MeterRegistry meterRegistry, BatcherConfig config, AtomicInteger queueDepth) {
+    MetricsManager(MeterRegistry meterRegistry, BatcherConfig config, BlockingQueue<?> queue) {
         this.meterRegistry = meterRegistry;
         this.config = config;
-        this.queueDepth = queueDepth;
+        this.queue = queue;
         
         // Initialize core metrics
         this.requestsSubmitted = Counter.builder("vortex.requests.submitted")
@@ -54,6 +56,14 @@ class MetricsManager {
         
         this.requestsReplayed = Counter.builder("vortex.requests.replayed")
             .description("Total number of successful requests that were replayed")
+            .register(meterRegistry);
+        
+        this.requestsRetried = Counter.builder("vortex.requests.retried")
+            .description("Total number of requests that were retried")
+            .register(meterRegistry);
+        
+        this.requestsRejected = Counter.builder("vortex.requests.rejected")
+            .description("Total number of requests rejected due to backpressure (queue full)")
             .register(meterRegistry);
         
         this.batchDispatchLatency = Timer.builder("vortex.batch.dispatch.latency")
@@ -90,8 +100,8 @@ class MetricsManager {
             this.itemBatchSize = null;
         }
         
-        // Register queue depth gauge
-        Gauge.builder("vortex.queue.depth", queueDepth, AtomicInteger::get)
+        // Register queue depth gauge (use queue.size() directly - optimization: no redundant tracking)
+        Gauge.builder("vortex.queue.depth", queue, BlockingQueue::size)
             .description("Current depth of the request queue")
             .register(meterRegistry);
     }
@@ -114,6 +124,14 @@ class MetricsManager {
     
     void recordRequestReplayed() {
         requestsReplayed.increment();
+    }
+    
+    void recordRequestRetried() {
+        requestsRetried.increment();
+    }
+    
+    void recordRequestRejected() {
+        requestsRejected.increment();
     }
     
     Timer.Sample startBatchDispatchTimer() {
@@ -146,6 +164,97 @@ class MetricsManager {
                 itemSubmitLatency.record(waitTimeNanos, TimeUnit.NANOSECONDS);
             }
         }
+    }
+    
+    /**
+     * Creates a MetricsProvider that provides real-time access to batcher metrics.
+     * 
+     * @return a MetricsProvider instance
+     */
+    MetricsProvider getMetricsProvider() {
+        return new MetricsProvider() {
+            @Override
+            public double getFailureRate() {
+                double submitted = requestsSubmitted.count();
+                if (submitted == 0.0) {
+                    return 0.0;
+                }
+                return requestsFailed.count() / submitted;
+            }
+            
+            @Override
+            public double getSuccessRate() {
+                double submitted = requestsSubmitted.count();
+                if (submitted == 0.0) {
+                    return 0.0;
+                }
+                return requestsSucceeded.count() / submitted;
+            }
+            
+            @Override
+            public long getTotalSubmitted() {
+                return (long) requestsSubmitted.count();
+            }
+            
+            @Override
+            public long getTotalSucceeded() {
+                return (long) requestsSucceeded.count();
+            }
+            
+            @Override
+            public long getTotalFailed() {
+                return (long) requestsFailed.count();
+            }
+            
+            @Override
+            public long getTotalReplayed() {
+                return (long) requestsReplayed.count();
+            }
+            
+            @Override
+            public long getTotalRetried() {
+                return (long) requestsRetried.count();
+            }
+            
+            @Override
+            public long getTotalRejected() {
+                return (long) requestsRejected.count();
+            }
+            
+            @Override
+            public int getQueueDepth() {
+                return queue.size();
+            }
+            
+            @Override
+            public long getTotalBatchesDispatched() {
+                return (long) batchesDispatched.count();
+            }
+            
+            @Override
+            public double getAverageDispatchLatency() {
+                double mean = batchDispatchLatency.mean(TimeUnit.MILLISECONDS);
+                return Double.isNaN(mean) ? 0.0 : mean;
+            }
+            
+            @Override
+            public double getAverageWaitLatency() {
+                double mean = requestWaitLatency.mean(TimeUnit.MILLISECONDS);
+                return Double.isNaN(mean) ? 0.0 : mean;
+            }
+            
+            @Override
+            public double getP95DispatchLatency() {
+                double percentile = batchDispatchLatency.percentile(0.95, TimeUnit.MILLISECONDS);
+                return Double.isNaN(percentile) ? 0.0 : percentile;
+            }
+            
+            @Override
+            public double getP99DispatchLatency() {
+                double percentile = batchDispatchLatency.percentile(0.99, TimeUnit.MILLISECONDS);
+                return Double.isNaN(percentile) ? 0.0 : percentile;
+            }
+        };
     }
 }
 

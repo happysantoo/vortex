@@ -65,8 +65,8 @@ public class HttpBackendExample {
         try (MicroBatcher<String> batcher = new MicroBatcher<>(httpBackend, config)) {
             List<CompletableFuture<BatchResult<String>>> futures = new ArrayList<>();
             
-            for (int i = 0; i < 25; i++) {
-                futures.add(batcher.submit("Request-" + i));
+            for (int requestIndex = 0; requestIndex < 25; requestIndex++) {
+                futures.add(batcher.submit("Request-" + requestIndex));
             }
             
             // Wait for all

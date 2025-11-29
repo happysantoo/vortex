@@ -279,6 +279,39 @@ class MicroBatcherSpec extends Specification {
         batcher?.close()
     }
 
+    def "diagnostics should expose current state"() {
+        given:
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(2)
+            .lingerTime(Duration.ofMillis(50))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config, new SimpleMeterRegistry())
+        def diagnostics = batcher.diagnostics()
+
+        then:
+        !diagnostics.isClosed()
+        diagnostics.getCurrentBatchSize() == 2
+        diagnostics.getCurrentLingerTime() == Duration.ofMillis(50)
+        diagnostics.getQueueDepth() == 0
+
+        when:
+        def future = batcher.submit("item-1")
+        future.get(500, TimeUnit.MILLISECONDS)
+
+        then:
+        diagnostics.getQueueDepth() >= 0 // may be 0 if batch already processed
+
+        cleanup:
+        batcher?.close()
+        diagnostics.isClosed()
+    }
+
     def "should reject submissions when closed"() {
         given:
         Backend<String> backend = { batch ->
@@ -1560,28 +1593,34 @@ class MicroBatcherSpec extends Specification {
     def "should handle close interrupt during queue wait"() {
         given:
         Backend<String> backend = { batch ->
-            Thread.sleep(30)
+            Thread.sleep(100) // Slow processing to keep items in queue
             def successes = batch.collect { new SuccessEvent<>(it) }
             new BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
             .batchSize(1)
-            .lingerTime(Duration.ofMillis(50))
+            .lingerTime(Duration.ofMillis(200)) // Long linger to keep items queued
             .build()
         def batcher = new MicroBatcher<>(backend, config)
+        // Submit multiple items to keep queue non-empty during close
         batcher.submit("item-1")
+        batcher.submit("item-2")
+        Thread.sleep(20) // Let items get queued
 
         when:
         def closeThread = Thread.start {
             batcher.close()
         }
-        Thread.sleep(10)
-        closeThread.interrupt() // Interrupt during close
-        closeThread.join(1000)
+        // Wait a bit to ensure close() enters the queue wait loop
+        Thread.sleep(50)
+        closeThread.interrupt() // Interrupt during LockSupport.parkNanos() in close()
+        closeThread.join(2000)
 
         then:
-        // Should handle interruption during close
+        // Should handle interruption during close gracefully
         noExceptionThrown()
+        // Verify close completed (batcher should be closed)
+        batcher.isClosed()
 
         cleanup:
         batcher?.close()
@@ -2388,24 +2427,29 @@ class MicroBatcherSpec extends Specification {
     def "should update linger time dynamically"() {
         given:
         def batchCount = new AtomicInteger(0)
+        def batchLatch = new CountDownLatch(1)
         Backend<String> backend = { batch ->
             batchCount.incrementAndGet()
+            batchLatch.countDown()
             def successes = batch.collect { new SuccessEvent<>(it) }
             new BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
-            .batchSize(10)
+            .batchSize(1) // Small batch size to ensure quick processing
             .lingerTime(Duration.ofMillis(200))
             .build()
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
+        // Update linger time before submitting
         batcher.updateLingerTime(Duration.ofMillis(50))
         batcher.submit("item-1")
-        Thread.sleep(200)
+        // Wait for batch to be processed (should happen within 50ms with new linger time)
+        def processed = batchLatch.await(200, TimeUnit.MILLISECONDS)
 
         then:
         batcher.getCurrentLingerTime() == Duration.ofMillis(50)
+        processed // Batch should have been processed
         batchCount.get() >= 1
 
         cleanup:

@@ -2,7 +2,7 @@
 
 A lightweight Java 21 library for micro-batching requests to any backend. Built with virtual threads, smart batching (size or time-based), comprehensive metrics, and production-ready features.
 
-**Version**: 0.0.2
+**Version**: 0.0.3
 
 ## Features
 
@@ -29,7 +29,7 @@ A lightweight Java 21 library for micro-batching requests to any backend. Built 
 <dependency>
     <groupId>com.vajrapulse</groupId>
     <artifactId>vortex</artifactId>
-    <version>0.0.2</version>
+    <version>0.0.3</version>
 </dependency>
 ```
 
@@ -37,7 +37,7 @@ A lightweight Java 21 library for micro-batching requests to any backend. Built 
 
 ```kotlin
 dependencies {
-    implementation("com.vajrapulse:vortex:0.0.2")
+    implementation("com.vajrapulse:vortex:0.0.3")
 }
 ```
 
@@ -306,7 +306,62 @@ Debug mode logs:
 
 ## Metrics
 
-The library exposes comprehensive Micrometer metrics:
+The library exposes comprehensive Micrometer metrics and provides a convenient `MetricsProvider` interface for easy access.
+
+### Using MetricsProvider (Recommended)
+
+The `MetricsProvider` interface provides convenient, domain-specific access to key metrics:
+
+```java
+MetricsProvider metrics = batcher.getMetricsProvider();
+
+// Get failure rate (0.0 to 1.0)
+double failureRate = metrics.getFailureRate();
+
+// Get success rate (0.0 to 1.0)
+double successRate = metrics.getSuccessRate();
+
+// Get queue depth
+int queueDepth = metrics.getQueueDepth();
+
+// Get totals
+long submitted = metrics.getTotalSubmitted();
+long succeeded = metrics.getTotalSucceeded();
+long failed = metrics.getTotalFailed();
+
+// Get latency metrics
+double avgLatency = metrics.getAverageDispatchLatency();
+double p95Latency = metrics.getP95DispatchLatency();
+double p99Latency = metrics.getP99DispatchLatency();
+```
+
+**Use Cases:**
+- **Adaptive Batch Sizing**: Adjust batch size based on failure rate
+- **Circuit Breaker**: Open circuit when failure rate exceeds threshold
+- **Auto-Scaling**: Scale backend workers based on queue depth
+- **Health Monitoring**: Check system health using success/failure rates
+
+**Example - Adaptive Batching:**
+```java
+MetricsProvider metrics = batcher.getMetricsProvider();
+
+// Adjust batch size based on failure rate
+if (metrics.getFailureRate() > 0.1) {
+    batcher.updateBatchSize(5); // Reduce batch size
+} else if (metrics.getFailureRate() < 0.01) {
+    batcher.updateBatchSize(20); // Increase batch size
+}
+```
+
+### Direct MeterRegistry Access
+
+For advanced use cases, you can access the underlying Micrometer registry:
+
+```java
+MeterRegistry registry = batcher.getMeterRegistry();
+double queueDepth = registry.gauge("vortex.queue.depth", 0.0);
+long submitted = registry.counter("vortex.requests.submitted").count();
+```
 
 ### Core Metrics
 
@@ -378,27 +433,27 @@ Replay can be controlled in two ways:
 
 Implement `shouldReplaySuccesses()` in your Backend:
 
-```java
-Backend<String> backend = new Backend<String>() {
-    @Override
-    public BatchResult<String> dispatch(List<String> batch) throws Exception {
-        // Your dispatch logic
-        return new BatchResult<>(successes, failures);
-    }
-    
-    @Override
-    public boolean shouldReplaySuccesses(BatchResult<String> result) {
-        // Atomic backend: replay when there are failures
-        return !result.getFailures().isEmpty() && !result.getSuccesses().isEmpty();
-    }
-};
-```
+   ```java
+   Backend<String> backend = new Backend<String>() {
+       @Override
+       public BatchResult<String> dispatch(List<String> batch) throws Exception {
+           // Your dispatch logic
+           return new BatchResult<>(successes, failures);
+       }
+       
+       @Override
+       public boolean shouldReplaySuccesses(BatchResult<String> result) {
+           // Atomic backend: replay when there are failures
+           return !result.getFailures().isEmpty() && !result.getSuccesses().isEmpty();
+       }
+   };
+   ```
 
 #### 2. Config Fallback
 
 Use `autoReplaySuccesses(true)` in BatcherConfig:
-- Only used if backend doesn't override `shouldReplaySuccesses()`
-- Default: `false`
+   - Only used if backend doesn't override `shouldReplaySuccesses()`
+   - Default: `false`
 
 ### Behavior
 
@@ -529,6 +584,69 @@ For a detailed explanation of the architecture, request flow, and design decisio
 - Use `retryDelay` to avoid overwhelming backends
 - Monitor `vortex.requests.failed` metric
 
+### Observability and Tracing (Phase 1)
+
+Vortex is designed to integrate cleanly with tracing and observability systems without adding extra dependencies.
+
+- **Tracing Hook**: Configure an optional `BatchTracingHook` via `BatcherConfig`:
+
+```java
+BatchTracingHook tracingHook = new BatchTracingHook() {
+    @Override
+    public void onSubmit(Object item) {
+        // Start or link a span for item submission
+    }
+
+    @Override
+    public void onBatchDispatchStart(List<?> batchItems) {
+        // Record batch dispatch start
+    }
+
+    @Override
+    public void onBatchDispatchSuccess(List<?> batchItems, BatchResult<?> result) {
+        // Record successful dispatch
+    }
+
+    @Override
+    public void onBatchDispatchFailure(List<?> batchItems, Throwable error) {
+        // Record failed dispatch
+    }
+
+    @Override
+    public void onRetry(Object item, Throwable cause) {
+        // Record retry event
+    }
+};
+
+BatcherConfig config = BatcherConfig.builder()
+    .batchSize(10)
+    .lingerTime(Duration.ofMillis(50))
+    .tracingHook(tracingHook)
+    .build();
+```
+
+- **MetricsProvider Enhancements**:
+  - `getTotalRetried()` - total number of retried requests
+  - `getTotalRejected()` - total number of requests rejected due to backpressure
+
+These hooks and metrics can be wired into OpenTelemetry, Zipkin, or any other observability stack by implementing `BatchTracingHook` in your application.
+
+#### Diagnostics API
+
+For lightweight health checks and dashboards, use the diagnostics view:
+
+```java
+MicroBatcher<String> batcher = new MicroBatcher<>(backend, config);
+BatcherDiagnostics diag = batcher.diagnostics();
+
+boolean closed = diag.isClosed();
+int currentBatchSize = diag.getCurrentBatchSize();
+Duration currentLinger = diag.getCurrentLingerTime();
+int queueDepth = diag.getQueueDepth();
+```
+
+This API is read-only and safe to call from any thread. It is ideal for exposing state via health endpoints or operational dashboards without accessing internal fields.
+
 ### Backpressure Handling
 
 The library provides built-in backpressure control through configurable queue size:
@@ -577,6 +695,8 @@ future.exceptionally(throwable -> {
 - Consider increasing `maxQueueSize` for high-throughput scenarios
 - Use `submitWithCallback()` for cleaner error handling
 
+**For detailed backpressure handling strategies, see [Backpressure Guide](documents/guides/BACKPRESSURE_GUIDE.md)**
+
 ### Performance Tuning
 
 - Enable `perItemMetrics` only when needed (adds overhead)
@@ -588,7 +708,7 @@ future.exceptionally(throwable -> {
 
 ### Breaking Changes
 
-None - 0.0.2 is backward compatible with 0.0.1.
+None - 0.0.3 is backward compatible with 0.0.2 and 0.0.1.
 
 ### New Features
 
@@ -611,6 +731,3 @@ None - 0.0.2 is backward compatible with 0.0.1.
 5. Configure `maxQueueSize` based on your throughput requirements
 6. Always handle `RejectedExecutionException` to detect backpressure
 
-## License
-
-MIT
