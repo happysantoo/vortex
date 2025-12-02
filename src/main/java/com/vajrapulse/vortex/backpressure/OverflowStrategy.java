@@ -110,10 +110,46 @@ public class OverflowStrategy<T> implements LifecycleAwareStrategy<T> {
     public BackpressureResult<T> handle(BackpressureContext<T> context) {
         if (context.backpressureLevel() >= threshold) {
             // Store to overflow
-            overflowStorage.add(context.item());
-            return BackpressureResult.drop(context.item()); // Drop from normal flow
+            try {
+                overflowStorage.add(context.item());
+                return BackpressureResult.drop(context.item()); // Drop from normal flow
+            } catch (IllegalStateException e) {
+                // Overflow storage is full - reject the item
+                // This is better than silently dropping when overflow is full
+                Exception reason = new BackpressureException(
+                    String.format(
+                        "Overflow storage is full. Backpressure level: %.2f (threshold: %.2f, source: %s)",
+                        context.backpressureLevel(),
+                        threshold,
+                        context.provider().getSourceName()
+                    ),
+                    context.backpressureLevel(),
+                    threshold,
+                    context.provider().getSourceName()
+                );
+                return BackpressureResult.reject(context.item(), reason);
+            } catch (Exception e) {
+                // Unexpected error adding to overflow - reject to be safe
+                Exception reason = new BackpressureException(
+                    String.format(
+                        "Error adding to overflow storage: %s. Backpressure level: %.2f",
+                        e.getMessage(),
+                        context.backpressureLevel()
+                    ),
+                    e,
+                    context.backpressureLevel(),
+                    threshold,
+                    context.provider().getSourceName()
+                );
+                return BackpressureResult.reject(context.item(), reason);
+            }
         }
         return BackpressureResult.accept(context.item());
+    }
+    
+    @Override
+    public double getThreshold() {
+        return threshold;
     }
     
     @Override
@@ -123,7 +159,12 @@ public class OverflowStrategy<T> implements LifecycleAwareStrategy<T> {
                 onPause.run(); // Pause Kafka consumer (or any other action)
             } catch (Exception e) {
                 // Log but don't fail - overflow will still work
-                System.err.println("Error executing onPause callback: " + e.getMessage());
+                // Use proper logging if available, otherwise System.err
+                String errorMsg = "Error executing onPause callback: " + e.getMessage();
+                System.err.println(errorMsg);
+                if (e.getCause() != null) {
+                    System.err.println("Caused by: " + e.getCause().getMessage());
+                }
                 e.printStackTrace();
             }
         }
@@ -137,7 +178,11 @@ public class OverflowStrategy<T> implements LifecycleAwareStrategy<T> {
                 onResume.run(); // Resume Kafka consumer (or any other action)
             } catch (Exception e) {
                 // Log but don't fail - replay will still work
-                System.err.println("Error executing onResume callback: " + e.getMessage());
+                String errorMsg = "Error executing onResume callback: " + e.getMessage();
+                System.err.println(errorMsg);
+                if (e.getCause() != null) {
+                    System.err.println("Caused by: " + e.getCause().getMessage());
+                }
                 e.printStackTrace();
             }
         }
@@ -146,30 +191,94 @@ public class OverflowStrategy<T> implements LifecycleAwareStrategy<T> {
     @Override
     public void onBackpressureActive(BackpressureProvider provider) {
         // Check if we can start replaying (e.g., queue depth < 50% of threshold)
-        double level = provider.getBackpressureLevel();
-        if (level < threshold * 0.5 && !overflowStorage.isEmpty()) {
-            // Start gradual replay
-            replayOverflowItems();
+        try {
+            double level = provider.getBackpressureLevel();
+            // Validate level before using
+            if (Double.isNaN(level) || level < 0.0 || level > 1.0) {
+                return; // Invalid level, skip replay
+            }
+            if (level < threshold * 0.5 && !overflowStorage.isEmpty()) {
+                // Start gradual replay
+                replayOverflowItems();
+            }
+        } catch (Exception e) {
+            // Log but don't fail - monitoring will continue
+            String errorMsg = "Error in onBackpressureActive: " + e.getMessage();
+            System.err.println(errorMsg);
+            e.printStackTrace();
         }
     }
     
     private void replayOverflowItems() {
-        while (!overflowStorage.isEmpty() && 
-               backpressureProvider.getBackpressureLevel() < threshold) {
-            T item = overflowStorage.poll();
-            if (item != null) {
-                try {
-                    submitFunction.apply(item);
-                } catch (Exception e) {
-                    // Log but continue replaying other items
-                    System.err.println("Error replaying item: " + e.getMessage());
-                    e.printStackTrace();
+        int maxReplayAttempts = 1000; // Prevent infinite loops
+        int attempts = 0;
+        int consecutiveNullPolls = 0; // Track consecutive null polls to prevent infinite loops
+        final int maxConsecutiveNullPolls = 3; // Max consecutive null polls before giving up
+        
+        while (attempts < maxReplayAttempts) {
+            try {
+                // Check if storage is empty before attempting to poll
+                if (overflowStorage.isEmpty()) {
+                    break; // Storage is empty, we're done
                 }
-            } else {
-                // If poll() returns null, the storage might be empty now
-                // Break to avoid infinite loop if storage reports non-empty but returns null
-                break;
+                
+                // Check backpressure level
+                double level = backpressureProvider.getBackpressureLevel();
+                // Validate level
+                if (Double.isNaN(level) || level < 0.0 || level > 1.0) {
+                    break; // Invalid level, stop replay
+                }
+                if (level >= threshold) {
+                    break; // Backpressure increased, stop replay
+                }
+                
+                T item = overflowStorage.poll();
+                if (item != null) {
+                    consecutiveNullPolls = 0; // Reset counter on successful poll
+                    try {
+                        submitFunction.apply(item);
+                        attempts = 0; // Reset counter on successful replay
+                    } catch (Exception e) {
+                        // Log but continue replaying other items
+                        String errorMsg = "Error replaying item: " + e.getMessage();
+                        System.err.println(errorMsg);
+                        if (e.getCause() != null) {
+                            System.err.println("Caused by: " + e.getCause().getMessage());
+                        }
+                        e.printStackTrace();
+                        attempts++; // Increment on error
+                    }
+                } else {
+                    // If poll() returns null, increment counter
+                    consecutiveNullPolls++;
+                    if (consecutiveNullPolls >= maxConsecutiveNullPolls) {
+                        // Storage reports non-empty but keeps returning null
+                        // This is likely a bug in the storage implementation, but we should exit
+                        break;
+                    }
+                    // Re-check if storage is actually empty now (defensive check)
+                    if (overflowStorage.isEmpty()) {
+                        break; // Storage is now empty
+                    }
+                    // If we get here, storage reports non-empty but returned null
+                    // This is unusual but could happen in race conditions
+                    // Continue to next iteration but with increased null poll counter
+                }
+            } catch (Exception e) {
+                // Error getting backpressure level or other unexpected error
+                String errorMsg = "Error during overflow replay: " + e.getMessage();
+                System.err.println(errorMsg);
+                e.printStackTrace();
+                attempts++;
+                if (attempts >= maxReplayAttempts) {
+                    break; // Too many errors, stop replay
+                }
             }
+        }
+        
+        if (attempts >= maxReplayAttempts && !overflowStorage.isEmpty()) {
+            System.err.println("Warning: Stopped overflow replay after " + maxReplayAttempts + 
+                " attempts. " + overflowStorage.size() + " items remaining in overflow.");
         }
     }
 }

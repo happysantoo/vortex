@@ -194,6 +194,16 @@ class InMemoryOverflowStorageSpec extends Specification {
         storage.size() == 0
     }
     
+    def "should use default capacity when no capacity specified"() {
+        given:
+        InMemoryOverflowStorage<String> storage = new InMemoryOverflowStorage<>()
+        
+        expect:
+        storage.getMaxCapacity() == 1000  // Default capacity
+        storage.isEmpty()
+        storage.size() == 0
+    }
+    
     def "should handle poll on empty storage multiple times"() {
         given:
         InMemoryOverflowStorage<String> storage = new InMemoryOverflowStorage<>(10)

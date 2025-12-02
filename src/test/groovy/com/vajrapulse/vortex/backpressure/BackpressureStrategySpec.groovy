@@ -30,5 +30,21 @@ class BackpressureStrategySpec extends Specification {
         result.item() == "test-item"
         result.reason() == null
     }
+    
+    def "should return NaN for default getThreshold when not overridden"() {
+        given:
+        BackpressureStrategy<String> strategy = new BackpressureStrategy<String>() {
+            @Override
+            BackpressureResult<String> handle(BackpressureContext<String> ctx) {
+                return BackpressureResult.accept(ctx.item())
+            }
+        }
+        
+        when:
+        double threshold = strategy.getThreshold()
+        
+        then:
+        Double.isNaN(threshold)  // Default implementation returns NaN
+    }
 }
 

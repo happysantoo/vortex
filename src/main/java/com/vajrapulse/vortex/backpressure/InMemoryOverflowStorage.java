@@ -1,7 +1,7 @@
 package com.vajrapulse.vortex.backpressure;
 
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.LinkedBlockingQueue;
+import java.util.Queue;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
  * In-memory overflow storage implementation using a blocking queue.
@@ -22,19 +22,35 @@ import java.util.concurrent.LinkedBlockingQueue;
  * 
  * <p>Example usage:
  * <pre>{@code
- * OverflowStorage<String> overflow = new InMemoryOverflowStorage<>(1000);
+ * // Bounded storage with default capacity (1000 items)
+ * OverflowStorage<String> overflow = new InMemoryOverflowStorage<>();
+ * 
+ * // Bounded storage with custom capacity
+ * OverflowStorage<String> overflow = new InMemoryOverflowStorage<>(5000);
  * }</pre>
  * 
  * @param <T> the type of items being stored
  */
 public class InMemoryOverflowStorage<T> implements OverflowStorage<T> {
-    private final BlockingQueue<T> queue;
+    private static final int DEFAULT_CAPACITY = 1000; // Reasonable default for most use cases
+    
+    private final Queue<T> queue;
     private final int maxCapacity;
+    
+    /**
+     * Creates a new in-memory overflow storage with the default capacity (1000 items).
+     * 
+     * <p>This constructor provides a bounded storage with a reasonable default capacity.
+     * For custom capacity requirements, use {@link #InMemoryOverflowStorage(int)}.
+     */
+    public InMemoryOverflowStorage() {
+        this(DEFAULT_CAPACITY);
+    }
     
     /**
      * Creates a new in-memory overflow storage with the specified capacity.
      * 
-     * @param maxCapacity the maximum number of items that can be stored
+     * @param maxCapacity the maximum number of items that can be stored (must be positive)
      * @throws IllegalArgumentException if maxCapacity is not positive
      */
     public InMemoryOverflowStorage(int maxCapacity) {
@@ -44,7 +60,7 @@ public class InMemoryOverflowStorage<T> implements OverflowStorage<T> {
             );
         }
         this.maxCapacity = maxCapacity;
-        this.queue = new LinkedBlockingQueue<>(maxCapacity);
+        this.queue = new ConcurrentLinkedQueue<>();
     }
     
     @Override
@@ -52,7 +68,18 @@ public class InMemoryOverflowStorage<T> implements OverflowStorage<T> {
         if (item == null) {
             throw new IllegalArgumentException("Item cannot be null");
         }
-        if (!queue.offer(item)) {
+        // Check capacity before adding (thread-safe check)
+        if (queue.size() >= maxCapacity) {
+            throw new IllegalStateException(
+                "Overflow storage is full (capacity: " + maxCapacity + ", current size: " + queue.size() + ")"
+            );
+        }
+        // Add item (may still exceed capacity slightly due to race condition, but that's acceptable)
+        queue.offer(item);
+        // Double-check after add to handle race conditions
+        if (queue.size() > maxCapacity) {
+            // Remove the item we just added if we exceeded capacity
+            queue.remove(item);
             throw new IllegalStateException(
                 "Overflow storage is full (capacity: " + maxCapacity + ")"
             );

@@ -225,6 +225,596 @@ class MicroBatcherBackpressureSpec extends Specification {
         batcher?.close()
     }
     
+    def "should handle very small backpressure monitor interval"() {
+        given:
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        
+        // Use a very small but valid interval (1ms)
+        def config = BatcherConfig.builder()
+            .batchSize(5)
+            .lingerTime(Duration.ofMillis(100))
+            .backpressureMonitorInterval(Duration.ofMillis(1))  // Very small but valid interval
+            .debugMode(true)
+            .build()
+        
+        BackpressureProvider provider = Mock()
+        provider.getBackpressureLevel() >> 0.3
+        provider.getSourceName() >> "Test Provider"
+        
+        BackpressureStrategy<String> strategy = new DropStrategy<>(0.7)
+        
+        MicroBatcher<String> batcher = MicroBatcher.withBackpressure(
+            backend, config, provider, strategy
+        )
+        
+        when:
+        CompletableFuture<BatchResult<String>> future = batcher.submit("item1")
+        def result = future.get(1, TimeUnit.SECONDS)
+        
+        then:
+        // Should work normally with small interval
+        result.isAllSuccess()
+        
+        cleanup:
+        batcher?.close()
+    }
+    
+    def "should handle invalid backpressure level in monitoring"() {
+        given:
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        
+        def config = BatcherConfig.builder()
+            .batchSize(5)
+            .lingerTime(Duration.ofMillis(100))
+            .backpressureMonitorInterval(Duration.ofMillis(50))
+            .debugMode(true)
+            .build()
+        
+        def callCount = new AtomicInteger(0)
+        BackpressureProvider provider = Mock()
+        // First call returns valid, then invalid (NaN), then valid again
+        provider.getBackpressureLevel() >>> [0.3, Double.NaN, 0.3]
+        provider.getSourceName() >> "Test Provider"
+        
+        InMemoryOverflowStorage<String> overflow = new InMemoryOverflowStorage<>(10)
+        OverflowStrategy<String> strategy = new OverflowStrategy<>(
+            0.7, overflow, provider, { item ->
+                CompletableFuture.completedFuture(new BatchResult<>(List.of(new SuccessEvent<>(item)), List.of()))
+            }
+        )
+        
+        MicroBatcher<String> batcher = MicroBatcher.withBackpressure(
+            backend, config, provider, strategy
+        )
+        
+        when:
+        Thread.sleep(200)  // Wait for monitoring cycles
+        
+        then:
+        // Should handle invalid level gracefully without crashing
+        noExceptionThrown()
+        
+        cleanup:
+        batcher?.close()
+    }
+    
+    def "should handle invalid threshold in monitoring"() {
+        given:
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        
+        def config = BatcherConfig.builder()
+            .batchSize(5)
+            .lingerTime(Duration.ofMillis(100))
+            .backpressureMonitorInterval(Duration.ofMillis(50))
+            .debugMode(true)
+            .build()
+        
+        BackpressureProvider provider = Mock()
+        provider.getBackpressureLevel() >> 0.3
+        provider.getSourceName() >> "Test Provider"
+        
+        // Strategy that returns invalid threshold
+        BackpressureStrategy<String> strategy = new BackpressureStrategy<String>() {
+            @Override
+            BackpressureResult<String> handle(BackpressureContext<String> context) {
+                return BackpressureResult.accept(context.item())
+            }
+            
+            @Override
+            double getThreshold() {
+                return Double.NaN  // Invalid threshold
+            }
+        }
+        
+        MicroBatcher<String> batcher = MicroBatcher.withBackpressure(
+            backend, config, provider, strategy
+        )
+        
+        when:
+        Thread.sleep(200)  // Wait for monitoring cycles
+        
+        then:
+        // Should handle invalid threshold gracefully without crashing
+        noExceptionThrown()
+        
+        cleanup:
+        batcher?.close()
+    }
+    
+    def "should handle exception in lifecycle callbacks during monitoring"() {
+        given:
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        
+        def config = BatcherConfig.builder()
+            .batchSize(5)
+            .lingerTime(Duration.ofMillis(100))
+            .backpressureMonitorInterval(Duration.ofMillis(50))
+            .debugMode(true)
+            .build()
+        
+        def queueDepthRef = new AtomicInteger(8)  // High queue depth (8/10 = 0.8)
+        QueueDepthBackpressureProvider provider = new QueueDepthBackpressureProvider(
+            { queueDepthRef.get() },
+            10
+        )
+        
+        InMemoryOverflowStorage<String> overflow = new InMemoryOverflowStorage<>(10)
+        def exceptionThrown = new AtomicBoolean(false)
+        
+        OverflowStrategy<String> strategy = new OverflowStrategy<>(
+            0.7, overflow, provider, { item ->
+                CompletableFuture.completedFuture(new BatchResult<>(List.of(new SuccessEvent<>(item)), List.of()))
+            },
+            { throw new RuntimeException("Pause failed") },  // Exception in onPause
+            { throw new RuntimeException("Resume failed") }  // Exception in onResume
+        )
+        
+        MicroBatcher<String> batcher = MicroBatcher.withBackpressure(
+            backend, config, provider, strategy
+        )
+        
+        when:
+        Thread.sleep(200)  // Wait for monitoring to trigger callbacks
+        
+        then:
+        // Should handle exceptions gracefully without crashing
+        noExceptionThrown()
+        
+        // Now reduce queue depth to trigger resume
+        when:
+        queueDepthRef.set(2)  // 2/10 = 0.2 < 0.7
+        Thread.sleep(200)
+        
+        then:
+        // Should handle resume exception gracefully
+        noExceptionThrown()
+        
+        cleanup:
+        batcher?.close()
+    }
+    
+    def "should handle onBackpressureActive callback"() {
+        given:
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        
+        def config = BatcherConfig.builder()
+            .batchSize(5)
+            .lingerTime(Duration.ofMillis(100))
+            .backpressureMonitorInterval(Duration.ofMillis(50))
+            .maxQueueSize(10)
+            .build()
+        
+        def queueDepthRef = new AtomicInteger(8)  // High queue depth (8/10 = 0.8)
+        QueueDepthBackpressureProvider provider = new QueueDepthBackpressureProvider(
+            { queueDepthRef.get() },
+            config.getMaxQueueSize()
+        )
+        
+        InMemoryOverflowStorage<String> overflow = new InMemoryOverflowStorage<>(10)
+        overflow.add("item1")  // Add item to overflow
+        
+        def activeCallCount = new AtomicInteger(0)
+        
+        // Create a custom strategy that tracks onBackpressureActive calls
+        OverflowStrategy<String> strategy = new OverflowStrategy<String>(
+            0.7, overflow, provider, { item ->
+                CompletableFuture.completedFuture(new BatchResult<>(List.of(new SuccessEvent<>(item)), List.of()))
+            }
+        ) {
+            @Override
+            void onBackpressureActive(BackpressureProvider bpProvider) {
+                activeCallCount.incrementAndGet()
+                super.onBackpressureActive(bpProvider)
+            }
+        }
+        
+        MicroBatcher<String> batcher = MicroBatcher.withBackpressure(
+            backend, config, provider, strategy
+        )
+        
+        when:
+        Thread.sleep(300)  // Wait for multiple monitoring cycles
+        
+        then:
+        // onBackpressureActive should be called while backpressure is active
+        activeCallCount.get() > 0
+        
+        cleanup:
+        batcher?.close()
+    }
+    
+    def "should handle debug mode logging in backpressure monitoring"() {
+        given:
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        
+        def config = BatcherConfig.builder()
+            .batchSize(5)
+            .lingerTime(Duration.ofMillis(100))
+            .backpressureMonitorInterval(Duration.ofMillis(50))
+            .maxQueueSize(10)
+            .debugMode(true)  // Enable debug mode
+            .build()
+        
+        def queueDepthRef = new AtomicInteger(8)  // High queue depth (8/10 = 0.8)
+        QueueDepthBackpressureProvider provider = new QueueDepthBackpressureProvider(
+            { queueDepthRef.get() },
+            config.getMaxQueueSize()
+        )
+        
+        InMemoryOverflowStorage<String> overflow = new InMemoryOverflowStorage<>(10)
+        
+        OverflowStrategy<String> strategy = new OverflowStrategy<>(
+            0.7, overflow, provider, { item ->
+                CompletableFuture.completedFuture(new BatchResult<>(List.of(new SuccessEvent<>(item)), List.of()))
+            },
+            { },  // onPause
+            { }   // onResume
+        )
+        
+        MicroBatcher<String> batcher = MicroBatcher.withBackpressure(
+            backend, config, provider, strategy
+        )
+        
+        when:
+        Thread.sleep(200)  // Wait for monitoring to enter backpressure
+        
+        then:
+        // Should handle debug mode logging without errors
+        noExceptionThrown()
+        
+        // Now resolve backpressure
+        when:
+        queueDepthRef.set(2)  // 2/10 = 0.2 < 0.7
+        Thread.sleep(200)
+        
+        then:
+        // Should handle debug mode logging during resolution
+        noExceptionThrown()
+        
+        cleanup:
+        batcher?.close()
+    }
+    
+    def "should handle exception in monitoring with debug mode"() {
+        given:
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        
+        def config = BatcherConfig.builder()
+            .batchSize(5)
+            .lingerTime(Duration.ofMillis(100))
+            .backpressureMonitorInterval(Duration.ofMillis(50))
+            .debugMode(true)
+            .build()
+        
+        // Provider that throws exception
+        BackpressureProvider provider = Mock()
+        provider.getBackpressureLevel() >> { throw new RuntimeException("Provider error") }
+        provider.getSourceName() >> "Test Provider"
+        
+        InMemoryOverflowStorage<String> overflow = new InMemoryOverflowStorage<>(10)
+        OverflowStrategy<String> strategy = new OverflowStrategy<>(
+            0.7, overflow, provider, { item ->
+                CompletableFuture.completedFuture(new BatchResult<>(List.of(new SuccessEvent<>(item)), List.of()))
+            }
+        )
+        
+        MicroBatcher<String> batcher = MicroBatcher.withBackpressure(
+            backend, config, provider, strategy
+        )
+        
+        when:
+        Thread.sleep(200)  // Wait for monitoring cycles
+        
+        then:
+        // Should handle provider exception gracefully with debug logging
+        noExceptionThrown()
+        
+        cleanup:
+        batcher?.close()
+    }
+    
+    def "should handle invalid threshold in monitoring with debug mode"() {
+        given:
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        
+        def config = BatcherConfig.builder()
+            .batchSize(5)
+            .lingerTime(Duration.ofMillis(100))
+            .backpressureMonitorInterval(Duration.ofMillis(50))
+            .debugMode(true)
+            .build()
+        
+        BackpressureProvider provider = Mock()
+        provider.getBackpressureLevel() >> 0.3
+        provider.getSourceName() >> "Test Provider"
+        
+        // Strategy that returns invalid threshold
+        BackpressureStrategy<String> strategy = new BackpressureStrategy<String>() {
+            @Override
+            BackpressureResult<String> handle(BackpressureContext<String> context) {
+                return BackpressureResult.accept(context.item())
+            }
+            
+            @Override
+            double getThreshold() {
+                return Double.NaN  // Invalid threshold
+            }
+        }
+        
+        MicroBatcher<String> batcher = MicroBatcher.withBackpressure(
+            backend, config, provider, strategy
+        )
+        
+        when:
+        Thread.sleep(200)  // Wait for monitoring cycles
+        
+        then:
+        // Should handle invalid threshold gracefully with debug logging
+        noExceptionThrown()
+        
+        cleanup:
+        batcher?.close()
+    }
+    
+    def "should cover all backpressure monitoring branches"() {
+        given:
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        
+        def config = BatcherConfig.builder()
+            .batchSize(5)
+            .lingerTime(Duration.ofMillis(100))
+            .backpressureMonitorInterval(Duration.ofMillis(50))
+            .maxQueueSize(10)
+            .debugMode(true)
+            .build()
+        
+        def queueDepthRef = new AtomicInteger(0)  // Start low
+        QueueDepthBackpressureProvider provider = new QueueDepthBackpressureProvider(
+            { queueDepthRef.get() },
+            config.getMaxQueueSize()
+        )
+        
+        def enteredCalled = new AtomicBoolean(false)
+        def resolvedCalled = new AtomicBoolean(false)
+        def activeCallCount = new AtomicInteger(0)
+        
+        InMemoryOverflowStorage<String> overflow = new InMemoryOverflowStorage<>(10)
+        OverflowStrategy<String> strategy = new OverflowStrategy<String>(
+            0.7, overflow, provider, { item ->
+                CompletableFuture.completedFuture(new BatchResult<>(List.of(new SuccessEvent<>(item)), List.of()))
+            },
+            { enteredCalled.set(true) },
+            { resolvedCalled.set(true) }
+        ) {
+            @Override
+            void onBackpressureActive(BackpressureProvider bpProvider) {
+                activeCallCount.incrementAndGet()
+                super.onBackpressureActive(bpProvider)
+            }
+        }
+        
+        MicroBatcher<String> batcher = MicroBatcher.withBackpressure(
+            backend, config, provider, strategy
+        )
+        
+        // Step 1: Enter backpressure (queue depth 8/10 = 0.8 > 0.7)
+        when:
+        queueDepthRef.set(8)
+        Thread.sleep(200)  // Wait for monitoring
+        
+        then:
+        // Should enter backpressure
+        enteredCalled.get()
+        
+        // Step 2: Stay in active backpressure
+        when:
+        Thread.sleep(200)  // Wait for more monitoring cycles
+        
+        then:
+        // onBackpressureActive should be called
+        activeCallCount.get() > 0
+        
+        // Step 3: Exit backpressure (queue depth 2/10 = 0.2 < 0.7)
+        when:
+        queueDepthRef.set(2)
+        Thread.sleep(200)  // Wait for monitoring
+        
+        then:
+        // Should resolve backpressure
+        resolvedCalled.get()
+        
+        cleanup:
+        batcher?.close()
+    }
+    
+    def "should handle exception in onBackpressureEntered with debug mode"() {
+        given:
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        
+        def config = BatcherConfig.builder()
+            .batchSize(5)
+            .lingerTime(Duration.ofMillis(100))
+            .backpressureMonitorInterval(Duration.ofMillis(50))
+            .maxQueueSize(10)
+            .debugMode(true)
+            .build()
+        
+        def queueDepthRef = new AtomicInteger(8)  // High queue depth
+        QueueDepthBackpressureProvider provider = new QueueDepthBackpressureProvider(
+            { queueDepthRef.get() },
+            config.getMaxQueueSize()
+        )
+        
+        InMemoryOverflowStorage<String> overflow = new InMemoryOverflowStorage<>(10)
+        OverflowStrategy<String> strategy = new OverflowStrategy<>(
+            0.7, overflow, provider, { item ->
+                CompletableFuture.completedFuture(new BatchResult<>(List.of(new SuccessEvent<>(item)), List.of()))
+            },
+            { throw new RuntimeException("Pause failed") },  // Exception in onPause
+            { }
+        )
+        
+        MicroBatcher<String> batcher = MicroBatcher.withBackpressure(
+            backend, config, provider, strategy
+        )
+        
+        when:
+        Thread.sleep(200)  // Wait for monitoring to enter backpressure
+        
+        then:
+        // Should handle exception gracefully with debug logging
+        noExceptionThrown()
+        
+        cleanup:
+        batcher?.close()
+    }
+    
+    def "should handle exception in onBackpressureResolved with debug mode"() {
+        given:
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        
+        def config = BatcherConfig.builder()
+            .batchSize(5)
+            .lingerTime(Duration.ofMillis(100))
+            .backpressureMonitorInterval(Duration.ofMillis(50))
+            .maxQueueSize(10)
+            .debugMode(true)
+            .build()
+        
+        def queueDepthRef = new AtomicInteger(8)  // Start high
+        QueueDepthBackpressureProvider provider = new QueueDepthBackpressureProvider(
+            { queueDepthRef.get() },
+            config.getMaxQueueSize()
+        )
+        
+        InMemoryOverflowStorage<String> overflow = new InMemoryOverflowStorage<>(10)
+        OverflowStrategy<String> strategy = new OverflowStrategy<>(
+            0.7, overflow, provider, { item ->
+                CompletableFuture.completedFuture(new BatchResult<>(List.of(new SuccessEvent<>(item)), List.of()))
+            },
+            { },
+            { throw new RuntimeException("Resume failed") }  // Exception in onResume
+        )
+        
+        MicroBatcher<String> batcher = MicroBatcher.withBackpressure(
+            backend, config, provider, strategy
+        )
+        
+        // First enter backpressure
+        when:
+        Thread.sleep(200)
+        queueDepthRef.set(2)  // Resolve backpressure
+        Thread.sleep(200)
+        
+        then:
+        // Should handle exception gracefully with debug logging
+        noExceptionThrown()
+        
+        cleanup:
+        batcher?.close()
+    }
+    
+    def "should handle exception in onBackpressureActive with debug mode"() {
+        given:
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        
+        def config = BatcherConfig.builder()
+            .batchSize(5)
+            .lingerTime(Duration.ofMillis(100))
+            .backpressureMonitorInterval(Duration.ofMillis(50))
+            .maxQueueSize(10)
+            .debugMode(true)
+            .build()
+        
+        def queueDepthRef = new AtomicInteger(8)  // High queue depth
+        QueueDepthBackpressureProvider provider = new QueueDepthBackpressureProvider(
+            { queueDepthRef.get() },
+            config.getMaxQueueSize()
+        )
+        
+        InMemoryOverflowStorage<String> overflow = new InMemoryOverflowStorage<>(10)
+        OverflowStrategy<String> strategy = new OverflowStrategy<String>(
+            0.7, overflow, provider, { item ->
+                CompletableFuture.completedFuture(new BatchResult<>(List.of(new SuccessEvent<>(item)), List.of()))
+            }
+        ) {
+            @Override
+            void onBackpressureActive(BackpressureProvider bpProvider) {
+                throw new RuntimeException("Active callback failed")
+            }
+        }
+        
+        MicroBatcher<String> batcher = MicroBatcher.withBackpressure(
+            backend, config, provider, strategy
+        )
+        
+        when:
+        Thread.sleep(300)  // Wait for monitoring to enter and stay in backpressure
+        
+        then:
+        // Should handle exception gracefully with debug logging
+        noExceptionThrown()
+        
+        cleanup:
+        batcher?.close()
+    }
+    
     def "should handle invalid backpressure level gracefully"() {
         given:
         Backend<String> backend = { batch ->

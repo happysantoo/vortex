@@ -23,6 +23,7 @@ public class BatcherConfig {
     private final BatchTracingHook tracingHook;
     private final BackpressureProvider backpressureProvider;
     private final BackpressureStrategy<?> backpressureStrategy;
+    private final Duration backpressureMonitorInterval;
     
     /**
      * Private constructor for BatcherConfig.
@@ -44,6 +45,10 @@ public class BatcherConfig {
         this.tracingHook = builder.tracingHook;
         this.backpressureProvider = builder.backpressureProvider;
         this.backpressureStrategy = builder.backpressureStrategy;
+        // Default to 100ms if not explicitly set
+        this.backpressureMonitorInterval = builder.backpressureMonitorInterval != null 
+            ? builder.backpressureMonitorInterval 
+            : Duration.ofMillis(100);
     }
     
     /**
@@ -182,6 +187,20 @@ public class BatcherConfig {
     }
     
     /**
+     * Gets the backpressure monitoring interval.
+     *
+     * <p>This is the interval at which the MicroBatcher checks for backpressure
+     * state transitions when using a {@link com.vajrapulse.vortex.backpressure.LifecycleAwareStrategy}.
+     * The default is 100ms.
+     *
+     * @return the monitoring interval duration
+     * @since 0.0.4
+     */
+    public Duration getBackpressureMonitorInterval() {
+        return backpressureMonitorInterval;
+    }
+    
+    /**
      * Creates a new builder instance.
      * 
      * @return a new Builder instance
@@ -217,6 +236,7 @@ public class BatcherConfig {
         private BatchTracingHook tracingHook = null;
         private BackpressureProvider backpressureProvider = null;
         private BackpressureStrategy<?> backpressureStrategy = null;
+        private Duration backpressureMonitorInterval = null; // null means use default (100ms)
         
         /**
          * Sets the batch size.
@@ -452,6 +472,44 @@ public class BatcherConfig {
             @SuppressWarnings("unchecked")
             BackpressureStrategy<?> cast = (BackpressureStrategy<?>) backpressureStrategy;
             this.backpressureStrategy = cast;
+            return this;
+        }
+        
+        /**
+         * Sets the backpressure monitoring interval.
+         *
+         * <p>This is the interval at which the MicroBatcher checks for backpressure
+         * state transitions when using a {@link com.vajrapulse.vortex.backpressure.LifecycleAwareStrategy}.
+         * The default is 100ms.
+         *
+         * <p>Shorter intervals provide faster response to backpressure changes but
+         * consume more CPU. Longer intervals reduce CPU usage but may delay detection
+         * of backpressure resolution.
+         *
+         * <p>Recommended values:
+         * <ul>
+         *   <li>50-100ms: For high-throughput systems requiring fast response</li>
+         *   <li>100-200ms: Default, suitable for most use cases</li>
+         *   <li>200-500ms: For low-throughput systems or when CPU is a concern</li>
+         * </ul>
+         *
+         * <p>Example:
+         * <pre>{@code
+         * config.backpressureMonitorInterval(Duration.ofMillis(50));
+         * }</pre>
+         *
+         * @param interval the monitoring interval (must be positive)
+         * @return this builder instance
+         * @throws IllegalArgumentException if interval is null, zero, or negative
+         * @since 0.0.4
+         */
+        public Builder backpressureMonitorInterval(Duration interval) {
+            if (interval == null || interval.isZero() || interval.isNegative()) {
+                throw new IllegalArgumentException(
+                    "Backpressure monitor interval must be positive, got: " + interval
+                );
+            }
+            this.backpressureMonitorInterval = interval;
             return this;
         }
         

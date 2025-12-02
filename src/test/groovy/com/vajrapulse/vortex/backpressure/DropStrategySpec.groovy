@@ -131,5 +131,24 @@ class DropStrategySpec extends Specification {
         0.8            | 0.8                | BackpressureAction.DROP
         0.8            | 0.9                | BackpressureAction.DROP
     }
+    
+    def "should return threshold via getThreshold method"() {
+        given:
+        DropStrategy<String> strategy = new DropStrategy<>(0.7)
+        
+        expect:
+        strategy.getThreshold() == 0.7
+    }
+    
+    def "should return correct threshold for different values"() {
+        when:
+        DropStrategy<String> strategy = new DropStrategy<>(thresholdValue)
+        
+        then:
+        strategy.getThreshold() == thresholdValue
+        
+        where:
+        thresholdValue << [0.0, 0.5, 0.7, 1.0]
+    }
 }
 

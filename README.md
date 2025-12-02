@@ -2,7 +2,7 @@
 
 A lightweight Java 21 library for micro-batching requests to any backend. Built with virtual threads, smart batching (size or time-based), comprehensive metrics, and production-ready features.
 
-**Version**: 0.0.3
+**Version**: 0.0.5
 
 ## Features
 
@@ -29,7 +29,7 @@ A lightweight Java 21 library for micro-batching requests to any backend. Built 
 <dependency>
     <groupId>com.vajrapulse</groupId>
     <artifactId>vortex</artifactId>
-    <version>0.0.3</version>
+    <version>0.0.5</version>
 </dependency>
 ```
 
@@ -37,7 +37,7 @@ A lightweight Java 21 library for micro-batching requests to any backend. Built 
 
 ```kotlin
 dependencies {
-    implementation("com.vajrapulse:vortex:0.0.3")
+    implementation("com.vajrapulse:vortex:0.0.5")
 }
 ```
 

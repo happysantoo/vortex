@@ -36,5 +36,24 @@ public interface BackpressureStrategy<T> {
      * @return result indicating how the item was handled (ACCEPT, REJECT, or DROP)
      */
     BackpressureResult<T> handle(BackpressureContext<T> context);
+    
+    /**
+     * Gets the backpressure threshold used by this strategy.
+     * 
+     * <p>This method is used by the MicroBatcher to determine when to trigger
+     * lifecycle callbacks. Strategies that use a threshold should return the
+     * threshold value (0.0 to 1.0). Strategies that don't use a threshold
+     * should return {@link Double#NaN} or a default value.
+     * 
+     * <p>Default implementation returns {@link Double#NaN} to indicate no threshold.
+     * Built-in strategies ({@link DropStrategy}, {@link RejectStrategy}, {@link OverflowStrategy})
+     * override this method to return their configured threshold.
+     * 
+     * @return the backpressure threshold (0.0 to 1.0), or {@link Double#NaN} if not applicable
+     * @since 0.0.4
+     */
+    default double getThreshold() {
+        return Double.NaN;
+    }
 }
 
