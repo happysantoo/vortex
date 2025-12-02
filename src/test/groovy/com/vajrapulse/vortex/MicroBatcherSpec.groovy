@@ -4741,5 +4741,92 @@ class MicroBatcherSpec extends Specification {
         cleanup:
         batcher?.close()
     }
+
+    def "should handle tracing hook exception in proceedWithSubmission with debug mode"() {
+        given:
+        def tracingHook = Mock(BatchTracingHook)
+        tracingHook.onSubmit(_) >> { throw new RuntimeException("Tracing hook error") }
+        
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(100))
+            .tracingHook(tracingHook)
+            .debugMode(true)
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("item-1")
+        def result = future.get(1, TimeUnit.SECONDS)
+
+        then:
+        // Should handle tracing hook exception gracefully
+        result.successes.size() == 1
+        noExceptionThrown()
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle tracing hook exception in proceedWithSubmission without debug mode"() {
+        given:
+        def tracingHook = Mock(BatchTracingHook)
+        tracingHook.onSubmit(_) >> { throw new RuntimeException("Tracing hook error") }
+        
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(100))
+            .tracingHook(tracingHook)
+            .debugMode(false)
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("item-1")
+        def result = future.get(1, TimeUnit.SECONDS)
+
+        then:
+        // Should handle tracing hook exception gracefully (no debug logging)
+        result.successes.size() == 1
+        noExceptionThrown()
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should handle tracing hook success in proceedWithSubmission"() {
+        given:
+        def tracingHook = Mock(BatchTracingHook)
+        
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(100))
+            .tracingHook(tracingHook)
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def future = batcher.submit("item-1")
+        def result = future.get(1, TimeUnit.SECONDS)
+
+        then:
+        1 * tracingHook.onSubmit("item-1")
+        result.successes.size() == 1
+
+        cleanup:
+        batcher?.close()
+    }
 }
 

@@ -22,6 +22,8 @@ class MetricsManager {
     private final Counter requestsReplayed;
     private final Counter requestsRetried;
     private final Counter requestsRejected;
+    private final Counter backpressureRejected;
+    private final Counter backpressureDropped;
     private final Timer batchDispatchLatency;
     private final Timer requestWaitLatency;
     private final Timer queueWaitTime;
@@ -63,7 +65,15 @@ class MetricsManager {
             .register(meterRegistry);
         
         this.requestsRejected = Counter.builder("vortex.requests.rejected")
-            .description("Total number of requests rejected due to backpressure (queue full)")
+            .description("Total number of requests rejected due to queue being full")
+            .register(meterRegistry);
+        
+        this.backpressureRejected = Counter.builder("vortex.backpressure.rejected")
+            .description("Total number of requests rejected due to backpressure")
+            .register(meterRegistry);
+        
+        this.backpressureDropped = Counter.builder("vortex.backpressure.dropped")
+            .description("Total number of requests dropped due to backpressure")
             .register(meterRegistry);
         
         this.batchDispatchLatency = Timer.builder("vortex.batch.dispatch.latency")
@@ -132,6 +142,14 @@ class MetricsManager {
     
     void recordRequestRejected() {
         requestsRejected.increment();
+    }
+    
+    void recordBackpressureRejected() {
+        backpressureRejected.increment();
+    }
+    
+    void recordBackpressureDropped() {
+        backpressureDropped.increment();
     }
     
     Timer.Sample startBatchDispatchTimer() {

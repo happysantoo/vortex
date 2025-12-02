@@ -1,5 +1,14 @@
 package com.vajrapulse.vortex;
 
+import com.vajrapulse.vortex.backpressure.BackpressureProvider;
+import com.vajrapulse.vortex.backpressure.BackpressureStrategy;
+import com.vajrapulse.vortex.backpressure.BackpressureContext;
+import com.vajrapulse.vortex.backpressure.BackpressureResult;
+import com.vajrapulse.vortex.backpressure.BackpressureAction;
+import com.vajrapulse.vortex.backpressure.LifecycleAwareStrategy;
+import com.vajrapulse.vortex.backpressure.DropStrategy;
+import com.vajrapulse.vortex.backpressure.RejectStrategy;
+import com.vajrapulse.vortex.backpressure.OverflowStrategy;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -26,6 +35,7 @@ public class MicroBatcher<T> implements AutoCloseable {
     private static final int CLOSE_QUEUE_WAIT_TIMEOUT_MS = 2000;
     private static final int CLOSE_POLL_INTERVAL_MS = 10;
     private static final int EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS = 5;
+    private static final long BACKPRESSURE_MONITOR_INTERVAL_MS = 100;
     
     private final Backend<T> backend;
     private final BatcherConfig config;
@@ -33,6 +43,12 @@ public class MicroBatcher<T> implements AutoCloseable {
     
     private final BlockingQueue<PendingRequest<T>> queue;
     private final ExecutorService executor;
+    
+    // Backpressure support (optional)
+    private final BackpressureProvider backpressureProvider;
+    private final BackpressureStrategy<T> backpressureStrategy;
+    private final ScheduledExecutorService backpressureMonitor;
+    private volatile boolean backpressureActive = false;
     
     private volatile boolean closed = false;
     
@@ -54,6 +70,7 @@ public class MicroBatcher<T> implements AutoCloseable {
      * 
      * @param backend the backend implementation
      * @param config the batcher configuration
+     * @throws IllegalArgumentException if backend or config is null
      */
     public MicroBatcher(Backend<T> backend, BatcherConfig config) {
         this(backend, config, new SimpleMeterRegistry());
@@ -62,12 +79,36 @@ public class MicroBatcher<T> implements AutoCloseable {
     /**
      * Creates a new MicroBatcher with the specified MeterRegistry.
      * 
+     * <p>If the config contains backpressure provider and strategy, they will be used.
+     * Otherwise, backpressure can be configured via constructor overloads or factory methods.
+     * 
      * @param backend the backend implementation
      * @param config the batcher configuration
      * @param meterRegistry the meter registry for metrics (must not be null)
      * @throws IllegalArgumentException if backend or config is null
      */
     public MicroBatcher(Backend<T> backend, BatcherConfig config, MeterRegistry meterRegistry) {
+        this(backend, config, meterRegistry, 
+            config != null ? config.getBackpressureProvider() : null, 
+            config != null ? config.getBackpressureStrategy() : null);
+    }
+    
+    /**
+     * Creates a new MicroBatcher with backpressure support.
+     * 
+     * @param backend the backend implementation
+     * @param config the batcher configuration
+     * @param meterRegistry the meter registry for metrics (must not be null)
+     * @param backpressureProvider the backpressure provider (may be null, overrides config)
+     * @param backpressureStrategy the backpressure strategy (may be null, overrides config)
+     * @throws IllegalArgumentException if backend or config is null
+     */
+    public MicroBatcher(
+            Backend<T> backend,
+            BatcherConfig config,
+            MeterRegistry meterRegistry,
+            BackpressureProvider backpressureProvider,
+            BackpressureStrategy<T> backpressureStrategy) {
         if (backend == null) {
             throw new IllegalArgumentException("Backend cannot be null");
         }
@@ -81,6 +122,8 @@ public class MicroBatcher<T> implements AutoCloseable {
         this.backend = backend;
         this.config = config;
         this.meterRegistry = meterRegistry;
+        this.backpressureProvider = backpressureProvider;
+        this.backpressureStrategy = backpressureStrategy;
         
         // Use virtual threads for executor
         this.executor = Executors.newVirtualThreadPerTaskExecutor();
@@ -106,8 +149,55 @@ public class MicroBatcher<T> implements AutoCloseable {
         this.retryManager = new RetryManager<>(config, executor, this::submit, () -> closed, metrics, debugMode);
         this.resultProcessor = new ResultProcessor<>(config, backend, metrics, retryManager, this::submit, debugMode);
         
+        // Start backpressure monitoring if lifecycle-aware strategy is provided
+        if (backpressureStrategy instanceof LifecycleAwareStrategy) {
+            this.backpressureMonitor = startBackpressureMonitoring();
+        } else {
+            this.backpressureMonitor = null;
+        }
+        
         // Start the batch processor
         startBatchProcessor();
+    }
+    
+    /**
+     * Creates a new MicroBatcher with backpressure support (factory method).
+     * 
+     * <p>This is a convenience method for creating a MicroBatcher with backpressure.
+     * 
+     * @param <T> the type of request elements
+     * @param backend the backend implementation
+     * @param config the batcher configuration
+     * @param backpressureProvider the backpressure provider
+     * @param backpressureStrategy the backpressure strategy
+     * @return a new MicroBatcher with backpressure support
+     */
+    public static <T> MicroBatcher<T> withBackpressure(
+            Backend<T> backend,
+            BatcherConfig config,
+            BackpressureProvider backpressureProvider,
+            BackpressureStrategy<T> backpressureStrategy) {
+        return new MicroBatcher<>(backend, config, new SimpleMeterRegistry(), backpressureProvider, backpressureStrategy);
+    }
+    
+    /**
+     * Creates a new MicroBatcher with backpressure support (factory method with MeterRegistry).
+     * 
+     * @param <T> the type of request elements
+     * @param backend the backend implementation
+     * @param config the batcher configuration
+     * @param meterRegistry the meter registry for metrics
+     * @param backpressureProvider the backpressure provider
+     * @param backpressureStrategy the backpressure strategy
+     * @return a new MicroBatcher with backpressure support
+     */
+    public static <T> MicroBatcher<T> withBackpressure(
+            Backend<T> backend,
+            BatcherConfig config,
+            MeterRegistry meterRegistry,
+            BackpressureProvider backpressureProvider,
+            BackpressureStrategy<T> backpressureStrategy) {
+        return new MicroBatcher<>(backend, config, meterRegistry, backpressureProvider, backpressureStrategy);
     }
     
     /**
@@ -118,8 +208,9 @@ public class MicroBatcher<T> implements AutoCloseable {
      * configured batch size and linger time settings.
      * 
      * <p>If the batcher is closed, this method will throw {@link IllegalStateException}.
-     * If the queue is full, the returned future will complete exceptionally with
-     * {@link RejectedExecutionException}.
+     * If backpressure is detected, the strategy will determine how to handle the item
+     * (ACCEPT, REJECT, or DROP). If the queue is full, the returned future will complete
+     * exceptionally with {@link RejectedExecutionException}.
      * 
      * @param data the request data
      * @return a CompletableFuture that completes with the batch result
@@ -130,6 +221,64 @@ public class MicroBatcher<T> implements AutoCloseable {
             throw new IllegalStateException("MicroBatcher is closed");
         }
         
+        // Check backpressure FIRST (before any other work)
+        if (backpressureProvider != null && backpressureStrategy != null) {
+            try {
+                double backpressure = backpressureProvider.getBackpressureLevel();
+                
+                // Validate backpressure level
+                if (Double.isNaN(backpressure) || backpressure < 0.0 || backpressure > 1.0) {
+                    if (debugMode) {
+                        logger.warn("Invalid backpressure level: {}, defaulting to 0.0", backpressure);
+                    }
+                    backpressure = 0.0;
+                }
+                
+                BackpressureContext<T> context = new BackpressureContext<>(
+                    data, backpressure, backpressureProvider
+                );
+                
+                BackpressureResult<T> result = backpressureStrategy.handle(context);
+                
+                return switch (result.action()) {
+                    case ACCEPT -> proceedWithSubmission(data);
+                    case REJECT -> {
+                        metrics.recordBackpressureRejected();
+                        CompletableFuture<BatchResult<T>> future = new CompletableFuture<>();
+                        future.completeExceptionally(result.reason());
+                        yield future;
+                    }
+                    case DROP -> {
+                        metrics.recordBackpressureDropped();
+                        // Return success but don't actually process
+                        CompletableFuture<BatchResult<T>> future = new CompletableFuture<>();
+                        future.complete(new BatchResult<>(
+                            List.of(new SuccessEvent<>(data)),
+                            List.of()
+                        ));
+                        yield future;
+                    }
+                };
+            } catch (Exception e) {
+                // Fail-safe: if backpressure check fails, proceed normally
+                if (debugMode) {
+                    logger.error("Backpressure check failed, proceeding with submission", e);
+                }
+                return proceedWithSubmission(data);
+            }
+        }
+        
+        // No backpressure - normal flow
+        return proceedWithSubmission(data);
+    }
+    
+    /**
+     * Proceeds with normal submission flow (after backpressure check).
+     * 
+     * @param data the request data
+     * @return a CompletableFuture that completes with the batch result
+     */
+    private CompletableFuture<BatchResult<T>> proceedWithSubmission(T data) {
         if (tracingHook != null) {
             try {
                 tracingHook.onSubmit(data);
@@ -354,9 +503,124 @@ public class MicroBatcher<T> implements AutoCloseable {
      * 
      * <p>Thread safety: This method is thread-safe and can be called from any thread.
      */
+    /**
+     * Starts backpressure monitoring for lifecycle-aware strategies.
+     * 
+     * @return the ScheduledExecutorService used for monitoring
+     */
+    private ScheduledExecutorService startBackpressureMonitoring() {
+        ScheduledExecutorService monitor = Executors.newSingleThreadScheduledExecutor(
+            r -> {
+                Thread t = new Thread(r, "vortex-backpressure-monitor");
+                t.setDaemon(true);
+                return t;
+            }
+        );
+        
+        monitor.scheduleAtFixedRate(() -> {
+            if (backpressureProvider != null && 
+                backpressureStrategy instanceof LifecycleAwareStrategy) {
+                try {
+                    double level = backpressureProvider.getBackpressureLevel();
+                    double threshold = getBackpressureThreshold();
+                    
+                    // Validate level
+                    if (Double.isNaN(level) || level < 0.0 || level > 1.0) {
+                        if (debugMode) {
+                            logger.warn("Invalid backpressure level in monitor: {}", level);
+                        }
+                        return;
+                    }
+                    
+                    boolean isActive = level >= threshold;
+                    
+                    if (!backpressureActive && isActive) {
+                        // Entering backpressure
+                        backpressureActive = true;
+                        ((LifecycleAwareStrategy<T>) backpressureStrategy)
+                            .onBackpressureEntered(backpressureProvider);
+                        if (debugMode) {
+                            logger.debug("Backpressure entered: level={}, threshold={}", level, threshold);
+                        }
+                    } else if (backpressureActive && !isActive) {
+                        // Exiting backpressure
+                        backpressureActive = false;
+                        ((LifecycleAwareStrategy<T>) backpressureStrategy)
+                            .onBackpressureResolved(backpressureProvider);
+                        if (debugMode) {
+                            logger.debug("Backpressure resolved: level={}, threshold={}", level, threshold);
+                        }
+                    } else if (backpressureActive) {
+                        // Active backpressure - periodic check
+                        ((LifecycleAwareStrategy<T>) backpressureStrategy)
+                            .onBackpressureActive(backpressureProvider);
+                    }
+                } catch (Exception e) {
+                    if (debugMode) {
+                        logger.error("Error in backpressure monitoring", e);
+                    }
+                }
+            }
+        }, 0, BACKPRESSURE_MONITOR_INTERVAL_MS, TimeUnit.MILLISECONDS);
+        
+        return monitor;
+    }
+    
+    /**
+     * Gets the backpressure threshold from the strategy.
+     * 
+     * <p>This is a helper method that extracts the threshold from common strategy types.
+     * For custom strategies, this may return a default value.
+     * 
+     * @return the threshold (0.0 to 1.0), or 0.7 as default
+     */
+    private double getBackpressureThreshold() {
+        // Try to extract threshold from known strategy types
+        if (backpressureStrategy instanceof DropStrategy) {
+            try {
+                java.lang.reflect.Field field = DropStrategy.class.getDeclaredField("threshold");
+                field.setAccessible(true);
+                return (Double) field.get(backpressureStrategy);
+            } catch (Exception e) {
+                // Fall through to default
+            }
+        } else if (backpressureStrategy instanceof RejectStrategy) {
+            try {
+                java.lang.reflect.Field field = RejectStrategy.class.getDeclaredField("threshold");
+                field.setAccessible(true);
+                return (Double) field.get(backpressureStrategy);
+            } catch (Exception e) {
+                // Fall through to default
+            }
+        } else if (backpressureStrategy instanceof OverflowStrategy) {
+            try {
+                java.lang.reflect.Field field = OverflowStrategy.class.getDeclaredField("threshold");
+                field.setAccessible(true);
+                return (Double) field.get(backpressureStrategy);
+            } catch (Exception e) {
+                // Fall through to default
+            }
+        }
+        // Default threshold
+        return 0.7;
+    }
+    
     @Override
     public void close() {
         closed = true;
+        
+        // Shutdown backpressure monitoring
+        if (backpressureMonitor != null) {
+            backpressureMonitor.shutdown();
+            try {
+                if (!backpressureMonitor.awaitTermination(1, TimeUnit.SECONDS)) {
+                    backpressureMonitor.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                backpressureMonitor.shutdownNow();
+            }
+        }
         
         retryManager.clearAll();
         

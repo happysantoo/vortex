@@ -1,5 +1,8 @@
 package com.vajrapulse.vortex;
 
+import com.vajrapulse.vortex.backpressure.BackpressureProvider;
+import com.vajrapulse.vortex.backpressure.BackpressureStrategy;
+
 import java.time.Duration;
 import java.util.function.Predicate;
 
@@ -18,6 +21,8 @@ public class BatcherConfig {
     private final Predicate<Throwable> retryableErrorPredicate;
     private final int maxQueueSize;
     private final BatchTracingHook tracingHook;
+    private final BackpressureProvider backpressureProvider;
+    private final BackpressureStrategy<?> backpressureStrategy;
     
     /**
      * Private constructor for BatcherConfig.
@@ -37,6 +42,8 @@ public class BatcherConfig {
         // Default to 2x batch size if not explicitly set
         this.maxQueueSize = builder.maxQueueSize != null ? builder.maxQueueSize : builder.batchSize * 2;
         this.tracingHook = builder.tracingHook;
+        this.backpressureProvider = builder.backpressureProvider;
+        this.backpressureStrategy = builder.backpressureStrategy;
     }
     
     /**
@@ -145,6 +152,36 @@ public class BatcherConfig {
     }
     
     /**
+     * Gets the optional backpressure provider.
+     *
+     * <p>When configured along with a backpressure strategy, the MicroBatcher
+     * will check backpressure before accepting items. This allows the system
+     * to respond to pressure from various sources (queue depth, connection pools, etc.).
+     *
+     * @return the backpressure provider, or {@code null} if not configured
+     * @since 0.0.4
+     */
+    public BackpressureProvider getBackpressureProvider() {
+        return backpressureProvider;
+    }
+    
+    /**
+     * Gets the optional backpressure strategy.
+     *
+     * <p>When configured along with a backpressure provider, the MicroBatcher
+     * will use this strategy to handle items when backpressure is detected.
+     * Strategies can accept, reject, or drop items based on backpressure level.
+     *
+     * @param <T> the type of items being processed
+     * @return the backpressure strategy, or {@code null} if not configured
+     * @since 0.0.4
+     */
+    @SuppressWarnings("unchecked")
+    public <T> BackpressureStrategy<T> getBackpressureStrategy() {
+        return (BackpressureStrategy<T>) backpressureStrategy;
+    }
+    
+    /**
      * Creates a new builder instance.
      * 
      * @return a new Builder instance
@@ -155,8 +192,18 @@ public class BatcherConfig {
     
     /**
      * Builder class for BatcherConfig.
+     * 
+     * <p>Provides a fluent API for constructing BatcherConfig instances.
+     * All configuration options have sensible defaults.
      */
     public static class Builder {
+        /**
+         * Creates a new Builder instance with default values.
+         */
+        public Builder() {
+            // Default constructor - all fields initialized with defaults
+        }
+        
         private int batchSize = 10;
         private Duration lingerTime = Duration.ofMillis(100);
         private boolean atomicCommit = false;
@@ -168,6 +215,8 @@ public class BatcherConfig {
         private Predicate<Throwable> retryableErrorPredicate = t -> false;
         private Integer maxQueueSize = null; // null means use default (2x batchSize)
         private BatchTracingHook tracingHook = null;
+        private BackpressureProvider backpressureProvider = null;
+        private BackpressureStrategy<?> backpressureStrategy = null;
         
         /**
          * Sets the batch size.
@@ -341,6 +390,68 @@ public class BatcherConfig {
          */
         public Builder tracingHook(BatchTracingHook tracingHook) {
             this.tracingHook = tracingHook;
+            return this;
+        }
+        
+        /**
+         * Sets an optional backpressure provider.
+         *
+         * <p>When configured along with a backpressure strategy, the MicroBatcher
+         * will check backpressure before accepting items. The provider reports
+         * backpressure level (0.0 to 1.0) from various sources such as:
+         * <ul>
+         *   <li>Queue depth</li>
+         *   <li>Connection pool utilization</li>
+         *   <li>Memory pressure</li>
+         *   <li>CPU utilization</li>
+         * </ul>
+         *
+         * <p>Example:
+         * <pre>{@code
+         * BackpressureProvider provider = new QueueDepthBackpressureProvider(
+         *     () -> batcher.diagnostics().getQueueDepth(),
+         *     1000
+         * );
+         * config.backpressureProvider(provider);
+         * }</pre>
+         *
+         * @param backpressureProvider the backpressure provider (may be null)
+         * @return this builder instance
+         * @since 0.0.4
+         */
+        public Builder backpressureProvider(BackpressureProvider backpressureProvider) {
+            this.backpressureProvider = backpressureProvider;
+            return this;
+        }
+        
+        /**
+         * Sets an optional backpressure strategy.
+         *
+         * <p>When configured along with a backpressure provider, the MicroBatcher
+         * will use this strategy to handle items when backpressure is detected.
+         * Strategies can:
+         * <ul>
+         *   <li>Accept items (proceed normally)</li>
+         *   <li>Reject items (return failure callback)</li>
+         *   <li>Drop items (silently ignore)</li>
+         *   <li>Overflow items (store for later replay)</li>
+         * </ul>
+         *
+         * <p>Example:
+         * <pre>{@code
+         * BackpressureStrategy<String> strategy = new RejectStrategy<>(0.7);
+         * config.backpressureStrategy(strategy);
+         * }</pre>
+         *
+         * @param <T> the type of items being processed
+         * @param backpressureStrategy the backpressure strategy (may be null)
+         * @return this builder instance
+         * @since 0.0.4
+         */
+        public <T> Builder backpressureStrategy(BackpressureStrategy<T> backpressureStrategy) {
+            @SuppressWarnings("unchecked")
+            BackpressureStrategy<?> cast = (BackpressureStrategy<?>) backpressureStrategy;
+            this.backpressureStrategy = cast;
             return this;
         }
         
