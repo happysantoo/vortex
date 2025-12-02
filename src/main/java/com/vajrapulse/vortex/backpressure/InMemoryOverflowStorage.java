@@ -75,7 +75,13 @@ public class InMemoryOverflowStorage<T> implements OverflowStorage<T> {
             );
         }
         // Add item (may still exceed capacity slightly due to race condition, but that's acceptable)
-        queue.offer(item);
+        boolean added = queue.offer(item);
+        if (!added) {
+            // This should not happen with ConcurrentLinkedQueue (unbounded), but check defensively
+            throw new IllegalStateException(
+                "Failed to add item to overflow storage (capacity: " + maxCapacity + ", current size: " + queue.size() + ")"
+            );
+        }
         // Double-check after add to handle race conditions
         if (queue.size() > maxCapacity) {
             // Remove the item we just added if we exceeded capacity
