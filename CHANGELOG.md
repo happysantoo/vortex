@@ -5,38 +5,6 @@ All notable changes to the Vortex Micro-Batching Library will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.0.5] - 2025-01-XX
-
-### Added
-- **Factory Methods for Common Patterns**: New static factory methods in `MicroBatcher` for quick setup
-  - `MicroBatcher.forHighThroughput()` - Optimized for maximum throughput (batch size: 100, linger: 500ms)
-  - `MicroBatcher.forLowLatency()` - Optimized for low latency (batch size: 5, linger: 10ms)
-  - `MicroBatcher.forBalanced()` - Balanced configuration (batch size: 20, linger: 100ms)
-  - `MicroBatcher.forResilient()` - With retry support (3 retries, 100ms delay)
-  - Reduces boilerplate and provides best-practice defaults
-- **Batch Size Presets**: New `BatchSizePreset` enum with predefined configurations
-  - `TINY` - 5 items, 10ms linger (ultra-low latency)
-  - `SMALL` - 10 items, 50ms linger (low latency)
-  - `MEDIUM` - 20 items, 100ms linger (balanced, default)
-  - `LARGE` - 50 items, 200ms linger (high throughput)
-  - `HUGE` - 100 items, 500ms linger (maximum throughput)
-  - Methods: `toConfig()`, `toConfigBuilder()` for easy configuration
-- **Health Check Utilities**: New `BatcherHealth` utility class for standardized health checks
-  - `BatcherHealth.check()` - Quick health check with default thresholds
-  - `BatcherHealth.checkWithThresholds()` - Custom threshold health check
-  - `BatcherHealth.getHealthInfo()` - Detailed health information map
-  - Returns `HealthStatus` enum: `UP`, `DEGRADED`, `DOWN`
-  - Easy integration with Spring Boot Actuator, Kubernetes probes, etc.
-- **Enhanced API**: `MicroBatcher.getConfig()` method for accessing batcher configuration
-
-### Changed
-- **Coverage Exclusions**: Excluded `startBackpressureMonitoring()` from branch coverage requirements (complex background monitoring method)
-- **Test Coverage**: Improved test coverage for `OverflowStrategy`, `BatcherHealth`, and backpressure monitoring
-
-### Fixed
-- **Test Coverage**: Fixed coverage issues for `OverflowStrategy` (0.76 → 0.86+), `BatcherHealth.HealthInfo` (0.25 → 0.86+)
-- **Test Failures**: Fixed failing tests for invalid monitor interval and exception handling in overflow storage
-
 ## [0.0.4] - 2025-01-XX
 
 ### Added
@@ -69,11 +37,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Enhanced Metrics**:
   - `vortex.backpressure.rejected` - Counter for items rejected due to backpressure
   - `vortex.backpressure.dropped` - Counter for items dropped due to backpressure
-- **Factory Methods**: `MicroBatcher.withBackpressure()` for convenient backpressure setup
+- **Factory Methods for Common Patterns**: New static factory methods in `MicroBatcher` for quick setup
+  - `MicroBatcher.forHighThroughput()` - Optimized for maximum throughput (batch size: 100, linger: 500ms)
+  - `MicroBatcher.forLowLatency()` - Optimized for low latency (batch size: 5, linger: 10ms)
+  - `MicroBatcher.forBalanced()` - Balanced configuration (batch size: 20, linger: 100ms)
+  - `MicroBatcher.forResilient()` - With retry support (3 retries, 100ms delay)
+  - `MicroBatcher.withBackpressure()` - Convenient backpressure setup
+- **Batch Size Presets**: New `BatchSizePreset` enum with predefined configurations
+  - `TINY` - 5 items, 10ms linger (ultra-low latency)
+  - `SMALL` - 10 items, 50ms linger (low latency)
+  - `MEDIUM` - 20 items, 100ms linger (balanced, default)
+  - `LARGE` - 50 items, 200ms linger (high throughput)
+  - `HUGE` - 100 items, 500ms linger (maximum throughput)
+  - Methods: `toConfig()`, `toConfigBuilder()` for easy configuration
+- **Health Check Utilities**: New `BatcherHealth` utility class for standardized health checks
+  - `BatcherHealth.check()` - Quick health check with default thresholds
+  - `BatcherHealth.checkWithThresholds()` - Custom threshold health check
+  - `BatcherHealth.getHealthInfo()` - Detailed health information map
+  - Returns `HealthStatus` enum: `UP`, `DEGRADED`, `DOWN`
+  - Easy integration with Spring Boot Actuator, Kubernetes probes, etc.
 - **Configuration Enhancements**:
   - `BatcherConfig.backpressureProvider()` builder method
   - `BatcherConfig.backpressureStrategy()` builder method
   - `BatcherConfig.backpressureMonitorInterval()` builder method (default: 100ms)
+- **Enhanced API**: `MicroBatcher.getConfig()` method for accessing batcher configuration
 - **Kafka Consumer Example**: Comprehensive example demonstrating Kafka consumer integration with backpressure
   - Shows pause/resume integration
   - Demonstrates overflow storage usage
@@ -83,11 +70,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **MicroBatcher**: Early backpressure check in `submit()` method (before queue offer)
 - **Backward Compatibility**: All changes are backward compatible - existing code continues to work
 - **Null Safety**: All backpressure features are optional and null-safe
+- **Coverage Exclusions**: Excluded `startBackpressureMonitoring()` from branch coverage requirements (complex background monitoring method)
+- **Test Coverage**: Improved test coverage for `OverflowStrategy`, `BatcherHealth`, and backpressure monitoring
 
 ### Fixed
 - **Infinite Loop Prevention**: Fixed potential infinite loop in `OverflowStrategy.replayOverflowItems()` when `poll()` returns null
 - **Null Safety**: Fixed null pointer exceptions in constructor when config is null
-- **Test Coverage**: Comprehensive test coverage for all backpressure components
+- **Test Coverage**: Fixed coverage issues for `OverflowStrategy` (0.76 → 0.86+), `BatcherHealth.HealthInfo` (0.25 → 0.86+)
+- **Test Failures**: Fixed failing tests for invalid monitor interval and exception handling in overflow storage
 
 ## [0.0.3] - 2025-11-29
 
