@@ -40,6 +40,13 @@ java -cp "$(./gradlew -q printClasspath):examples" com.vajrapulse.vortex.example
   - Retry with exponential backoff
   - Circuit breaker pattern
   - Rate limiting strategy
+- **KafkaConsumerBackpressureExample.java** - Kafka consumer integration with backpressure (NEW in 0.0.4)
+  - Spring Kafka consumer integration
+  - OverflowStrategy for backpressure handling
+  - Automatic consumer pause/resume
+  - Overflow storage and replay
+  - Clear separation of application vs library responsibilities
+  - See [README_KAFKA_BACKPRESSURE.md](README_KAFKA_BACKPRESSURE.md) for detailed documentation
 - **HttpBackendExample.java** - HTTP backend integration
 - **CustomBackendReplayExample.java** - Custom backend with replay logic
 - **ExampleUsage.java** - Comprehensive usage example with submitWithCallback
