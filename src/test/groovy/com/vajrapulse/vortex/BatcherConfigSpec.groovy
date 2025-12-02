@@ -367,5 +367,47 @@ class BatcherConfigSpec extends Specification {
         config.retryDelay == Duration.ofMillis(150)
         config.retryableErrorPredicate != null
     }
+    
+    def "should use default backpressure monitor interval when not specified"() {
+        when:
+        def config = BatcherConfig.builder().build()
+        
+        then:
+        config.backpressureMonitorInterval == Duration.ofMillis(100)  // Default
+    }
+    
+    def "should set custom backpressure monitor interval"() {
+        when:
+        def config = BatcherConfig.builder()
+            .backpressureMonitorInterval(Duration.ofMillis(50))
+            .build()
+        
+        then:
+        config.backpressureMonitorInterval == Duration.ofMillis(50)
+    }
+    
+    def "should reject null backpressure monitor interval"() {
+        when:
+        BatcherConfig.builder().backpressureMonitorInterval(null).build()
+        
+        then:
+        thrown(IllegalArgumentException)
+    }
+    
+    def "should reject zero backpressure monitor interval"() {
+        when:
+        BatcherConfig.builder().backpressureMonitorInterval(Duration.ZERO).build()
+        
+        then:
+        thrown(IllegalArgumentException)
+    }
+    
+    def "should reject negative backpressure monitor interval"() {
+        when:
+        BatcherConfig.builder().backpressureMonitorInterval(Duration.ofMillis(-1)).build()
+        
+        then:
+        thrown(IllegalArgumentException)
+    }
 }
 

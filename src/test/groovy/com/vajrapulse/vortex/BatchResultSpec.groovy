@@ -488,5 +488,33 @@ class BatchResultSpec extends Specification {
         // This should hit the total != 0 branch
         rate == 0.5
     }
+
+    def "should create BatchResult with null successes"() {
+        when:
+        def result = new BatchResult<>(null, [new FailureEvent<>("item1", new RuntimeException("error"))])
+
+        then:
+        result.successes.isEmpty()
+        result.failures.size() == 1
+    }
+
+    def "should create BatchResult with null failures"() {
+        when:
+        def result = new BatchResult<>([new SuccessEvent<>("item1")], null)
+
+        then:
+        result.successes.size() == 1
+        result.failures.isEmpty()
+    }
+
+    def "should create BatchResult with both null"() {
+        when:
+        def result = new BatchResult<>(null, null)
+
+        then:
+        result.successes.isEmpty()
+        result.failures.isEmpty()
+        result.getTotalCount() == 0
+    }
 }
 
