@@ -2,7 +2,7 @@
 
 A lightweight Java 21 library for micro-batching requests to any backend. Built with virtual threads, smart batching (size or time-based), comprehensive metrics, and production-ready features.
 
-**Version**: 0.0.4
+**Version**: 0.0.5
 
 ## Features
 
@@ -13,8 +13,11 @@ A lightweight Java 21 library for micro-batching requests to any backend. Built 
 - ✅ **Comprehensive Metrics**: Micrometer metrics for queue depth, success/failure rates, latencies, percentiles
 - ✅ **Built-in Retry**: Configurable retry support for transient failures
 - ✅ **Item Result Tracking**: Type-safe sealed `ItemResult` interface with pattern matching
-- ✅ **Batch Callbacks**: Submit items with callbacks for async result handling
-- ✅ **Per-Item Metrics**: Optional detailed metrics for individual items
+- ✅ **Synchronous Submission API**: `submitSync()` for immediate rejection visibility
+- ✅ **Batch Callbacks**: Submit items with callbacks for async result handling (with immediate rejection support)
+- ✅ **Per-Item Metrics**: Optional detailed metrics for individual items (queue wait time vs full latency)
+- ✅ **Backpressure Caching**: TTL-based caching reduces provider calls by ~95% in high-throughput scenarios
+- ✅ **OpenTelemetry Integration**: Optional distributed tracing support with graceful degradation
 - ✅ **Dynamic Configuration**: Update batch size and linger time at runtime
 - ✅ **Debug Mode**: Detailed logging for troubleshooting
 - ✅ **Auto-Replay**: Automatic replay of successful items when batches have mixed results
@@ -29,7 +32,7 @@ A lightweight Java 21 library for micro-batching requests to any backend. Built 
 <dependency>
     <groupId>com.vajrapulse</groupId>
     <artifactId>vortex</artifactId>
-    <version>0.0.4</version>
+    <version>0.0.5</version>
 </dependency>
 ```
 
@@ -37,7 +40,7 @@ A lightweight Java 21 library for micro-batching requests to any backend. Built 
 
 ```kotlin
 dependencies {
-    implementation("com.vajrapulse:vortex:0.0.4")
+    implementation("com.vajrapulse:vortex:0.0.5")
 }
 ```
 
@@ -197,6 +200,25 @@ CompletableFuture<BatchResult<String>> future = batcher.submit("item");
 BatchResult<String> result = future.get();
 ```
 
+#### Synchronous Submission (0.0.5+)
+
+For immediate rejection visibility (useful for load testing frameworks):
+
+```java
+ItemResult<String> result = batcher.submitSync("item");
+
+if (result instanceof ItemResult.Failure<String> failure) {
+    // Immediate rejection - handle immediately
+    System.err.println("Rejected: " + failure.getError().getMessage());
+    // Options: retry, log, send to dead letter queue
+} else {
+    // Item accepted and queued
+    // Use submitWithCallback() to track eventual batch result
+}
+```
+
+**Performance**: `submitSync()` is 11% faster than async `submit()` when items are accepted.
+
 #### Submission with Callback
 
 ```java
@@ -211,14 +233,8 @@ CompletableFuture<Void> callbackFuture = batcher.submitWithCallback(
     }
 );
 
-// Always handle exceptions to detect backpressure
-callbackFuture.exceptionally(throwable -> {
-    if (throwable.getCause() instanceof RejectedExecutionException) {
-        System.err.println("Request rejected: Queue is full (backpressure)");
-        // Handle backpressure: retry, log, or send to dead letter queue
-    }
-    return null;
-});
+// Callback is invoked immediately for rejections, or when batch completes for accepted items
+// No need to handle RejectedExecutionException - callback handles it
 ```
 
 ## Advanced Features
