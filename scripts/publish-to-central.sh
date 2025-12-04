@@ -108,6 +108,42 @@ if [[ "${HTTP_CODE}" == "200" ]] || [[ "${HTTP_CODE}" == "201" ]]; then
     echo ""
     echo "Deployment is being processed. Check status at:"
     echo "https://central.sonatype.com/"
+    echo ""
+    
+    # Create GitHub release
+    echo "=========================================="
+    echo "Creating GitHub Release v${VERSION}"
+    echo "=========================================="
+    echo ""
+    
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+    RELEASE_NOTES="${PROJECT_ROOT}/documents/releases/RELEASE_NOTES_${VERSION}.md"
+    
+    # Check if release notes exist
+    if [[ ! -f "${RELEASE_NOTES}" ]]; then
+        echo "⚠ Warning: Release notes not found at ${RELEASE_NOTES}"
+        echo "Creating release without release notes..."
+        gh release create "v${VERSION}" \
+            --title "Release ${VERSION}" \
+            --notes "Release ${VERSION} of Vortex Micro-Batching Library" || {
+            echo "✗ Failed to create GitHub release"
+            echo "Note: Maven Central upload was successful, but GitHub release creation failed"
+            exit 1
+        }
+    else
+        echo "Using release notes from: ${RELEASE_NOTES}"
+        gh release create "v${VERSION}" \
+            --title "Release ${VERSION}: $(head -n 1 "${RELEASE_NOTES}" | sed 's/# //' | head -c 80)" \
+            --notes-file "${RELEASE_NOTES}" || {
+            echo "✗ Failed to create GitHub release"
+            echo "Note: Maven Central upload was successful, but GitHub release creation failed"
+            exit 1
+        }
+    fi
+    
+    echo "✓ GitHub release created: https://github.com/happysantoo/vortex/releases/tag/v${VERSION}"
+    echo ""
 else
     echo "✗ Upload failed with HTTP ${HTTP_CODE}"
     echo "Response:"
