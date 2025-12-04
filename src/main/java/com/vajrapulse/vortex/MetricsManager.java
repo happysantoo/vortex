@@ -24,6 +24,9 @@ class MetricsManager {
     private final Counter requestsRejected;
     private final Counter backpressureRejected;
     private final Counter backpressureDropped;
+    private final Counter backpressureCheckFailures;
+    private final Counter backpressureInvalidLevels;
+    private final Counter queueOfferFailures;
     private final Timer batchDispatchLatency;
     private final Timer requestWaitLatency;
     private final Timer queueWaitTime;
@@ -74,6 +77,18 @@ class MetricsManager {
         
         this.backpressureDropped = Counter.builder("vortex.backpressure.dropped")
             .description("Total number of requests dropped due to backpressure")
+            .register(meterRegistry);
+        
+        this.backpressureCheckFailures = Counter.builder("vortex.backpressure.check.failures")
+            .description("Total number of backpressure check failures (exceptions)")
+            .register(meterRegistry);
+        
+        this.backpressureInvalidLevels = Counter.builder("vortex.backpressure.invalid.levels")
+            .description("Total number of invalid backpressure levels detected (NaN, out of range)")
+            .register(meterRegistry);
+        
+        this.queueOfferFailures = Counter.builder("vortex.queue.offer.failures")
+            .description("Total number of queue offer failures (race condition occurrences)")
             .register(meterRegistry);
         
         this.batchDispatchLatency = Timer.builder("vortex.batch.dispatch.latency")
@@ -152,6 +167,18 @@ class MetricsManager {
         backpressureDropped.increment();
     }
     
+    void recordBackpressureCheckFailure() {
+        backpressureCheckFailures.increment();
+    }
+    
+    void recordBackpressureInvalidLevel() {
+        backpressureInvalidLevels.increment();
+    }
+    
+    void recordQueueOfferFailure() {
+        queueOfferFailures.increment();
+    }
+    
     Timer.Sample startBatchDispatchTimer() {
         return Timer.start(meterRegistry);
     }
@@ -173,14 +200,29 @@ class MetricsManager {
     void recordWaitTime(long waitTimeNanos) {
         requestWaitLatency.record(waitTimeNanos, TimeUnit.NANOSECONDS);
         queueWaitTime.record(waitTimeNanos, TimeUnit.NANOSECONDS);
-        
-        if (config.isPerItemMetrics()) {
-            if (itemWaitTime != null) {
-                itemWaitTime.record(waitTimeNanos, TimeUnit.NANOSECONDS);
-            }
-            if (itemSubmitLatency != null) {
-                itemSubmitLatency.record(waitTimeNanos, TimeUnit.NANOSECONDS);
-            }
+    }
+    
+    /**
+     * Records queue wait time for an individual item (from submit to batch dispatch start).
+     * Only records if per-item metrics are enabled.
+     * 
+     * @param queueWaitTimeNanos the queue wait time in nanoseconds
+     */
+    void recordQueueWaitTime(long queueWaitTimeNanos) {
+        if (config.isPerItemMetrics() && itemWaitTime != null) {
+            itemWaitTime.record(queueWaitTimeNanos, TimeUnit.NANOSECONDS);
+        }
+    }
+    
+    /**
+     * Records full submit-to-completion latency for an individual item.
+     * Only records if per-item metrics are enabled.
+     * 
+     * @param fullLatencyNanos the full latency from submit to completion in nanoseconds
+     */
+    void recordItemSubmitLatency(long fullLatencyNanos) {
+        if (config.isPerItemMetrics() && itemSubmitLatency != null) {
+            itemSubmitLatency.record(fullLatencyNanos, TimeUnit.NANOSECONDS);
         }
     }
     

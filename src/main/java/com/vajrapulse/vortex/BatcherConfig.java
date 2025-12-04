@@ -24,6 +24,7 @@ public class BatcherConfig {
     private final BackpressureProvider backpressureProvider;
     private final BackpressureStrategy<?> backpressureStrategy;
     private final Duration backpressureMonitorInterval;
+    private final Duration backpressureCacheTtl;
     
     /**
      * Private constructor for BatcherConfig.
@@ -49,6 +50,10 @@ public class BatcherConfig {
         this.backpressureMonitorInterval = builder.backpressureMonitorInterval != null 
             ? builder.backpressureMonitorInterval 
             : Duration.ofMillis(100);
+        // Default to 50ms if not explicitly set (cache for 50ms to reduce provider calls)
+        this.backpressureCacheTtl = builder.backpressureCacheTtl != null 
+            ? builder.backpressureCacheTtl 
+            : Duration.ofMillis(50);
     }
     
     /**
@@ -201,6 +206,23 @@ public class BatcherConfig {
     }
     
     /**
+     * Gets the backpressure level cache TTL.
+     *
+     * <p>This is the time-to-live for cached backpressure levels. When a backpressure
+     * level is fetched from the provider, it is cached for this duration to reduce
+     * the overhead of calling the provider on every submission.
+     *
+     * <p>The default is 50ms, which provides a good balance between reducing provider
+     * calls and maintaining responsiveness to backpressure changes.
+     *
+     * @return the cache TTL duration
+     * @since 0.0.5
+     */
+    public Duration getBackpressureCacheTtl() {
+        return backpressureCacheTtl;
+    }
+    
+    /**
      * Creates a new builder instance.
      * 
      * @return a new Builder instance
@@ -237,6 +259,7 @@ public class BatcherConfig {
         private BackpressureProvider backpressureProvider = null;
         private BackpressureStrategy<?> backpressureStrategy = null;
         private Duration backpressureMonitorInterval = null; // null means use default (100ms)
+        private Duration backpressureCacheTtl = null; // null means use default (50ms)
         
         /**
          * Sets the batch size.
@@ -510,6 +533,43 @@ public class BatcherConfig {
                 );
             }
             this.backpressureMonitorInterval = interval;
+            return this;
+        }
+        
+        /**
+         * Sets the backpressure level cache TTL.
+         *
+         * <p>This is the time-to-live for cached backpressure levels. When a backpressure
+         * level is fetched from the provider, it is cached for this duration to reduce
+         * the overhead of calling the provider on every submission.
+         *
+         * <p>The default is 50ms, which provides a good balance between reducing provider
+         * calls and maintaining responsiveness to backpressure changes.
+         *
+         * <p>Recommended values:
+         * <ul>
+         *   <li>10-50ms: For high-throughput systems with fast-changing backpressure</li>
+         *   <li>50-100ms: Default, suitable for most use cases</li>
+         *   <li>100-200ms: For low-throughput systems or when provider calls are expensive</li>
+         * </ul>
+         *
+         * <p>Example:
+         * <pre>{@code
+         * config.backpressureCacheTtl(Duration.ofMillis(100));
+         * }</pre>
+         *
+         * @param ttl the cache TTL (must be positive)
+         * @return this builder instance
+         * @throws IllegalArgumentException if ttl is null, zero, or negative
+         * @since 0.0.5
+         */
+        public Builder backpressureCacheTtl(Duration ttl) {
+            if (ttl == null || ttl.isZero() || ttl.isNegative()) {
+                throw new IllegalArgumentException(
+                    "Backpressure cache TTL must be positive, got: " + ttl
+                );
+            }
+            this.backpressureCacheTtl = ttl;
             return this;
         }
         

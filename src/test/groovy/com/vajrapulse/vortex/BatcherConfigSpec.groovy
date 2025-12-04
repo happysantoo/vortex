@@ -409,5 +409,47 @@ class BatcherConfigSpec extends Specification {
         then:
         thrown(IllegalArgumentException)
     }
+    
+    def "should use default backpressure cache TTL when not specified"() {
+        when:
+        def config = BatcherConfig.builder().build()
+        
+        then:
+        config.backpressureCacheTtl == Duration.ofMillis(50)  // Default
+    }
+    
+    def "should set custom backpressure cache TTL"() {
+        when:
+        def config = BatcherConfig.builder()
+            .backpressureCacheTtl(Duration.ofMillis(100))
+            .build()
+        
+        then:
+        config.backpressureCacheTtl == Duration.ofMillis(100)
+    }
+    
+    def "should reject null backpressure cache TTL"() {
+        when:
+        BatcherConfig.builder().backpressureCacheTtl(null).build()
+        
+        then:
+        thrown(IllegalArgumentException)
+    }
+    
+    def "should reject zero backpressure cache TTL"() {
+        when:
+        BatcherConfig.builder().backpressureCacheTtl(Duration.ZERO).build()
+        
+        then:
+        thrown(IllegalArgumentException)
+    }
+    
+    def "should reject negative backpressure cache TTL"() {
+        when:
+        BatcherConfig.builder().backpressureCacheTtl(Duration.ofMillis(-1)).build()
+        
+        then:
+        thrown(IllegalArgumentException)
+    }
 }
 
