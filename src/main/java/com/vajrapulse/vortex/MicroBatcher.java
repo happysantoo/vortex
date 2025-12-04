@@ -598,9 +598,16 @@ public class MicroBatcher<T> implements AutoCloseable {
         
         Timer.Sample sample = metrics.startBatchDispatchTimer();
         
-        // Record per-item batch size if enabled
+        // Record per-item batch size and queue wait time if enabled
         if (config.isPerItemMetrics()) {
             metrics.recordItemBatchSize(batch.size());
+            
+            // Record queue wait time for each item (from submit to batch dispatch start)
+            long dispatchStartTime = System.nanoTime();
+            for (PendingRequest<T> req : batch) {
+                long queueWaitTime = dispatchStartTime - req.getTimestamp();
+                metrics.recordQueueWaitTime(queueWaitTime);
+            }
         }
         
         // Execute backend dispatch on a virtual thread

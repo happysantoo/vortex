@@ -173,14 +173,29 @@ class MetricsManager {
     void recordWaitTime(long waitTimeNanos) {
         requestWaitLatency.record(waitTimeNanos, TimeUnit.NANOSECONDS);
         queueWaitTime.record(waitTimeNanos, TimeUnit.NANOSECONDS);
-        
-        if (config.isPerItemMetrics()) {
-            if (itemWaitTime != null) {
-                itemWaitTime.record(waitTimeNanos, TimeUnit.NANOSECONDS);
-            }
-            if (itemSubmitLatency != null) {
-                itemSubmitLatency.record(waitTimeNanos, TimeUnit.NANOSECONDS);
-            }
+    }
+    
+    /**
+     * Records queue wait time for an individual item (from submit to batch dispatch start).
+     * Only records if per-item metrics are enabled.
+     * 
+     * @param queueWaitTimeNanos the queue wait time in nanoseconds
+     */
+    void recordQueueWaitTime(long queueWaitTimeNanos) {
+        if (config.isPerItemMetrics() && itemWaitTime != null) {
+            itemWaitTime.record(queueWaitTimeNanos, TimeUnit.NANOSECONDS);
+        }
+    }
+    
+    /**
+     * Records full submit-to-completion latency for an individual item.
+     * Only records if per-item metrics are enabled.
+     * 
+     * @param fullLatencyNanos the full latency from submit to completion in nanoseconds
+     */
+    void recordItemSubmitLatency(long fullLatencyNanos) {
+        if (config.isPerItemMetrics() && itemSubmitLatency != null) {
+            itemSubmitLatency.record(fullLatencyNanos, TimeUnit.NANOSECONDS);
         }
     }
     

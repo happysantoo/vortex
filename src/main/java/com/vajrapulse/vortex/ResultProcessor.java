@@ -231,8 +231,14 @@ class ResultProcessor<T> {
     }
     
     private void recordMetrics(PendingRequest<T> req, long batchCompletionTime) {
-        long waitTime = batchCompletionTime - req.getTimestamp();
-        metrics.recordWaitTime(waitTime);
+        long fullLatency = batchCompletionTime - req.getTimestamp();
+        // Record aggregate wait time (for backward compatibility with existing metrics)
+        metrics.recordWaitTime(fullLatency);
+        
+        // Record per-item full latency (submit to completion) if enabled
+        if (config.isPerItemMetrics()) {
+            metrics.recordItemSubmitLatency(fullLatency);
+        }
     }
     
     private void replaySuccessfulItems(List<SuccessEvent<T>> successes) {

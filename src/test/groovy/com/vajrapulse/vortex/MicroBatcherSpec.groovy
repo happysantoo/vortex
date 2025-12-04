@@ -1757,6 +1757,8 @@ class MicroBatcherSpec extends Specification {
         given:
         def meterRegistry = new SimpleMeterRegistry()
         Backend<String> backend = { batch ->
+            // Simulate backend processing delay
+            Thread.sleep(50)
             def successes = batch.collect { new SuccessEvent<>(it) }
             new BatchResult<>(successes, List.of())
         }
@@ -1770,15 +1772,26 @@ class MicroBatcherSpec extends Specification {
         def batcher = new MicroBatcher<>(backend, config, meterRegistry)
         batcher.submit("item-1")
         batcher.submit("item-2")
-        Thread.sleep(20)
+        Thread.sleep(200) // Wait for batch processing
 
         then:
-        meterRegistry.find("vortex.item.submit.latency").timer() != null
-        meterRegistry.find("vortex.item.wait.time").timer() != null
-        meterRegistry.find("vortex.item.batch.size").summary() != null
-        meterRegistry.find("vortex.item.submit.latency").timer().count() >= 1
-        meterRegistry.find("vortex.item.wait.time").timer().count() >= 1
-        meterRegistry.find("vortex.item.batch.size").summary().count() >= 1
+        def submitLatencyTimer = meterRegistry.find("vortex.item.submit.latency").timer()
+        def waitTimeTimer = meterRegistry.find("vortex.item.wait.time").timer()
+        def batchSizeSummary = meterRegistry.find("vortex.item.batch.size").summary()
+        
+        submitLatencyTimer != null
+        waitTimeTimer != null
+        batchSizeSummary != null
+        submitLatencyTimer.count() >= 2
+        waitTimeTimer.count() >= 2
+        batchSizeSummary.count() >= 2
+        
+        // Verify itemSubmitLatency includes backend processing time (should be > wait time)
+        // itemSubmitLatency = queue wait + backend processing
+        // itemWaitTime = queue wait only
+        def avgSubmitLatency = submitLatencyTimer.mean(TimeUnit.MILLISECONDS)
+        def avgWaitTime = waitTimeTimer.mean(TimeUnit.MILLISECONDS)
+        avgSubmitLatency >= avgWaitTime // Submit latency should be >= wait time (includes backend processing)
 
         cleanup:
         batcher?.close()
