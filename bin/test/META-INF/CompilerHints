@@ -1,0 +1,11 @@
+dontinline,*.*_all_jmhStub
+dontinline,*.*_avgt_jmhStub
+dontinline,*.*_sample_jmhStub
+dontinline,*.*_ss_jmhStub
+dontinline,*.*_thrpt_jmhStub
+inline,com/vajrapulse/vortex/SubmitSyncBenchmark.setup
+inline,com/vajrapulse/vortex/SubmitSyncBenchmark.submit
+inline,com/vajrapulse/vortex/SubmitSyncBenchmark.submitSyncAccepted
+inline,com/vajrapulse/vortex/SubmitSyncBenchmark.submitSyncRejected
+inline,com/vajrapulse/vortex/SubmitSyncBenchmark.submitSyncWithBackpressure
+inline,com/vajrapulse/vortex/SubmitSyncBenchmark.tearDown

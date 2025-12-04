@@ -24,6 +24,9 @@ class MetricsManager {
     private final Counter requestsRejected;
     private final Counter backpressureRejected;
     private final Counter backpressureDropped;
+    private final Counter backpressureCheckFailures;
+    private final Counter backpressureInvalidLevels;
+    private final Counter queueOfferFailures;
     private final Timer batchDispatchLatency;
     private final Timer requestWaitLatency;
     private final Timer queueWaitTime;
@@ -74,6 +77,18 @@ class MetricsManager {
         
         this.backpressureDropped = Counter.builder("vortex.backpressure.dropped")
             .description("Total number of requests dropped due to backpressure")
+            .register(meterRegistry);
+        
+        this.backpressureCheckFailures = Counter.builder("vortex.backpressure.check.failures")
+            .description("Total number of backpressure check failures (exceptions)")
+            .register(meterRegistry);
+        
+        this.backpressureInvalidLevels = Counter.builder("vortex.backpressure.invalid.levels")
+            .description("Total number of invalid backpressure levels detected (NaN, out of range)")
+            .register(meterRegistry);
+        
+        this.queueOfferFailures = Counter.builder("vortex.queue.offer.failures")
+            .description("Total number of queue offer failures (race condition occurrences)")
             .register(meterRegistry);
         
         this.batchDispatchLatency = Timer.builder("vortex.batch.dispatch.latency")
@@ -150,6 +165,18 @@ class MetricsManager {
     
     void recordBackpressureDropped() {
         backpressureDropped.increment();
+    }
+    
+    void recordBackpressureCheckFailure() {
+        backpressureCheckFailures.increment();
+    }
+    
+    void recordBackpressureInvalidLevel() {
+        backpressureInvalidLevels.increment();
+    }
+    
+    void recordQueueOfferFailure() {
+        queueOfferFailures.increment();
     }
     
     Timer.Sample startBatchDispatchTimer() {

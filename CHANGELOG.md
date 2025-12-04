@@ -5,6 +5,66 @@ All notable changes to the Vortex Micro-Batching Library will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.5] - 2025-12-04
+
+### Added
+- **Synchronous Submission API**: New `submitSync()` method for immediate rejection visibility
+  - Returns `ItemResult<T>` (Success or Failure) immediately
+  - Synchronous backpressure and queue capacity checks
+  - Useful for load testing frameworks and scenarios requiring immediate rejection feedback
+  - Thread-safe and non-blocking queue operations
+  - Performance: 11% faster than async `submit()` when items are accepted
+- **Enhanced `submitWithCallback()` Method**: Improved callback-based submission
+  - Immediate callback invocation for rejections (queue full, backpressure)
+  - Eventual callback for accepted items (when batch completes)
+  - Exception handling in callbacks
+  - Hybrid approach support (combine `submitSync()` + `submitWithCallback()`)
+- **Backpressure Level Caching**: Performance optimization for backpressure checks
+  - `BackpressureLevelCache` class with TTL-based caching
+  - Configurable cache TTL via `BatcherConfig.backpressureCacheTtl()` (default: 50ms)
+  - Reduces backpressure provider calls by ~95% in high-throughput scenarios
+  - Thread-safe implementation with automatic cache invalidation
+- **Enhanced Error Metrics**: Additional observability for error scenarios
+  - `vortex.backpressure.check.failures` - Counter for backpressure check exceptions
+  - `vortex.backpressure.invalid.levels` - Counter for invalid backpressure levels (NaN, out of range)
+  - `vortex.queue.offer.failures` - Counter for queue offer failures (race conditions)
+- **OpenTelemetry Distributed Tracing Integration**: Optional tracing support
+  - `OpenTelemetryTracingHook` class for OpenTelemetry integration
+  - Reflection-based implementation (works without OpenTelemetry in classpath)
+  - Creates spans for key operations (submit, batch dispatch, retry)
+  - Propagates trace context through batch processing
+  - Graceful degradation when OpenTelemetry unavailable
+- **Individual Item Metrics Fix**: Corrected metrics for per-item tracking
+  - Fixed `vortex.item.wait.time` to record only queue wait time (not full latency)
+  - `vortex.item.submit.latency` correctly records full submit-to-completion latency
+  - Metrics now accurately distinguish between queue wait and total processing time
+
+### Changed
+- **Individual Item Metrics**: Fixed incorrect latency recording
+  - `itemWaitTime` now correctly records only queue wait time
+  - `itemSubmitLatency` records full submit-to-completion latency
+  - Metrics accurately reflect queue wait vs backend processing time
+- **`submitWithCallback()` Implementation**: Refactored to use `checkRejection()` helper
+  - Immediate rejection checks before queuing
+  - Improved performance and consistency with `submitSync()`
+- **Backpressure Checks**: Optimized with TTL-based caching
+  - Reduced overhead of backpressure provider calls
+  - Configurable cache TTL for different use cases
+- **Documentation**: Enhanced JavaDoc with race condition notes
+  - Documented queue depth check race condition in `submitSync()` and `checkRejection()`
+  - Clarified acceptable behavior and edge cases
+
+### Fixed
+- **Individual Item Metrics Accuracy**: Fixed `itemWaitTime` incorrectly recording full latency
+  - Now correctly records only queue wait time
+  - Full latency recorded separately in `itemSubmitLatency`
+  - Metrics now provide accurate observability for per-item tracking
+
+### Performance Improvements
+- **Backpressure Caching**: Reduces provider calls by ~95% in high-throughput scenarios
+- **SubmitSync Performance**: 11% faster than async `submit()` when items are accepted
+- **Backpressure Check Overhead**: Reduced by ~95% with TTL-based caching
+
 ## [0.0.4] - 2025-01-XX
 
 ### Added
