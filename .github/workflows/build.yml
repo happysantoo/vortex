@@ -40,6 +40,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: write  # Required for creating tags and releases
+      id-token: write  # Required for OIDC if needed
     
     steps:
     - uses: actions/checkout@v4
@@ -78,6 +81,10 @@ jobs:
         GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
         GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
       run: |
+        echo "Debug: Checking GPG_PRIVATE_KEY..."
+        echo "GPG_PRIVATE_KEY length: ${#GPG_PRIVATE_KEY:-0}"
+        echo "GPG_PRIVATE_KEY is set: $([ -n "$GPG_PRIVATE_KEY" ] && echo "yes" || echo "no")"
+        
         if [ -z "$GPG_PRIVATE_KEY" ] || [ "$GPG_PRIVATE_KEY" = "" ]; then
           echo "GPG_PRIVATE_KEY not set, skipping GPG setup"
           exit 0
@@ -102,13 +109,18 @@ jobs:
         GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
         GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
         GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        MAVEN_CENTRAL_TOKEN: ${{ secrets.MAVEN_CENTRAL_TOKEN }}
       run: |
         mkdir -p ~/.gradle
-        if [ -z "${{ secrets.MAVEN_CENTRAL_TOKEN }}" ]; then
+        echo "Debug: Checking MAVEN_CENTRAL_TOKEN..."
+        echo "MAVEN_CENTRAL_TOKEN length: ${#MAVEN_CENTRAL_TOKEN:-0}"
+        echo "MAVEN_CENTRAL_TOKEN is set: $([ -n "$MAVEN_CENTRAL_TOKEN" ] && echo "yes" || echo "no")"
+        
+        if [ -z "$MAVEN_CENTRAL_TOKEN" ] || [ "$MAVEN_CENTRAL_TOKEN" = "" ]; then
           echo "ERROR: MAVEN_CENTRAL_TOKEN secret is not set"
           exit 1
         fi
-        echo "mavenCentralToken=${{ secrets.MAVEN_CENTRAL_TOKEN }}" >> ~/.gradle/gradle.properties
+        echo "mavenCentralToken=$MAVEN_CENTRAL_TOKEN" >> ~/.gradle/gradle.properties
         if [ -n "$GPG_KEY_ID" ]; then
           echo "signing.keyId=$GPG_KEY_ID" >> ~/.gradle/gradle.properties
         fi
