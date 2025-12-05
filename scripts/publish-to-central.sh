@@ -59,8 +59,16 @@ for artifact in \
     "${ARTIFACT_DIR}/${ARTIFACT}-${VERSION}.jar" \
     "${ARTIFACT_DIR}/${ARTIFACT}-${VERSION}-sources.jar" \
     "${ARTIFACT_DIR}/${ARTIFACT}-${VERSION}-javadoc.jar"; do
-    [[ -f "${artifact}.md5" ]] || md5 -q "${artifact}" > "${artifact}.md5"
-    [[ -f "${artifact}.sha1" ]] || shasum -a 1 "${artifact}" | awk '{print $1}' > "${artifact}.sha1"
+    # Use md5sum/sha1sum for Linux, md5/shasum for macOS
+    if command -v md5sum >/dev/null 2>&1; then
+        # Linux
+        [[ -f "${artifact}.md5" ]] || md5sum "${artifact}" | awk '{print $1}' > "${artifact}.md5"
+        [[ -f "${artifact}.sha1" ]] || sha1sum "${artifact}" | awk '{print $1}' > "${artifact}.sha1"
+    else
+        # macOS
+        [[ -f "${artifact}.md5" ]] || md5 -q "${artifact}" > "${artifact}.md5"
+        [[ -f "${artifact}.sha1" ]] || shasum -a 1 "${artifact}" | awk '{print $1}' > "${artifact}.sha1"
+    fi
 done
 echo "✓ Checksums generated"
 echo ""

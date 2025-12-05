@@ -5,6 +5,38 @@ All notable changes to the Vortex Micro-Batching Library will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.6] - 2025-12-05
+
+### Added
+- **Enhanced Documentation**: Comprehensive JavaDoc improvements for better developer experience
+  - Enhanced `submitSync()` JavaDoc with detailed examples and load testing framework integration
+  - Enhanced `submitWithCallback()` JavaDoc with timing details and integration examples
+  - Enhanced `QueueDepthBackpressureProvider` JavaDoc with AdaptiveLoadPattern integration guide
+  - Enhanced `getQueueDepth()` JavaDoc with usage examples and use cases
+- **Usage Guide**: New comprehensive guide for adaptive load testing
+  - `documents/guides/ADAPTIVE_LOAD_TESTING_GUIDE.md` - Complete guide for queue-only backpressure approach
+  - Integration examples with VajraPulse AdaptiveLoadPattern
+  - Configuration recommendations and best practices
+  - Troubleshooting guide
+- **Enhanced README**: Additional usage examples and integration patterns
+  - Advanced backpressure configuration examples with `QueueDepthBackpressureProvider`
+  - Detailed `submitSync()` integration examples for load testing frameworks
+  - Enhanced `submitWithCallback()` examples with hybrid approach
+  - Queue-only backpressure rationale and recommended configurations
+
+### Changed
+- **Factory Method JavaDoc**: Enhanced documentation for factory methods
+  - Added performance characteristics section to `forHighThroughput()`, `forLowLatency()`, `forBalanced()`, and `forResilient()`
+  - Clarified when to use each factory method
+  - Added performance characteristics (throughput, latency, memory) for each factory method
+
+### Documentation
+- **README Updates**: Enhanced with comprehensive examples
+  - Added advanced backpressure configuration section
+  - Added detailed `submitSync()` and `submitWithCallback()` integration examples
+  - Added queue-only backpressure approach explanation
+  - Updated version to 0.0.6
+
 ## [0.0.5] - 2025-12-04
 
 ### Added
