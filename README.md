@@ -1,6 +1,6 @@
 # Vortex - Micro-Batching Library
 
-[![Maven Central](https://img.shields.io/maven-central/v/com.vajrapulse/vortex.svg?label=Maven%20Central)](https://search.maven.org/artifact/com.vajrapulse/vortex)
+[![Maven Central](https://img.shields.io/maven-central/v/com.vajrapulse/vortex?label=Maven%20Central)](https://search.maven.org/artifact/com.vajrapulse/vortex)
 [![Java](https://img.shields.io/badge/Java-21+-blue.svg)](https://www.oracle.com/java/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Build Status](https://img.shields.io/github/actions/workflow/status/happysantoo/vortex/build.yml?label=Build)](https://github.com/happysantoo/vortex/actions)
