@@ -8,7 +8,7 @@
 
 A lightweight Java 21 library for micro-batching requests to any backend. Built with virtual threads, smart batching (size or time-based), comprehensive metrics, and production-ready features.
 
-**Current Version**: 0.0.5
+**Current Version**: 0.0.6
 
 ## Features
 
@@ -234,14 +234,54 @@ CompletableFuture<Void> callbackFuture = batcher.submitWithCallback(
         if (result instanceof ItemResult.Success<String> success) {
             System.out.println("Success: " + success.getItem());
         } else if (result instanceof ItemResult.Failure<String> failure) {
-            System.out.println("Failed: " + failure.getError().getMessage());
+            // Item failed (either rejected or batch processing failed)
+            if (failure.getError() instanceof RejectedExecutionException) {
+                // Immediate rejection due to backpressure
+                System.out.println("Rejected: " + failure.getError().getMessage());
+            } else {
+                // Batch processing failure
+                System.out.println("Failed: " + failure.getError().getMessage());
+            }
         }
     }
 );
 
-// Callback is invoked immediately for rejections, or when batch completes for accepted items
-// No need to handle RejectedExecutionException - callback handles it
+// Callback timing:
+// - Immediate: If item rejected (backpressure >= threshold) - fires synchronously
+// - After Batch Processing: If item accepted - fires asynchronously when batch completes (typically 10-50ms)
 ```
+
+**Integration with Load Testing Frameworks:**
+
+```java
+// In load testing task
+// Use submitSync() for immediate rejection feedback
+ItemResult<String> syncResult = batcher.submitSync(item);
+
+if (syncResult instanceof ItemResult.Failure<String>) {
+    // Immediate rejection - return failure to framework
+    return TaskResult.failure(syncResult.getError());
+}
+
+// Item accepted - use callback for batch processing results
+batcher.submitWithCallback(item, (submittedItem, batchResult) -> {
+    // Track batch processing results separately
+    // (for metrics, not for framework feedback)
+    if (batchResult instanceof ItemResult.Success<String>) {
+        batchSuccessCounter.increment();
+    } else {
+        batchFailureCounter.increment();
+    }
+});
+
+// Return success - item was accepted
+return TaskResult.success();
+```
+
+**Important Notes:**
+- The callback may fire on a different thread (batch processing thread)
+- If you need immediate rejection feedback, use `submitSync()` first to check if item will be rejected
+- For load testing frameworks, you may want to use `submitSync()` to get immediate rejection feedback, then use `submitWithCallback()` for tracking batch processing results
 
 ## Advanced Features
 
@@ -718,6 +758,57 @@ future.exceptionally(throwable -> {
 - Use `submitWithCallback()` for cleaner error handling
 
 **For detailed backpressure handling strategies, see [Backpressure Guide](documents/guides/BACKPRESSURE_GUIDE.md)**
+
+#### Advanced Backpressure with QueueDepthBackpressureProvider
+
+For integration with load testing frameworks (e.g., VajraPulse AdaptiveLoadPattern), use `QueueDepthBackpressureProvider`:
+
+```java
+import com.vajrapulse.vortex.backpressure.*;
+
+// Create queue depth supplier
+Supplier<Integer> queueDepthSupplier = () -> batcher.getQueueDepth();
+
+// Create backpressure provider
+BackpressureProvider backpressureProvider = new QueueDepthBackpressureProvider(
+    queueDepthSupplier,
+    maxQueueSize  // e.g., 1000 items (20 batches × 50 items)
+);
+
+// Use in AdaptiveLoadPattern (VajraPulse)
+AdaptiveLoadPattern pattern = new AdaptiveLoadPattern(
+    initialTps,
+    rampIncrement,
+    rampDecrement,
+    rampInterval,
+    maxTps,
+    sustainDuration,
+    errorThreshold,
+    metricsProvider,
+    backpressureProvider  // Queue-only backpressure
+);
+
+// Configure MicroBatcher with backpressure
+BackpressureStrategy<String> strategy = new RejectStrategy<>(0.7);  // 70% threshold
+MicroBatcher<String> batcher = MicroBatcher.withBackpressure(
+    backend,
+    config,
+    meterRegistry,
+    backpressureProvider,
+    strategy
+);
+```
+
+**Recommended Configuration:**
+- **Max Queue Size**: 20-50 batches worth of items (e.g., 20 batches × 50 items = 1000 items)
+- **RejectStrategy Threshold**: 0.7 (70% capacity) - rejects items when queue > 70% full
+- **AdaptiveLoadPattern Threshold**: 0.7 (70% capacity) - ramps down TPS when backpressure >= 0.7
+
+**Why Queue-Only Backpressure?**
+- Queue depth directly measures "can the system keep up?"
+- If queue is full, system can't process items fast enough (regardless of root cause)
+- Simpler than monitoring multiple signals (connection pool, network, etc.)
+- Works with any backend (not just JDBC/databases)
 
 ### Performance Tuning
 

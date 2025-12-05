@@ -223,6 +223,13 @@ public class MicroBatcher<T> implements AutoCloseable {
      *   <li>Processing large volumes efficiently</li>
      * </ul>
      * 
+     * <p><strong>Performance Characteristics:</strong>
+     * <ul>
+     *   <li>Throughput: High (optimized for maximum items/second)</li>
+     *   <li>Latency: Higher (up to 500ms per batch)</li>
+     *   <li>Memory: Higher (larger queue and batches)</li>
+     * </ul>
+     * 
      * <p>Example:
      * <pre>{@code
      * MicroBatcher<String> batcher = MicroBatcher.forHighThroughput(backend, registry);
@@ -258,6 +265,13 @@ public class MicroBatcher<T> implements AutoCloseable {
      *   <li>Latency is critical (&lt; 50ms)</li>
      *   <li>Throughput is less important</li>
      *   <li>Real-time or near-real-time processing</li>
+     * </ul>
+     * 
+     * <p><strong>Performance Characteristics:</strong>
+     * <ul>
+     *   <li>Throughput: Lower (smaller batches)</li>
+     *   <li>Latency: Low (typically &lt; 50ms per batch)</li>
+     *   <li>Memory: Lower (smaller queue and batches)</li>
      * </ul>
      * 
      * <p>Example:
@@ -297,6 +311,13 @@ public class MicroBatcher<T> implements AutoCloseable {
      *   <li>Most common use case</li>
      * </ul>
      * 
+     * <p><strong>Performance Characteristics:</strong>
+     * <ul>
+     *   <li>Throughput: Medium (good balance)</li>
+     *   <li>Latency: Medium (typically 50-200ms per batch)</li>
+     *   <li>Memory: Medium (reasonable queue and batch sizes)</li>
+     * </ul>
+     * 
      * <p>Example:
      * <pre>{@code
      * MicroBatcher<String> batcher = MicroBatcher.forBalanced(backend, registry);
@@ -333,6 +354,13 @@ public class MicroBatcher<T> implements AutoCloseable {
      *   <li>Dealing with unreliable backends</li>
      *   <li>Network calls that may fail transiently</li>
      *   <li>Resilience is more important than throughput</li>
+     * </ul>
+     * 
+     * <p><strong>Performance Characteristics:</strong>
+     * <ul>
+     *   <li>Throughput: Medium (retries may reduce effective throughput)</li>
+     *   <li>Latency: Higher (retries add delay)</li>
+     *   <li>Reliability: High (automatic retry for transient failures)</li>
      * </ul>
      * 
      * <p>Example:
@@ -475,15 +503,36 @@ public class MicroBatcher<T> implements AutoCloseable {
     }
     
     /**
-     * Gets the current queue depth.
+     * Gets the current number of items in the queue waiting for batch processing.
      * 
-     * <p>This method returns the number of items currently waiting in the queue
-     * to be batched and dispatched. The queue depth can be used to monitor
-     * backpressure and determine if the batcher is keeping up with submission rate.
+     * <p>This method is useful for:
+     * <ul>
+     *   <li>Monitoring queue depth for metrics/dashboards</li>
+     *   <li>Creating QueueDepthBackpressureProvider</li>
+     *   <li>Debugging and troubleshooting</li>
+     * </ul>
      * 
-     * <p>This method is thread-safe and can be called from any thread.
+     * <p><strong>Note:</strong> This is a snapshot of the queue depth at the time
+     * of the call. The actual queue depth may change immediately after this call
+     * returns due to concurrent submissions and batch processing.
      * 
-     * @return the number of items currently in the queue
+     * <p><strong>Example Usage:</strong>
+     * <pre>{@code
+     * // Monitor queue depth
+     * int queueDepth = batcher.getQueueDepth();
+     * if (queueDepth > 1000) {
+     *     log.warn("Queue depth is high: {}", queueDepth);
+     * }
+     * 
+     * // Use with QueueDepthBackpressureProvider
+     * Supplier<Integer> queueDepthSupplier = () -> batcher.getQueueDepth();
+     * BackpressureProvider provider = new QueueDepthBackpressureProvider(
+     *     queueDepthSupplier,
+     *     maxQueueSize
+     * );
+     * }</pre>
+     * 
+     * @return current queue depth (number of items waiting)
      * @since 0.0.5
      */
     public int getQueueDepth() {
@@ -491,19 +540,28 @@ public class MicroBatcher<T> implements AutoCloseable {
     }
     
     /**
-     * Synchronously submits an item, returning result immediately.
+     * Submits an item synchronously and returns immediately with the result.
      * 
-     * <p>This method checks backpressure and queue capacity synchronously,
-     * returning an immediate result. If the item is accepted, it is queued
-     * for batch processing. If rejected, the rejection is returned immediately.
+     * <p>This method checks backpressure <strong>before</strong> queuing the item.
+     * The result indicates whether the item was accepted or rejected:
+     * <ul>
+     *   <li><strong>SUCCESS</strong>: Item was accepted and queued successfully.
+     *       The item will be processed in a batch later (via batch processing).</li>
+     *   <li><strong>REJECTED</strong>: Item was rejected due to backpressure
+     *       (e.g., queue is full). The item will NOT be processed.</li>
+     * </ul>
      * 
-     * <p>Use this method when you need immediate visibility of rejections
-     * (e.g., for load testing frameworks that need to track failures synchronously).
+     * <p><strong>Important Notes:</strong>
+     * <ul>
+     *   <li>This method does <strong>NOT</strong> wait for batch processing.
+     *       It only checks if the item can be queued.</li>
+     *   <li>If you need to know the batch processing result (success/failure),
+     *       use {@link #submitWithCallback(Object, java.util.function.BiConsumer)} instead.</li>
+     *   <li>Rejections happen immediately based on backpressure threshold,
+     *       not based on batch processing capacity.</li>
+     * </ul>
      * 
-     * <p>For eventual batch processing results, use {@link #submitWithCallback(Object, java.util.function.BiConsumer)}
-     * with a callback to track when the batch actually processes.
-     * 
-     * <p><b>Note on Queue Depth Check Race Condition:</b>
+     * <p><strong>Note on Queue Depth Check Race Condition:</strong>
      * There is a small race condition window between the queue depth check
      * ({@code getQueueDepth()}) and the actual queue offer operation ({@code queue.offer()}).
      * If the queue fills between these operations (due to concurrent submissions),
@@ -513,22 +571,40 @@ public class MicroBatcher<T> implements AutoCloseable {
      * This behavior is acceptable for most use cases, as it provides natural
      * backpressure when the queue is near capacity.
      * 
-     * <p>Example usage:
+     * <p><strong>Example Usage:</strong>
      * <pre>{@code
-     * ItemResult<Item> result = batcher.submitSync(item);
-     * if (result instanceof ItemResult.Failure<Item> failure) {
-     *     // Immediate rejection - handle immediately
-     *     handleRejection(failure.error());
-     * } else {
-     *     // Item accepted and queued
-     *     // Use submitWithCallback() to track eventual batch result
-     *     batcher.submitWithCallback(item, callback);
+     * ItemResult<MyItem> result = batcher.submitSync(item);
+     * 
+     * if (result instanceof ItemResult.Success<MyItem>) {
+     *     // Item queued successfully - will be processed in batch later
+     *     // Use submitWithCallback() if you need batch processing result
+     * } else if (result instanceof ItemResult.Failure<MyItem> failure) {
+     *     // Item rejected due to backpressure
+     *     // Handle rejection (retry, log, etc.)
+     *     log.warn("Item rejected: {}", failure.error().getMessage());
      * }
      * }</pre>
      * 
+     * <p><strong>Integration with Load Testing Frameworks:</strong>
+     * <pre>{@code
+     * // In load testing task
+     * ItemResult<Item> result = batcher.submitSync(item);
+     * 
+     * if (result instanceof ItemResult.Failure<Item>) {
+     *     // Return failure to load testing framework
+     *     // Framework will see this as a failure and adjust TPS
+     *     return TaskResult.failure(result.error());
+     * }
+     * 
+     * // Item accepted - return success
+     * // Use submitWithCallback() to track batch processing results separately
+     * return TaskResult.success();
+     * }</pre>
+     * 
      * @param item the item to submit
-     * @return ItemResult indicating success (queued) or failure (rejected)
+     * @return result indicating acceptance (SUCCESS) or rejection (FAILURE)
      * @throws IllegalStateException if batcher is closed
+     * @throws NullPointerException if item is null
      * @since 0.0.5
      */
     public ItemResult<T> submitSync(T item) {
@@ -601,24 +677,89 @@ public class MicroBatcher<T> implements AutoCloseable {
     }
     
     /**
-     * Submits an item and registers a callback for when its batch completes.
-     * The callback receives the item and its result (success or failure).
+     * Submits an item with a callback that fires when batch processing completes.
      * 
-     * <p>This method uses {@link #submitSync(Object)} internally to check
-     * immediate rejection. If rejected, the callback is invoked immediately
-     * with the rejection. If accepted, the item is queued and the callback
-     * will be invoked when the batch is processed.
+     * <p>This method accepts the item and queues it for batch processing.
+     * The callback will be invoked with the result when:
+     * <ul>
+     *   <li><strong>Immediate Rejection</strong>: If the item is rejected due to
+     *       backpressure (queue full), the callback fires immediately with a
+     *       {@link ItemResult.Failure} containing a {@link java.util.concurrent.RejectedExecutionException}
+     *       or {@link com.vajrapulse.vortex.backpressure.BackpressureException}.</li>
+     *   <li><strong>Batch Processing</strong>: If the item is accepted, the callback
+     *       fires when the batch containing this item is processed (typically 10-50ms
+     *       after submission, depending on batch size and linger time).</li>
+     * </ul>
      * 
-     * <p>This method is thread-safe and provides a convenient way to handle results
-     * without manually extracting them from the BatchResult.
+     * <p><strong>Callback Timing:</strong>
+     * <ul>
+     *   <li><strong>Immediate</strong>: If item rejected (backpressure >= threshold)
+     *       - Callback fires synchronously or on submission thread</li>
+     *   <li><strong>After Batch Processing</strong>: If item accepted
+     *       - Callback fires asynchronously when batch completes (typically 10-50ms)</li>
+     * </ul>
      * 
-     * <p>If the callback throws an exception, the returned future will complete
-     * exceptionally with that exception.
+     * <p><strong>Important Notes:</strong>
+     * <ul>
+     *   <li>The callback may fire on a different thread (batch processing thread).</li>
+     *   <li>If you need immediate rejection feedback, use {@link #submitSync(Object)}
+     *       first to check if item will be rejected.</li>
+     *   <li>For load testing frameworks, you may want to use `submitSync()` to get
+     *       immediate rejection feedback, then use `submitWithCallback()` for
+     *       tracking batch processing results.</li>
+     * </ul>
+     * 
+     * <p><strong>Example Usage:</strong>
+     * <pre>{@code
+     * batcher.submitWithCallback(item, (submittedItem, result) -> {
+     *     if (result instanceof ItemResult.Success<MyItem>) {
+     *         // Item processed successfully in batch
+     *         successCounter.increment();
+     *     } else if (result instanceof ItemResult.Failure<MyItem> failure) {
+     *         // Item failed (either rejected or batch processing failed)
+     *         if (failure.error() instanceof RejectedExecutionException) {
+     *             // Immediate rejection due to backpressure
+     *             rejectionCounter.increment();
+     *         } else {
+     *             // Batch processing failure
+     *             failureCounter.increment();
+     *         }
+     *     }
+     * });
+     * }</pre>
+     * 
+     * <p><strong>Integration with Load Testing Frameworks:</strong>
+     * <pre>{@code
+     * // In load testing task
+     * // Use submitSync() for immediate rejection feedback
+     * ItemResult<Item> syncResult = batcher.submitSync(item);
+     * 
+     * if (syncResult instanceof ItemResult.Failure<Item>) {
+     *     // Immediate rejection - return failure to framework
+     *     return TaskResult.failure(syncResult.error());
+     * }
+     * 
+     * // Item accepted - use callback for batch processing results
+     * batcher.submitWithCallback(item, (submittedItem, batchResult) -> {
+     *     // Track batch processing results separately
+     *     // (for metrics, not for framework feedback)
+     *     if (batchResult instanceof ItemResult.Success<Item>) {
+     *         batchSuccessCounter.increment();
+     *     } else {
+     *         batchFailureCounter.increment();
+     *     }
+     * });
+     * 
+     * // Return success - item was accepted
+     * return TaskResult.success();
+     * }</pre>
      * 
      * @param item the item to submit
-     * @param callback callback to execute when batch completes, receives (item, ItemResult)
+     * @param callback callback that receives the item and result when processing completes
      * @return CompletableFuture that completes when the callback finishes
      * @throws IllegalStateException if the batcher is closed
+     * @throws NullPointerException if item or callback is null
+     * @since 0.0.5
      */
     public CompletableFuture<Void> submitWithCallback(T item, java.util.function.BiConsumer<T, ItemResult<T>> callback) {
         // Check immediate rejection (without queuing)
