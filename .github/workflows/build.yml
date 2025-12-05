@@ -85,19 +85,29 @@ jobs:
         fi
     
     - name: Configure Maven Central credentials
+      env:
+        GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
+        GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+        GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
       run: |
         mkdir -p ~/.gradle
+        if [ -z "${{ secrets.MAVEN_CENTRAL_TOKEN }}" ]; then
+          echo "ERROR: MAVEN_CENTRAL_TOKEN secret is not set"
+          exit 1
+        fi
         echo "mavenCentralToken=${{ secrets.MAVEN_CENTRAL_TOKEN }}" >> ~/.gradle/gradle.properties
-        if [ -n "${{ secrets.GPG_KEY_ID }}" ]; then
-          echo "signing.keyId=${{ secrets.GPG_KEY_ID }}" >> ~/.gradle/gradle.properties
+        if [ -n "$GPG_KEY_ID" ]; then
+          echo "signing.keyId=$GPG_KEY_ID" >> ~/.gradle/gradle.properties
         fi
-        if [ -n "${{ secrets.GPG_PRIVATE_KEY }}" ]; then
-          echo "signingKey<<EOF" >> ~/.gradle/gradle.properties
-          echo "${{ secrets.GPG_PRIVATE_KEY }}" >> ~/.gradle/gradle.properties
-          echo "EOF" >> ~/.gradle/gradle.properties
+        if [ -n "$GPG_PRIVATE_KEY" ]; then
+          {
+            echo "signingKey<<EOF"
+            echo "$GPG_PRIVATE_KEY"
+            echo "EOF"
+          } >> ~/.gradle/gradle.properties
         fi
-        if [ -n "${{ secrets.GPG_PASSPHRASE }}" ]; then
-          echo "signingPassword=${{ secrets.GPG_PASSPHRASE }}" >> ~/.gradle/gradle.properties
+        if [ -n "$GPG_PASSPHRASE" ]; then
+          echo "signingPassword=$GPG_PASSPHRASE" >> ~/.gradle/gradle.properties
         fi
     
     - name: Create git tag
