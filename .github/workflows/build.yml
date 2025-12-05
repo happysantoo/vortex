@@ -74,14 +74,15 @@ jobs:
       run: ./gradlew publishToMavenLocal --no-daemon
     
     - name: Set up GPG for signing
-      if: ${{ secrets.GPG_PRIVATE_KEY != '' }}
       env:
         GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
         GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
       run: |
-        if [ -n "$GPG_PRIVATE_KEY" ]; then
+        if [ -n "$GPG_PRIVATE_KEY" ] && [ "$GPG_PRIVATE_KEY" != "" ]; then
           echo "$GPG_PRIVATE_KEY" | gpg --batch --import
           echo "GPG key imported"
+        else
+          echo "GPG_PRIVATE_KEY not set, skipping GPG setup"
         fi
     
     - name: Configure Maven Central credentials
