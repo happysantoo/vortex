@@ -78,11 +78,23 @@ jobs:
         GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
         GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
       run: |
-        if [ -n "$GPG_PRIVATE_KEY" ] && [ "$GPG_PRIVATE_KEY" != "" ]; then
-          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
-          echo "GPG key imported"
-        else
+        if [ -z "$GPG_PRIVATE_KEY" ] || [ "$GPG_PRIVATE_KEY" = "" ]; then
           echo "GPG_PRIVATE_KEY not set, skipping GPG setup"
+          exit 0
+        fi
+        
+        # Check if the key looks like valid GPG data (starts with -----BEGIN)
+        if ! echo "$GPG_PRIVATE_KEY" | grep -q "-----BEGIN"; then
+          echo "GPG_PRIVATE_KEY does not appear to be valid GPG data, skipping GPG setup"
+          exit 0
+        fi
+        
+        # Try to import the key
+        if echo "$GPG_PRIVATE_KEY" | gpg --batch --import 2>&1; then
+          echo "GPG key imported successfully"
+        else
+          echo "Warning: Failed to import GPG key, continuing without GPG signing"
+          exit 0
         fi
     
     - name: Configure Maven Central credentials
