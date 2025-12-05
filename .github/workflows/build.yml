@@ -82,8 +82,12 @@ jobs:
         GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
       run: |
         echo "Debug: Checking GPG_PRIVATE_KEY..."
-        echo "GPG_PRIVATE_KEY length: ${#GPG_PRIVATE_KEY:-0}"
-        echo "GPG_PRIVATE_KEY is set: $([ -n "$GPG_PRIVATE_KEY" ] && echo "yes" || echo "no")"
+        if [ -n "$GPG_PRIVATE_KEY" ]; then
+          GPG_LEN=$(echo -n "$GPG_PRIVATE_KEY" | wc -c)
+          echo "GPG_PRIVATE_KEY is set (length: $GPG_LEN)"
+        else
+          echo "GPG_PRIVATE_KEY is not set or empty"
+        fi
         
         if [ -z "$GPG_PRIVATE_KEY" ] || [ "$GPG_PRIVATE_KEY" = "" ]; then
           echo "GPG_PRIVATE_KEY not set, skipping GPG setup"
@@ -113,8 +117,12 @@ jobs:
       run: |
         mkdir -p ~/.gradle
         echo "Debug: Checking MAVEN_CENTRAL_TOKEN..."
-        echo "MAVEN_CENTRAL_TOKEN length: ${#MAVEN_CENTRAL_TOKEN:-0}"
-        echo "MAVEN_CENTRAL_TOKEN is set: $([ -n "$MAVEN_CENTRAL_TOKEN" ] && echo "yes" || echo "no")"
+        if [ -n "$MAVEN_CENTRAL_TOKEN" ]; then
+          TOKEN_LEN=$(echo -n "$MAVEN_CENTRAL_TOKEN" | wc -c)
+          echo "MAVEN_CENTRAL_TOKEN is set (length: $TOKEN_LEN)"
+        else
+          echo "MAVEN_CENTRAL_TOKEN is not set or empty"
+        fi
         
         if [ -z "$MAVEN_CENTRAL_TOKEN" ] || [ "$MAVEN_CENTRAL_TOKEN" = "" ]; then
           echo "ERROR: MAVEN_CENTRAL_TOKEN secret is not set"
