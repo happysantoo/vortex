@@ -4,10 +4,12 @@
 
 set -euo pipefail
 
+# Calculate script and project directories at the start (before any cd commands)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
 # Read version from build.gradle.kts if not provided as argument
 if [[ -z "${1:-}" ]]; then
-    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
     VERSION=$(grep 'version =' "${PROJECT_ROOT}/build.gradle.kts" | sed 's/.*version = "\(.*\)".*/\1/')
     if [[ -z "${VERSION}" ]] || [[ "${VERSION}" == *"version"* ]]; then
         echo "ERROR: Could not determine version from build.gradle.kts"
@@ -124,8 +126,7 @@ if [[ "${HTTP_CODE}" == "200" ]] || [[ "${HTTP_CODE}" == "201" ]]; then
     echo "=========================================="
     echo ""
     
-    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+    # SCRIPT_DIR and PROJECT_ROOT are already calculated at the start of the script
     RELEASE_NOTES="${PROJECT_ROOT}/documents/releases/RELEASE_NOTES_${VERSION}.md"
     
     # Check if release notes exist
