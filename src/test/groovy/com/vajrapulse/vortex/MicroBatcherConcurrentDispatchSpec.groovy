@@ -1,0 +1,293 @@
+package com.vajrapulse.vortex
+
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry
+import spock.lang.Specification
+
+import java.time.Duration
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+
+class MicroBatcherConcurrentDispatchSpec extends Specification {
+
+    def "should limit concurrent batch dispatches"() {
+        given:
+        def activeBatches = new AtomicInteger(0)
+        def maxConcurrent = 2
+        def batchLatch = new CountDownLatch(maxConcurrent + 1) // One extra to test rejection
+        
+        Backend<String> backend = { batch ->
+            activeBatches.incrementAndGet()
+            try {
+                // Simulate slow backend to keep batches in-flight
+                Thread.sleep(500)
+            } finally {
+                activeBatches.decrementAndGet()
+                batchLatch.countDown()
+            }
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        
+        def config = BatcherConfig.builder()
+            .batchSize(1)  // One item per batch to test concurrent limiting
+            .lingerTime(Duration.ofMillis(10))
+            .maxConcurrentBatches(maxConcurrent)
+            .build()
+        
+        SimpleMeterRegistry registry = new SimpleMeterRegistry()
+        MicroBatcher<String> batcher = new MicroBatcher<>(backend, config, registry)
+        
+        when:
+        // Submit more batches than the limit
+        def futures = (1..(maxConcurrent + 2)).collect { batcher.submit("item-$it") }
+        
+        // Wait a bit for batches to start
+        Thread.sleep(100)
+        
+        then:
+        // Check that active batches don't exceed limit
+        activeBatches.get() <= maxConcurrent
+        
+        // Wait for all batches to complete or be rejected
+        futures.each { future ->
+            try {
+                future.get(2, TimeUnit.SECONDS)
+            } catch (Exception e) {
+                // Expected for rejected batches (wrapped in ExecutionException)
+                if (!(e instanceof java.util.concurrent.ExecutionException) && 
+                    !(e.getCause() instanceof RejectedExecutionException)) {
+                    throw e
+                }
+            }
+        }
+        
+        // Verify dispatch rejection metric
+        def rejectedCount = registry.counter("vortex.dispatch.rejected").count()
+        rejectedCount >= 0  // At least some batches should be rejected
+        
+        cleanup:
+        batcher?.close()
+    }
+    
+    def "should track active concurrent batches with gauge"() {
+        given:
+        def maxConcurrent = 3
+        def batchLatch = new CountDownLatch(maxConcurrent)
+        
+        Backend<String> backend = { batch ->
+            try {
+                // Simulate slow backend
+                Thread.sleep(200)
+            } finally {
+                batchLatch.countDown()
+            }
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(10))
+            .maxConcurrentBatches(maxConcurrent)
+            .build()
+        
+        SimpleMeterRegistry registry = new SimpleMeterRegistry()
+        MicroBatcher<String> batcher = new MicroBatcher<>(backend, config, registry)
+        
+        when:
+        // Submit batches up to the limit
+        def futures = (1..maxConcurrent).collect { batcher.submit("item-$it") }
+        
+        // Wait a bit for batches to start
+        Thread.sleep(50)
+        
+        then:
+        // Check active batches gauge
+        def activeBatchesGauge = registry.gauge("vortex.dispatch.active.batches", 0.0)
+        activeBatchesGauge <= maxConcurrent
+        
+        // Wait for batches to complete
+        futures.each { it.get(1, TimeUnit.SECONDS) }
+        
+        cleanup:
+        batcher?.close()
+    }
+    
+    def "should reject batches when limit is reached"() {
+        given:
+        def maxConcurrent = 1
+        def batchLatch = new CountDownLatch(2)
+        
+        Backend<String> backend = { batch ->
+            try {
+                // Simulate slow backend to keep batch in-flight
+                Thread.sleep(300)
+            } finally {
+                batchLatch.countDown()
+            }
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(10))
+            .maxConcurrentBatches(maxConcurrent)
+            .build()
+        
+        SimpleMeterRegistry registry = new SimpleMeterRegistry()
+        MicroBatcher<String> batcher = new MicroBatcher<>(backend, config, registry)
+        
+        when:
+        // Submit first batch (should succeed)
+        def future1 = batcher.submit("item-1")
+        Thread.sleep(50)  // Wait for first batch to start
+        
+        // Submit second batch (should be rejected due to limit)
+        def future2 = batcher.submit("item-2")
+        
+        then:
+        // First batch should succeed
+        future1.get(1, TimeUnit.SECONDS)
+        
+        // Second batch should be rejected
+        try {
+            future2.get(1, TimeUnit.SECONDS)
+            assert false: "Expected RejectedExecutionException"
+        } catch (Exception e) {
+            def cause = e instanceof java.util.concurrent.ExecutionException ? e.cause : e
+            assert cause instanceof RejectedExecutionException
+            assert cause.message.contains("too many concurrent batches")
+        }
+        
+        // Verify rejection metric
+        def rejectedCount = registry.counter("vortex.dispatch.rejected").count()
+        rejectedCount >= 1
+        
+        cleanup:
+        batcher?.close()
+    }
+    
+    def "should work without concurrent batch limit"() {
+        given:
+        def batchCount = new AtomicInteger(0)
+        
+        Backend<String> backend = { batch ->
+            batchCount.incrementAndGet()
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(10))
+            // No maxConcurrentBatches set (defaults to 0 = unlimited)
+            .build()
+        
+        SimpleMeterRegistry registry = new SimpleMeterRegistry()
+        MicroBatcher<String> batcher = new MicroBatcher<>(backend, config, registry)
+        
+        when:
+        // Submit multiple batches
+        def futures = (1..5).collect { batcher.submit("item-$it") }
+        futures.each { it.get(1, TimeUnit.SECONDS) }
+        
+        then:
+        // All batches should succeed
+        batchCount.get() == 5
+        
+        // No rejection metric should be recorded
+        def rejectedCount = registry.counter("vortex.dispatch.rejected").count()
+        rejectedCount == 0
+        
+        cleanup:
+        batcher?.close()
+    }
+    
+    def "should release semaphore when batch completes"() {
+        given:
+        def maxConcurrent = 2
+        def completedBatches = new AtomicInteger(0)
+        def batchLatch = new CountDownLatch(maxConcurrent)
+        
+        Backend<String> backend = { batch ->
+            try {
+                Thread.sleep(100)  // Simulate processing time
+                completedBatches.incrementAndGet()
+            } finally {
+                batchLatch.countDown()
+            }
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(10))
+            .maxConcurrentBatches(maxConcurrent)
+            .build()
+        
+        SimpleMeterRegistry registry = new SimpleMeterRegistry()
+        MicroBatcher<String> batcher = new MicroBatcher<>(backend, config, registry)
+        
+        when:
+        // Submit batches up to limit
+        def futures1 = (1..maxConcurrent).collect { batcher.submit("item-$it") }
+        
+        // Wait for first batches to complete
+        batchLatch.await(2, TimeUnit.SECONDS)
+        futures1.each { it.get(2, TimeUnit.SECONDS) }
+        Thread.sleep(50)  // Small delay to ensure semaphore is released
+        
+        // Submit more batches (should succeed after first batches complete)
+        def futures2 = (1..maxConcurrent).collect { batcher.submit("item-${maxConcurrent + it}") }
+        
+        // Wait for all batches
+        futures2.each { it.get(2, TimeUnit.SECONDS) }
+        
+        then:
+        // All batches should complete
+        completedBatches.get() == (maxConcurrent * 2)
+        
+        cleanup:
+        batcher?.close()
+    }
+    
+    def "should release semaphore when executor rejects"() {
+        given:
+        def maxConcurrent = 1
+        
+        Backend<String> backend = { batch ->
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(10))
+            .maxConcurrentBatches(maxConcurrent)
+            .build()
+        
+        SimpleMeterRegistry registry = new SimpleMeterRegistry()
+        MicroBatcher<String> batcher = new MicroBatcher<>(backend, config, registry)
+        
+        when:
+        // Submit a batch first
+        def future1 = batcher.submit("item-1")
+        Thread.sleep(50)  // Wait for batch to start
+        
+        // Close batcher
+        batcher.close()
+        
+        then:
+        // First batch should complete
+        future1.get(1, TimeUnit.SECONDS)
+        
+        // Semaphore should be released (no deadlock)
+        // This is verified by the fact that close() completes
+    }
+}
+

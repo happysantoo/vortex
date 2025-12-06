@@ -12,6 +12,7 @@ import com.vajrapulse.vortex.backpressure.OverflowStrategy;
 import com.vajrapulse.vortex.backpressure.BackpressureLevelCache;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,6 +21,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.LockSupport;
 
 /**
@@ -51,6 +53,11 @@ public class MicroBatcher<T> implements AutoCloseable {
     private final ScheduledExecutorService backpressureMonitor;
     private volatile boolean backpressureActive = false;
     
+    // Concurrent dispatch limiting (optional)
+    private final Semaphore dispatchSemaphore;
+    private final int maxConcurrentBatches;
+    private final AtomicInteger activeBatchCount;
+    
     private volatile boolean closed = false;
     
     // Dynamic configuration (mutable, thread-safe)
@@ -80,36 +87,27 @@ public class MicroBatcher<T> implements AutoCloseable {
     /**
      * Creates a new MicroBatcher with the specified MeterRegistry.
      * 
-     * <p>If the config contains backpressure provider and strategy, they will be used.
-     * Otherwise, backpressure can be configured via constructor overloads or factory methods.
+     * <p>Backpressure is configured via {@link BatcherConfig.Builder#backpressureProvider(BackpressureProvider)}
+     * and {@link BatcherConfig.Builder#backpressureStrategy(BackpressureStrategy)}.
+     * 
+     * <p>Example:
+     * <pre>{@code
+     * BatcherConfig config = BatcherConfig.builder()
+     *     .batchSize(10)
+     *     .lingerTime(Duration.ofMillis(100))
+     *     .backpressureProvider(provider)
+     *     .backpressureStrategy(strategy)
+     *     .build();
+     * 
+     * MicroBatcher<String> batcher = new MicroBatcher<>(backend, config, meterRegistry);
+     * }</pre>
      * 
      * @param backend the backend implementation
-     * @param config the batcher configuration
+     * @param config the batcher configuration (may contain backpressure provider and strategy)
      * @param meterRegistry the meter registry for metrics (must not be null)
      * @throws IllegalArgumentException if backend or config is null
      */
     public MicroBatcher(Backend<T> backend, BatcherConfig config, MeterRegistry meterRegistry) {
-        this(backend, config, meterRegistry, 
-            config != null ? config.getBackpressureProvider() : null, 
-            config != null ? config.getBackpressureStrategy() : null);
-    }
-    
-    /**
-     * Creates a new MicroBatcher with backpressure support.
-     * 
-     * @param backend the backend implementation
-     * @param config the batcher configuration
-     * @param meterRegistry the meter registry for metrics (must not be null)
-     * @param backpressureProvider the backpressure provider (may be null, overrides config)
-     * @param backpressureStrategy the backpressure strategy (may be null, overrides config)
-     * @throws IllegalArgumentException if backend or config is null
-     */
-    public MicroBatcher(
-            Backend<T> backend,
-            BatcherConfig config,
-            MeterRegistry meterRegistry,
-            BackpressureProvider backpressureProvider,
-            BackpressureStrategy<T> backpressureStrategy) {
         if (backend == null) {
             throw new IllegalArgumentException("Backend cannot be null");
         }
@@ -123,13 +121,23 @@ public class MicroBatcher<T> implements AutoCloseable {
         this.backend = backend;
         this.config = config;
         this.meterRegistry = meterRegistry;
-        this.backpressureProvider = backpressureProvider;
-        this.backpressureStrategy = backpressureStrategy;
+        this.backpressureProvider = config.getBackpressureProvider();
+        this.backpressureStrategy = config.getBackpressureStrategy();
         
         // Initialize backpressure cache if provider is configured
         this.backpressureCache = (backpressureProvider != null) 
             ? new BackpressureLevelCache(backpressureProvider, config.getBackpressureCacheTtl())
             : null;
+        
+        // Initialize concurrent dispatch limiting
+        this.maxConcurrentBatches = config.getMaxConcurrentBatches();
+        if (maxConcurrentBatches > 0) {
+            this.dispatchSemaphore = new Semaphore(maxConcurrentBatches);
+            this.activeBatchCount = new AtomicInteger(0);
+        } else {
+            this.dispatchSemaphore = null;  // No limit
+            this.activeBatchCount = null;
+        }
         
         // Use virtual threads for executor
         this.executor = Executors.newVirtualThreadPerTaskExecutor();
@@ -152,6 +160,14 @@ public class MicroBatcher<T> implements AutoCloseable {
         // 2. submit() checks 'closed' flag before processing, preventing issues during shutdown
         // 3. All required fields (queue, executor, metrics) are initialized before this point
         this.metrics = new MetricsManager(meterRegistry, config, queue);
+        
+        // Register gauge for active concurrent batches if limiting is enabled
+        if (activeBatchCount != null) {
+            Gauge.builder("vortex.dispatch.active.batches", activeBatchCount, AtomicInteger::get)
+                .description("Current number of batches being dispatched concurrently")
+                .register(meterRegistry);
+        }
+        
         this.retryManager = new RetryManager<>(config, executor, this::submit, () -> closed, metrics, debugMode);
         this.resultProcessor = new ResultProcessor<>(config, backend, metrics, retryManager, this::submit, debugMode);
         
@@ -164,46 +180,6 @@ public class MicroBatcher<T> implements AutoCloseable {
         
         // Start the batch processor
         startBatchProcessor();
-    }
-    
-    /**
-     * Creates a new MicroBatcher with backpressure support (factory method).
-     * 
-     * <p>This is a convenience method for creating a MicroBatcher with backpressure.
-     * 
-     * @param <T> the type of request elements
-     * @param backend the backend implementation
-     * @param config the batcher configuration
-     * @param backpressureProvider the backpressure provider
-     * @param backpressureStrategy the backpressure strategy
-     * @return a new MicroBatcher with backpressure support
-     */
-    public static <T> MicroBatcher<T> withBackpressure(
-            Backend<T> backend,
-            BatcherConfig config,
-            BackpressureProvider backpressureProvider,
-            BackpressureStrategy<T> backpressureStrategy) {
-        return new MicroBatcher<>(backend, config, new SimpleMeterRegistry(), backpressureProvider, backpressureStrategy);
-    }
-    
-    /**
-     * Creates a new MicroBatcher with backpressure support (factory method with MeterRegistry).
-     * 
-     * @param <T> the type of request elements
-     * @param backend the backend implementation
-     * @param config the batcher configuration
-     * @param meterRegistry the meter registry for metrics
-     * @param backpressureProvider the backpressure provider
-     * @param backpressureStrategy the backpressure strategy
-     * @return a new MicroBatcher with backpressure support
-     */
-    public static <T> MicroBatcher<T> withBackpressure(
-            Backend<T> backend,
-            BatcherConfig config,
-            MeterRegistry meterRegistry,
-            BackpressureProvider backpressureProvider,
-            BackpressureStrategy<T> backpressureStrategy) {
-        return new MicroBatcher<>(backend, config, meterRegistry, backpressureProvider, backpressureStrategy);
     }
     
     /**
@@ -412,7 +388,10 @@ public class MicroBatcher<T> implements AutoCloseable {
      */
     public CompletableFuture<BatchResult<T>> submit(T data) {
         if (closed) {
-            throw new IllegalStateException("MicroBatcher is closed");
+            throw new IllegalStateException(
+                String.format("MicroBatcher is closed. Queue depth: %d, Active batches: %d",
+                    queue.size(), activeBatchCount != null ? activeBatchCount.get() : 0)
+            );
         }
         
         // Check backpressure FIRST (before any other work)
@@ -609,7 +588,10 @@ public class MicroBatcher<T> implements AutoCloseable {
      */
     public ItemResult<T> submitSync(T item) {
         if (closed) {
-            throw new IllegalStateException("MicroBatcher is closed");
+            throw new IllegalStateException(
+                String.format("MicroBatcher is closed. Queue depth: %d, Active batches: %d",
+                    queue.size(), activeBatchCount != null ? activeBatchCount.get() : 0)
+            );
         }
         
         // Check backpressure synchronously
@@ -651,27 +633,20 @@ public class MicroBatcher<T> implements AutoCloseable {
             }
         }
         
-        // Check queue capacity
-        int currentQueueSize = getQueueDepth();
-        int maxQueueSize = config.getMaxQueueSize();
-        if (currentQueueSize >= maxQueueSize) {
-            metrics.recordRequestRejected();
-            return ItemResult.failure(item, new RejectedExecutionException(
-                "Queue full: " + currentQueueSize + "/" + maxQueueSize
-            ));
-        }
-        
         // Accept and queue (non-blocking offer)
+        // Note: We rely on queue.offer() return value directly, which is atomic.
+        // This eliminates the race condition window from checking size separately.
         PendingRequest<T> request = new PendingRequest<>(item, new CompletableFuture<>());
         if (queue.offer(request)) {
             metrics.recordRequestSubmitted();
             return ItemResult.success(item);
         } else {
-            // Queue offer failed (shouldn't happen if size check passed, but handle gracefully)
-            metrics.recordQueueOfferFailure();
+            // Queue is full - reject immediately
+            int currentQueueSize = queue.size();
+            int maxQueueSize = config.getMaxQueueSize();
             metrics.recordRequestRejected();
             return ItemResult.failure(item, new RejectedExecutionException(
-                "Queue full: unable to offer item"
+                String.format("Queue full: %d/%d", currentQueueSize, maxQueueSize)
             ));
         }
     }
@@ -762,9 +737,14 @@ public class MicroBatcher<T> implements AutoCloseable {
      * @since 0.0.5
      */
     public CompletableFuture<Void> submitWithCallback(T item, java.util.function.BiConsumer<T, ItemResult<T>> callback) {
-        // Check immediate rejection (without queuing)
+        if (callback == null) {
+            throw new NullPointerException("Callback cannot be null");
+        }
         if (closed) {
-            throw new IllegalStateException("MicroBatcher is closed");
+            throw new IllegalStateException(
+                String.format("MicroBatcher is closed. Queue depth: %d, Active batches: %d",
+                    queue.size(), activeBatchCount != null ? activeBatchCount.get() : 0)
+            );
         }
         
         ItemResult<T> checkResult = checkRejection(item);
@@ -841,16 +821,13 @@ public class MicroBatcher<T> implements AutoCloseable {
             }
         }
         
-        // Check queue capacity
-        int currentQueueSize = getQueueDepth();
-        int maxQueueSize = config.getMaxQueueSize();
-        if (currentQueueSize >= maxQueueSize) {
-            return ItemResult.failure(item, new RejectedExecutionException(
-                "Queue full: " + currentQueueSize + "/" + maxQueueSize
-            ));
-        }
+        // Note: We don't check queue capacity here since this is just a check method.
+        // The actual submission methods (submitSync, submit) will handle queue capacity
+        // by checking queue.offer() return value, which is atomic.
+        // This method is used by submitWithCallback to determine immediate rejection
+        // before actually submitting, so we skip the queue check here.
         
-        // Would be accepted
+        // Would be accepted (queue capacity will be checked during actual submission)
         return ItemResult.success(item);
     }
     
@@ -929,6 +906,21 @@ public class MicroBatcher<T> implements AutoCloseable {
             return;
         }
         
+        // Try to acquire permit if limit is configured
+        boolean acquired = true;
+        if (dispatchSemaphore != null) {
+            acquired = dispatchSemaphore.tryAcquire();
+            if (!acquired) {
+                // Can't dispatch - too many concurrent batches
+                metrics.recordDispatchRejected();
+                if (debugMode) {
+                    logger.debug("Batch rejected: too many concurrent batches (limit: {})", maxConcurrentBatches);
+                }
+                handleDispatchRejection(batch);
+                return;
+            }
+        }
+        
         // Build data list once so it can be reused for dispatch, metrics, and tracing
         List<T> dataList = new ArrayList<>(batch.size());
         for (PendingRequest<T> req : batch) {
@@ -975,44 +967,90 @@ public class MicroBatcher<T> implements AutoCloseable {
         }
         
         // Execute backend dispatch on a virtual thread
-        executor.submit(() -> {
-            try {
-                if (debugMode) {
-                    logger.debug("Calling backend.dispatch() for batch of size: {}", dataList.size());
+        try {
+            executor.submit(() -> {
+                // Update active batch count after successful submission
+                if (activeBatchCount != null) {
+                    activeBatchCount.incrementAndGet();
                 }
-                BatchResult<T> result = backend.dispatch(dataList);
-                metrics.recordBatchDispatchLatency(sample);
-                if (tracingHook != null) {
-                    try {
-                        tracingHook.onBatchDispatchSuccess(dataList, result);
-                    } catch (Exception e) {
-                        if (debugMode) {
-                            logger.debug("Tracing hook onBatchDispatchSuccess failed", e);
+                try {
+                    if (debugMode) {
+                        logger.debug("Calling backend.dispatch() for batch of size: {}", dataList.size());
+                    }
+                    BatchResult<T> result = backend.dispatch(dataList);
+                    metrics.recordBatchDispatchLatency(sample);
+                    if (tracingHook != null) {
+                        try {
+                            tracingHook.onBatchDispatchSuccess(dataList, result);
+                        } catch (Exception e) {
+                            if (debugMode) {
+                                logger.debug("Tracing hook onBatchDispatchSuccess failed", e);
+                            }
                         }
                     }
-                }
-                if (debugMode) {
-                    logger.debug("Backend dispatch completed: successes={}, failures={}", 
-                        result.getSuccesses().size(), result.getFailures().size());
-                }
-                resultProcessor.processResults(batch, result);
-            } catch (Exception e) {
-                metrics.recordBatchDispatchLatency(sample);
-                if (tracingHook != null) {
-                    try {
-                        tracingHook.onBatchDispatchFailure(dataList, e);
-                    } catch (Exception hookError) {
-                        if (debugMode) {
-                            logger.debug("Tracing hook onBatchDispatchFailure failed", hookError);
+                    if (debugMode) {
+                        logger.debug("Backend dispatch completed: successes={}, failures={}", 
+                            result.getSuccesses().size(), result.getFailures().size());
+                    }
+                    resultProcessor.processResults(batch, result);
+                } catch (Exception e) {
+                    metrics.recordBatchDispatchLatency(sample);
+                    if (tracingHook != null) {
+                        try {
+                            tracingHook.onBatchDispatchFailure(dataList, e);
+                        } catch (Exception hookError) {
+                            if (debugMode) {
+                                logger.debug("Tracing hook onBatchDispatchFailure failed", hookError);
+                            }
                         }
                     }
+                    if (debugMode) {
+                        logger.debug("Backend dispatch failed", e);
+                    }
+                    resultProcessor.processFailure(batch, e);
+                } finally {
+                    // Release permit when done
+                    if (dispatchSemaphore != null) {
+                        dispatchSemaphore.release();
+                    }
+                    // Update active batch count
+                    if (activeBatchCount != null) {
+                        activeBatchCount.decrementAndGet();
+                    }
                 }
-                if (debugMode) {
-                    logger.debug("Backend dispatch failed", e);
-                }
-                resultProcessor.processFailure(batch, e);
+            });
+        } catch (RejectedExecutionException e) {
+            // Executor rejected - release permit (activeBatchCount was never incremented)
+            if (dispatchSemaphore != null) {
+                dispatchSemaphore.release();
             }
-        });
+            if (debugMode) {
+                logger.debug("Executor rejected batch dispatch", e);
+            }
+            handleDispatchRejection(batch);
+        }
+    }
+    
+    /**
+     * Handles rejection of a batch due to concurrent dispatch limit.
+     * 
+     * <p>When a batch cannot be dispatched due to the concurrent batch limit,
+     * the items in the batch are rejected individually. Each item's future
+     * (if using submit()) or callback (if using submitWithCallback()) will
+     * be notified of the rejection.
+     * 
+     * @param batch the batch that was rejected
+     */
+    private void handleDispatchRejection(List<PendingRequest<T>> batch) {
+        Exception rejectionError = new RejectedExecutionException(
+            "Batch rejected: too many concurrent batches (limit: " + maxConcurrentBatches + ")");
+        
+        for (PendingRequest<T> request : batch) {
+            CompletableFuture<BatchResult<T>> future = request.getFuture();
+            if (future != null && !future.isDone()) {
+                future.completeExceptionally(rejectionError);
+            }
+        }
     }
     
     /**
@@ -1198,6 +1236,19 @@ public class MicroBatcher<T> implements AutoCloseable {
             executor.shutdownNow();
         }
         
+        // Wait for all in-flight batches to complete (if concurrent limiting is enabled)
+        if (dispatchSemaphore != null && activeBatchCount != null) {
+            long batchWaitDeadline = System.currentTimeMillis() + (EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS * 1000);
+            while (activeBatchCount.get() > 0 && System.currentTimeMillis() < batchWaitDeadline) {
+                try {
+                    Thread.sleep(10);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        }
+        
         // Process any remaining items synchronously after executor is done
         List<PendingRequest<T>> remaining = new ArrayList<>();
         queue.drainTo(remaining);
@@ -1215,6 +1266,89 @@ public class MicroBatcher<T> implements AutoCloseable {
                 resultProcessor.processFailure(remaining, e);
             }
         }
+    }
+    
+    /**
+     * Waits for all queued items and in-flight batches to complete.
+     * 
+     * <p>This method provides a way to gracefully wait for all processing to complete
+     * before closing the batcher. It waits for:
+     * <ul>
+     *   <li>All items in the queue to be processed</li>
+     *   <li>All in-flight batches to complete</li>
+     * </ul>
+     * 
+     * <p>This is useful in scenarios where you want to ensure all items are processed
+     * before shutting down, such as in test teardown or application shutdown.
+     * 
+     * <p>Example:
+     * <pre>{@code
+     * // Wait for all items to complete before closing
+     * batcher.awaitCompletion(5, TimeUnit.SECONDS);
+     * batcher.close();
+     * }</pre>
+     * 
+     * <p>Note: This method does not prevent new submissions. If you want to stop
+     * accepting new items, call {@link #close()} first, then call this method.
+     * However, calling this method before close() is also valid and will wait
+     * for items submitted up to that point.
+     * 
+     * @param timeout the maximum time to wait
+     * @param unit the time unit of the timeout
+     * @return true if all items completed within the timeout, false if timeout was reached
+     * @throws InterruptedException if the current thread is interrupted while waiting
+     * @since 0.0.7
+     */
+    public boolean awaitCompletion(long timeout, TimeUnit unit) throws InterruptedException {
+        if (closed) {
+            // If already closed, just wait for in-flight batches
+            return awaitInFlightBatches(timeout, unit);
+        }
+        
+        long deadline = System.currentTimeMillis() + unit.toMillis(timeout);
+        
+        // Wait for queue to drain
+        while (!queue.isEmpty() && System.currentTimeMillis() < deadline) {
+            Thread.sleep(10);
+            if (Thread.currentThread().isInterrupted()) {
+                throw new InterruptedException("Interrupted while waiting for queue to drain");
+            }
+        }
+        
+        // Wait for in-flight batches
+        return awaitInFlightBatches(
+            deadline - System.currentTimeMillis(), 
+            TimeUnit.MILLISECONDS
+        );
+    }
+    
+    /**
+     * Waits for all in-flight batches to complete.
+     * 
+     * @param timeout the maximum time to wait
+     * @param unit the time unit of the timeout
+     * @return true if all batches completed within the timeout, false otherwise
+     * @throws InterruptedException if the current thread is interrupted while waiting
+     */
+    private boolean awaitInFlightBatches(long timeout, TimeUnit unit) throws InterruptedException {
+        if (activeBatchCount == null) {
+            // No concurrent limiting - just wait for executor to finish
+            if (executor.isShutdown()) {
+                return executor.awaitTermination(timeout, unit);
+            }
+            // Executor not shut down yet - can't reliably wait
+            return true;
+        }
+        
+        long deadline = System.currentTimeMillis() + unit.toMillis(timeout);
+        while (activeBatchCount.get() > 0 && System.currentTimeMillis() < deadline) {
+            Thread.sleep(10);
+            if (Thread.currentThread().isInterrupted()) {
+                throw new InterruptedException("Interrupted while waiting for in-flight batches");
+            }
+        }
+        
+        return activeBatchCount.get() == 0;
     }
     
     /**
@@ -1279,7 +1413,10 @@ public class MicroBatcher<T> implements AutoCloseable {
      */
     public void updateBatchSize(int newBatchSize) {
         if (closed) {
-            throw new IllegalStateException("MicroBatcher is closed");
+            throw new IllegalStateException(
+                String.format("MicroBatcher is closed. Queue depth: %d, Active batches: %d",
+                    queue.size(), activeBatchCount != null ? activeBatchCount.get() : 0)
+            );
         }
         if (newBatchSize <= 0) {
             throw new IllegalArgumentException("Batch size must be positive");
@@ -1305,7 +1442,10 @@ public class MicroBatcher<T> implements AutoCloseable {
      */
     public void updateLingerTime(Duration newLingerTime) {
         if (closed) {
-            throw new IllegalStateException("MicroBatcher is closed");
+            throw new IllegalStateException(
+                String.format("MicroBatcher is closed. Queue depth: %d, Active batches: %d",
+                    queue.size(), activeBatchCount != null ? activeBatchCount.get() : 0)
+            );
         }
         if (newLingerTime == null || newLingerTime.isNegative()) {
             throw new IllegalArgumentException("Linger time must be non-negative");

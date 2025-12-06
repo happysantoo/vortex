@@ -4933,10 +4933,13 @@ class MicroBatcherSpec extends Specification {
         def config = BatcherConfig.builder()
             .batchSize(5)
             .lingerTime(Duration.ofMillis(100))
+            .backpressureProvider(provider)
+            .backpressureStrategy(strategy)
             .build()
 
+        SimpleMeterRegistry registry = new SimpleMeterRegistry()
         when:
-        def batcher = MicroBatcher.withBackpressure(backend, config, provider, strategy)
+        def batcher = new MicroBatcher<>(backend, config, registry)
         def result = batcher.submitSync("item-1")
 
         then:
@@ -4965,10 +4968,13 @@ class MicroBatcherSpec extends Specification {
         def config = BatcherConfig.builder()
             .batchSize(5)
             .lingerTime(Duration.ofMillis(100))
+            .backpressureProvider(provider)
+            .backpressureStrategy(strategy)
             .build()
 
+        SimpleMeterRegistry registry = new SimpleMeterRegistry()
         when:
-        def batcher = MicroBatcher.withBackpressure(backend, config, provider, strategy)
+        def batcher = new MicroBatcher<>(backend, config, registry)
         def result = batcher.submitSync("item-1")
 
         then:
@@ -4995,10 +5001,13 @@ class MicroBatcherSpec extends Specification {
         def config = BatcherConfig.builder()
             .batchSize(5)
             .lingerTime(Duration.ofMillis(100))
+            .backpressureProvider(provider)
+            .backpressureStrategy(strategy)
             .build()
 
+        SimpleMeterRegistry registry = new SimpleMeterRegistry()
         when:
-        def batcher = MicroBatcher.withBackpressure(backend, config, provider, strategy)
+        def batcher = new MicroBatcher<>(backend, config, registry)
         def result = batcher.submitSync("item-1")
 
         then:
@@ -5026,10 +5035,13 @@ class MicroBatcherSpec extends Specification {
         def config = BatcherConfig.builder()
             .batchSize(5)
             .lingerTime(Duration.ofMillis(100))
+            .backpressureProvider(provider)
+            .backpressureStrategy(strategy)
             .build()
 
+        SimpleMeterRegistry registry = new SimpleMeterRegistry()
         when:
-        def batcher = MicroBatcher.withBackpressure(backend, config, provider, strategy)
+        def batcher = new MicroBatcher<>(backend, config, registry)
         def result = batcher.submitSync("item-1")
 
         then:
@@ -5221,10 +5233,13 @@ class MicroBatcherSpec extends Specification {
         def config = BatcherConfig.builder()
             .batchSize(5)
             .lingerTime(Duration.ofMillis(100))
+            .backpressureProvider(provider)
+            .backpressureStrategy(strategy)
             .build()
 
+        SimpleMeterRegistry registry = new SimpleMeterRegistry()
         when:
-        def batcher = MicroBatcher.withBackpressure(backend, config, provider, strategy)
+        def batcher = new MicroBatcher<>(backend, config, registry)
         def callbackFuture = batcher.submitWithCallback("item-1", { item, result ->
             callbackInvoked.incrementAndGet()
             if (result instanceof ItemResult.Failure) {
@@ -5322,10 +5337,13 @@ class MicroBatcherSpec extends Specification {
         def config = BatcherConfig.builder()
             .batchSize(5)
             .lingerTime(Duration.ofMillis(100))
+            .backpressureProvider(provider)
+            .backpressureStrategy(strategy)
             .build()
 
+        SimpleMeterRegistry registry = new SimpleMeterRegistry()
         when:
-        def batcher = MicroBatcher.withBackpressure(backend, config, provider, strategy)
+        def batcher = new MicroBatcher<>(backend, config, registry)
         def callbackFuture = batcher.submitWithCallback("item-1", { item, result ->
             callbackInvoked.incrementAndGet()
             if (result instanceof ItemResult.Success) {
@@ -5363,10 +5381,13 @@ class MicroBatcherSpec extends Specification {
         def config = BatcherConfig.builder()
             .batchSize(5)
             .lingerTime(Duration.ofMillis(100))
+            .backpressureProvider(provider)
+            .backpressureStrategy(strategy)
             .build()
 
+        SimpleMeterRegistry registry = new SimpleMeterRegistry()
         when:
-        def batcher = MicroBatcher.withBackpressure(backend, config, provider, strategy)
+        def batcher = new MicroBatcher<>(backend, config, registry)
         def callbackFuture = batcher.submitWithCallback("item-1", { item, result ->
             callbackInvoked.incrementAndGet()
             if (result instanceof ItemResult.Success) {
@@ -5406,10 +5427,13 @@ class MicroBatcherSpec extends Specification {
         def config = BatcherConfig.builder()
             .batchSize(5)
             .lingerTime(Duration.ofMillis(100))
+            .backpressureProvider(provider)
+            .backpressureStrategy(strategy)
             .build()
 
+        SimpleMeterRegistry registry = new SimpleMeterRegistry()
         when:
-        def batcher = MicroBatcher.withBackpressure(backend, config, provider, strategy)
+        def batcher = new MicroBatcher<>(backend, config, registry)
         def callbackFuture = batcher.submitWithCallback("item-1", { item, result ->
             callbackInvoked.incrementAndGet()
             if (result instanceof ItemResult.Success) {

@@ -30,9 +30,18 @@ class MicroBatcherBackpressureSpec extends Specification {
         
         BackpressureStrategy<String> strategy = new DropStrategy<>(0.7)
         
-        MicroBatcher<String> batcher = MicroBatcher.withBackpressure(
-            backend, config, provider, strategy
-        )
+        def configWithBackpressure = BatcherConfig.builder()
+            .batchSize(config.getBatchSize())
+            .lingerTime(config.getLingerTime())
+            .backpressureMonitorInterval(config.getBackpressureMonitorInterval())
+            .maxQueueSize(config.getMaxQueueSize())
+            .debugMode(config.isDebugMode())
+            .backpressureProvider(provider)
+            .backpressureStrategy(strategy)
+            .build()
+        
+        SimpleMeterRegistry registry = new SimpleMeterRegistry()
+        MicroBatcher<String> batcher = new MicroBatcher<>(backend, configWithBackpressure, registry)
         
         when:
         CompletableFuture<BatchResult<String>> future = batcher.submit("item1")
@@ -64,9 +73,18 @@ class MicroBatcherBackpressureSpec extends Specification {
         
         BackpressureStrategy<String> strategy = new DropStrategy<>(0.7)
         
-        MicroBatcher<String> batcher = MicroBatcher.withBackpressure(
-            backend, config, provider, strategy
-        )
+        def configWithBackpressure = BatcherConfig.builder()
+            .batchSize(config.getBatchSize())
+            .lingerTime(config.getLingerTime())
+            .backpressureMonitorInterval(config.getBackpressureMonitorInterval())
+            .maxQueueSize(config.getMaxQueueSize())
+            .debugMode(config.isDebugMode())
+            .backpressureProvider(provider)
+            .backpressureStrategy(strategy)
+            .build()
+        
+        SimpleMeterRegistry registry = new SimpleMeterRegistry()
+        MicroBatcher<String> batcher = new MicroBatcher<>(backend, configWithBackpressure, registry)
         
         when:
         CompletableFuture<BatchResult<String>> future = batcher.submit("item1")
@@ -101,9 +119,18 @@ class MicroBatcherBackpressureSpec extends Specification {
         
         BackpressureStrategy<String> strategy = new RejectStrategy<>(0.7)
         
-        MicroBatcher<String> batcher = MicroBatcher.withBackpressure(
-            backend, config, provider, strategy
-        )
+        def configWithBackpressure = BatcherConfig.builder()
+            .batchSize(config.getBatchSize())
+            .lingerTime(config.getLingerTime())
+            .backpressureMonitorInterval(config.getBackpressureMonitorInterval())
+            .maxQueueSize(config.getMaxQueueSize())
+            .debugMode(config.isDebugMode())
+            .backpressureProvider(provider)
+            .backpressureStrategy(strategy)
+            .build()
+        
+        SimpleMeterRegistry registry = new SimpleMeterRegistry()
+        MicroBatcher<String> batcher = new MicroBatcher<>(backend, configWithBackpressure, registry)
         
         when:
         CompletableFuture<BatchResult<String>> future = batcher.submit("item1")
@@ -190,9 +217,18 @@ class MicroBatcherBackpressureSpec extends Specification {
             { resumeCalled.set(true) }
         )
         
-        MicroBatcher<String> batcher = MicroBatcher.withBackpressure(
-            backend, config, provider, strategy
-        )
+        def configWithBackpressure = BatcherConfig.builder()
+            .batchSize(config.getBatchSize())
+            .lingerTime(config.getLingerTime())
+            .backpressureMonitorInterval(config.getBackpressureMonitorInterval())
+            .maxQueueSize(config.getMaxQueueSize())
+            .debugMode(config.isDebugMode())
+            .backpressureProvider(provider)
+            .backpressureStrategy(strategy)
+            .build()
+        
+        SimpleMeterRegistry registry = new SimpleMeterRegistry()
+        MicroBatcher<String> batcher = new MicroBatcher<>(backend, configWithBackpressure, registry)
         
         // Wait for monitoring to detect backpressure (monitor runs every 100ms, threshold is 0.6)
         // Queue depth 4/5 = 0.8 > 0.6, so backpressure should be active
@@ -246,9 +282,18 @@ class MicroBatcherBackpressureSpec extends Specification {
         
         BackpressureStrategy<String> strategy = new DropStrategy<>(0.7)
         
-        MicroBatcher<String> batcher = MicroBatcher.withBackpressure(
-            backend, config, provider, strategy
-        )
+        def configWithBackpressure = BatcherConfig.builder()
+            .batchSize(config.getBatchSize())
+            .lingerTime(config.getLingerTime())
+            .backpressureMonitorInterval(config.getBackpressureMonitorInterval())
+            .maxQueueSize(config.getMaxQueueSize())
+            .debugMode(config.isDebugMode())
+            .backpressureProvider(provider)
+            .backpressureStrategy(strategy)
+            .build()
+        
+        SimpleMeterRegistry registry = new SimpleMeterRegistry()
+        MicroBatcher<String> batcher = new MicroBatcher<>(backend, configWithBackpressure, registry)
         
         when:
         CompletableFuture<BatchResult<String>> future = batcher.submit("item1")
@@ -269,14 +314,6 @@ class MicroBatcherBackpressureSpec extends Specification {
             new BatchResult<>(successes, List.of())
         }
         
-        def config = BatcherConfig.builder()
-            .batchSize(5)
-            .lingerTime(Duration.ofMillis(100))
-            .backpressureMonitorInterval(Duration.ofMillis(50))
-            .debugMode(true)
-            .build()
-        
-        def callCount = new AtomicInteger(0)
         BackpressureProvider provider = Mock()
         // First call returns valid, then invalid (NaN), then valid again
         provider.getBackpressureLevel() >>> [0.3, Double.NaN, 0.3]
@@ -289,9 +326,17 @@ class MicroBatcherBackpressureSpec extends Specification {
             }
         )
         
-        MicroBatcher<String> batcher = MicroBatcher.withBackpressure(
-            backend, config, provider, strategy
-        )
+        def config = BatcherConfig.builder()
+            .batchSize(5)
+            .lingerTime(Duration.ofMillis(100))
+            .backpressureMonitorInterval(Duration.ofMillis(50))
+            .debugMode(true)
+            .backpressureProvider(provider)
+            .backpressureStrategy(strategy)
+            .build()
+        
+        SimpleMeterRegistry registry = new SimpleMeterRegistry()
+        MicroBatcher<String> batcher = new MicroBatcher<>(backend, config, registry)
         
         when:
         Thread.sleep(200)  // Wait for monitoring cycles
@@ -335,9 +380,18 @@ class MicroBatcherBackpressureSpec extends Specification {
             }
         }
         
-        MicroBatcher<String> batcher = MicroBatcher.withBackpressure(
-            backend, config, provider, strategy
-        )
+        def configWithBackpressure = BatcherConfig.builder()
+            .batchSize(config.getBatchSize())
+            .lingerTime(config.getLingerTime())
+            .backpressureMonitorInterval(config.getBackpressureMonitorInterval())
+            .maxQueueSize(config.getMaxQueueSize())
+            .debugMode(config.isDebugMode())
+            .backpressureProvider(provider)
+            .backpressureStrategy(strategy)
+            .build()
+        
+        SimpleMeterRegistry registry = new SimpleMeterRegistry()
+        MicroBatcher<String> batcher = new MicroBatcher<>(backend, configWithBackpressure, registry)
         
         when:
         Thread.sleep(200)  // Wait for monitoring cycles
@@ -357,13 +411,6 @@ class MicroBatcherBackpressureSpec extends Specification {
             new BatchResult<>(successes, List.of())
         }
         
-        def config = BatcherConfig.builder()
-            .batchSize(5)
-            .lingerTime(Duration.ofMillis(100))
-            .backpressureMonitorInterval(Duration.ofMillis(50))
-            .debugMode(true)
-            .build()
-        
         def queueDepthRef = new AtomicInteger(8)  // High queue depth (8/10 = 0.8)
         QueueDepthBackpressureProvider provider = new QueueDepthBackpressureProvider(
             { queueDepthRef.get() },
@@ -381,9 +428,17 @@ class MicroBatcherBackpressureSpec extends Specification {
             { throw new RuntimeException("Resume failed") }  // Exception in onResume
         )
         
-        MicroBatcher<String> batcher = MicroBatcher.withBackpressure(
-            backend, config, provider, strategy
-        )
+        def config = BatcherConfig.builder()
+            .batchSize(5)
+            .lingerTime(Duration.ofMillis(100))
+            .backpressureMonitorInterval(Duration.ofMillis(50))
+            .debugMode(true)
+            .backpressureProvider(provider)
+            .backpressureStrategy(strategy)
+            .build()
+        
+        SimpleMeterRegistry registry = new SimpleMeterRegistry()
+        MicroBatcher<String> batcher = new MicroBatcher<>(backend, config, registry)
         
         when:
         Thread.sleep(200)  // Wait for monitoring to trigger callbacks
@@ -412,17 +467,10 @@ class MicroBatcherBackpressureSpec extends Specification {
             new BatchResult<>(successes, List.of())
         }
         
-        def config = BatcherConfig.builder()
-            .batchSize(5)
-            .lingerTime(Duration.ofMillis(100))
-            .backpressureMonitorInterval(Duration.ofMillis(50))
-            .maxQueueSize(10)
-            .build()
-        
         def queueDepthRef = new AtomicInteger(8)  // High queue depth (8/10 = 0.8)
         QueueDepthBackpressureProvider provider = new QueueDepthBackpressureProvider(
             { queueDepthRef.get() },
-            config.getMaxQueueSize()
+            10
         )
         
         InMemoryOverflowStorage<String> overflow = new InMemoryOverflowStorage<>(10)
@@ -443,9 +491,17 @@ class MicroBatcherBackpressureSpec extends Specification {
             }
         }
         
-        MicroBatcher<String> batcher = MicroBatcher.withBackpressure(
-            backend, config, provider, strategy
-        )
+        def config = BatcherConfig.builder()
+            .batchSize(5)
+            .lingerTime(Duration.ofMillis(100))
+            .backpressureMonitorInterval(Duration.ofMillis(50))
+            .maxQueueSize(10)
+            .backpressureProvider(provider)
+            .backpressureStrategy(strategy)
+            .build()
+        
+        SimpleMeterRegistry registry = new SimpleMeterRegistry()
+        MicroBatcher<String> batcher = new MicroBatcher<>(backend, config, registry)
         
         when:
         Thread.sleep(300)  // Wait for multiple monitoring cycles
@@ -465,18 +521,10 @@ class MicroBatcherBackpressureSpec extends Specification {
             new BatchResult<>(successes, List.of())
         }
         
-        def config = BatcherConfig.builder()
-            .batchSize(5)
-            .lingerTime(Duration.ofMillis(100))
-            .backpressureMonitorInterval(Duration.ofMillis(50))
-            .maxQueueSize(10)
-            .debugMode(true)  // Enable debug mode
-            .build()
-        
         def queueDepthRef = new AtomicInteger(8)  // High queue depth (8/10 = 0.8)
         QueueDepthBackpressureProvider provider = new QueueDepthBackpressureProvider(
             { queueDepthRef.get() },
-            config.getMaxQueueSize()
+            10
         )
         
         InMemoryOverflowStorage<String> overflow = new InMemoryOverflowStorage<>(10)
@@ -489,9 +537,18 @@ class MicroBatcherBackpressureSpec extends Specification {
             { }   // onResume
         )
         
-        MicroBatcher<String> batcher = MicroBatcher.withBackpressure(
-            backend, config, provider, strategy
-        )
+        def config = BatcherConfig.builder()
+            .batchSize(5)
+            .lingerTime(Duration.ofMillis(100))
+            .backpressureMonitorInterval(Duration.ofMillis(50))
+            .maxQueueSize(10)
+            .debugMode(true)  // Enable debug mode
+            .backpressureProvider(provider)
+            .backpressureStrategy(strategy)
+            .build()
+        
+        SimpleMeterRegistry registry = new SimpleMeterRegistry()
+        MicroBatcher<String> batcher = new MicroBatcher<>(backend, config, registry)
         
         when:
         Thread.sleep(200)  // Wait for monitoring to enter backpressure
@@ -520,13 +577,6 @@ class MicroBatcherBackpressureSpec extends Specification {
             new BatchResult<>(successes, List.of())
         }
         
-        def config = BatcherConfig.builder()
-            .batchSize(5)
-            .lingerTime(Duration.ofMillis(100))
-            .backpressureMonitorInterval(Duration.ofMillis(50))
-            .debugMode(true)
-            .build()
-        
         // Provider that throws exception
         BackpressureProvider provider = Mock()
         provider.getBackpressureLevel() >> { throw new RuntimeException("Provider error") }
@@ -539,9 +589,17 @@ class MicroBatcherBackpressureSpec extends Specification {
             }
         )
         
-        MicroBatcher<String> batcher = MicroBatcher.withBackpressure(
-            backend, config, provider, strategy
-        )
+        def config = BatcherConfig.builder()
+            .batchSize(5)
+            .lingerTime(Duration.ofMillis(100))
+            .backpressureMonitorInterval(Duration.ofMillis(50))
+            .debugMode(true)
+            .backpressureProvider(provider)
+            .backpressureStrategy(strategy)
+            .build()
+        
+        SimpleMeterRegistry registry = new SimpleMeterRegistry()
+        MicroBatcher<String> batcher = new MicroBatcher<>(backend, config, registry)
         
         when:
         Thread.sleep(200)  // Wait for monitoring cycles
@@ -585,9 +643,18 @@ class MicroBatcherBackpressureSpec extends Specification {
             }
         }
         
-        MicroBatcher<String> batcher = MicroBatcher.withBackpressure(
-            backend, config, provider, strategy
-        )
+        def configWithBackpressure = BatcherConfig.builder()
+            .batchSize(config.getBatchSize())
+            .lingerTime(config.getLingerTime())
+            .backpressureMonitorInterval(config.getBackpressureMonitorInterval())
+            .maxQueueSize(config.getMaxQueueSize())
+            .debugMode(config.isDebugMode())
+            .backpressureProvider(provider)
+            .backpressureStrategy(strategy)
+            .build()
+        
+        SimpleMeterRegistry registry = new SimpleMeterRegistry()
+        MicroBatcher<String> batcher = new MicroBatcher<>(backend, configWithBackpressure, registry)
         
         when:
         Thread.sleep(200)  // Wait for monitoring cycles
@@ -640,9 +707,18 @@ class MicroBatcherBackpressureSpec extends Specification {
             }
         }
         
-        MicroBatcher<String> batcher = MicroBatcher.withBackpressure(
-            backend, config, provider, strategy
-        )
+        def configWithBackpressure = BatcherConfig.builder()
+            .batchSize(config.getBatchSize())
+            .lingerTime(config.getLingerTime())
+            .backpressureMonitorInterval(config.getBackpressureMonitorInterval())
+            .maxQueueSize(config.getMaxQueueSize())
+            .debugMode(config.isDebugMode())
+            .backpressureProvider(provider)
+            .backpressureStrategy(strategy)
+            .build()
+        
+        SimpleMeterRegistry registry = new SimpleMeterRegistry()
+        MicroBatcher<String> batcher = new MicroBatcher<>(backend, configWithBackpressure, registry)
         
         // Step 1: Enter backpressure (queue depth 8/10 = 0.8 > 0.7)
         when:
@@ -704,9 +780,18 @@ class MicroBatcherBackpressureSpec extends Specification {
             { }
         )
         
-        MicroBatcher<String> batcher = MicroBatcher.withBackpressure(
-            backend, config, provider, strategy
-        )
+        def configWithBackpressure = BatcherConfig.builder()
+            .batchSize(config.getBatchSize())
+            .lingerTime(config.getLingerTime())
+            .backpressureMonitorInterval(config.getBackpressureMonitorInterval())
+            .maxQueueSize(config.getMaxQueueSize())
+            .debugMode(config.isDebugMode())
+            .backpressureProvider(provider)
+            .backpressureStrategy(strategy)
+            .build()
+        
+        SimpleMeterRegistry registry = new SimpleMeterRegistry()
+        MicroBatcher<String> batcher = new MicroBatcher<>(backend, configWithBackpressure, registry)
         
         when:
         Thread.sleep(200)  // Wait for monitoring to enter backpressure
@@ -749,9 +834,18 @@ class MicroBatcherBackpressureSpec extends Specification {
             { throw new RuntimeException("Resume failed") }  // Exception in onResume
         )
         
-        MicroBatcher<String> batcher = MicroBatcher.withBackpressure(
-            backend, config, provider, strategy
-        )
+        def configWithBackpressure = BatcherConfig.builder()
+            .batchSize(config.getBatchSize())
+            .lingerTime(config.getLingerTime())
+            .backpressureMonitorInterval(config.getBackpressureMonitorInterval())
+            .maxQueueSize(config.getMaxQueueSize())
+            .debugMode(config.isDebugMode())
+            .backpressureProvider(provider)
+            .backpressureStrategy(strategy)
+            .build()
+        
+        SimpleMeterRegistry registry = new SimpleMeterRegistry()
+        MicroBatcher<String> batcher = new MicroBatcher<>(backend, configWithBackpressure, registry)
         
         // First enter backpressure
         when:
@@ -800,9 +894,18 @@ class MicroBatcherBackpressureSpec extends Specification {
             }
         }
         
-        MicroBatcher<String> batcher = MicroBatcher.withBackpressure(
-            backend, config, provider, strategy
-        )
+        def configWithBackpressure = BatcherConfig.builder()
+            .batchSize(config.getBatchSize())
+            .lingerTime(config.getLingerTime())
+            .backpressureMonitorInterval(config.getBackpressureMonitorInterval())
+            .maxQueueSize(config.getMaxQueueSize())
+            .debugMode(config.isDebugMode())
+            .backpressureProvider(provider)
+            .backpressureStrategy(strategy)
+            .build()
+        
+        SimpleMeterRegistry registry = new SimpleMeterRegistry()
+        MicroBatcher<String> batcher = new MicroBatcher<>(backend, configWithBackpressure, registry)
         
         when:
         Thread.sleep(300)  // Wait for monitoring to enter and stay in backpressure
@@ -834,9 +937,18 @@ class MicroBatcherBackpressureSpec extends Specification {
         
         BackpressureStrategy<String> strategy = new DropStrategy<>(0.7)
         
-        MicroBatcher<String> batcher = MicroBatcher.withBackpressure(
-            backend, config, provider, strategy
-        )
+        def configWithBackpressure = BatcherConfig.builder()
+            .batchSize(config.getBatchSize())
+            .lingerTime(config.getLingerTime())
+            .backpressureMonitorInterval(config.getBackpressureMonitorInterval())
+            .maxQueueSize(config.getMaxQueueSize())
+            .debugMode(config.isDebugMode())
+            .backpressureProvider(provider)
+            .backpressureStrategy(strategy)
+            .build()
+        
+        SimpleMeterRegistry registry = new SimpleMeterRegistry()
+        MicroBatcher<String> batcher = new MicroBatcher<>(backend, configWithBackpressure, registry)
         
         when:
         CompletableFuture<BatchResult<String>> future = batcher.submit("item1")
@@ -874,9 +986,18 @@ class MicroBatcherBackpressureSpec extends Specification {
             }
         }
         
-        MicroBatcher<String> batcher = MicroBatcher.withBackpressure(
-            backend, config, provider, strategy
-        )
+        def configWithBackpressure = BatcherConfig.builder()
+            .batchSize(config.getBatchSize())
+            .lingerTime(config.getLingerTime())
+            .backpressureMonitorInterval(config.getBackpressureMonitorInterval())
+            .maxQueueSize(config.getMaxQueueSize())
+            .debugMode(config.isDebugMode())
+            .backpressureProvider(provider)
+            .backpressureStrategy(strategy)
+            .build()
+        
+        SimpleMeterRegistry registry = new SimpleMeterRegistry()
+        MicroBatcher<String> batcher = new MicroBatcher<>(backend, configWithBackpressure, registry)
         
         when:
         CompletableFuture<BatchResult<String>> future = batcher.submit("item1")
@@ -942,9 +1063,18 @@ class MicroBatcherBackpressureSpec extends Specification {
         
         BackpressureStrategy<String> strategy = new RejectStrategy<>(0.7)
         
-        MicroBatcher<String> batcher = MicroBatcher.withBackpressure(
-            backend, config, composite, strategy
-        )
+        def configWithBackpressure = BatcherConfig.builder()
+            .batchSize(config.getBatchSize())
+            .lingerTime(config.getLingerTime())
+            .backpressureMonitorInterval(config.getBackpressureMonitorInterval())
+            .maxQueueSize(config.getMaxQueueSize())
+            .debugMode(config.isDebugMode())
+            .backpressureProvider(composite)
+            .backpressureStrategy(strategy)
+            .build()
+        
+        SimpleMeterRegistry registry = new SimpleMeterRegistry()
+        MicroBatcher<String> batcher = new MicroBatcher<>(backend, configWithBackpressure, registry)
         
         when:
         CompletableFuture<BatchResult<String>> future = batcher.submit("item1")
@@ -977,9 +1107,18 @@ class MicroBatcherBackpressureSpec extends Specification {
         
         BackpressureStrategy<String> strategy = new DropStrategy<>(0.7)
         
-        MicroBatcher<String> batcher = MicroBatcher.withBackpressure(
-            backend, config, provider, strategy
-        )
+        def configWithBackpressure = BatcherConfig.builder()
+            .batchSize(config.getBatchSize())
+            .lingerTime(config.getLingerTime())
+            .backpressureMonitorInterval(config.getBackpressureMonitorInterval())
+            .maxQueueSize(config.getMaxQueueSize())
+            .debugMode(config.isDebugMode())
+            .backpressureProvider(provider)
+            .backpressureStrategy(strategy)
+            .build()
+        
+        SimpleMeterRegistry registry = new SimpleMeterRegistry()
+        MicroBatcher<String> batcher = new MicroBatcher<>(backend, configWithBackpressure, registry)
         
         when:
         CompletableFuture<BatchResult<String>> future = batcher.submit(null)
@@ -1011,9 +1150,18 @@ class MicroBatcherBackpressureSpec extends Specification {
         
         BackpressureStrategy<String> strategy = new DropStrategy<>(0.7)
         
-        MicroBatcher<String> batcher = MicroBatcher.withBackpressure(
-            backend, config, provider, strategy
-        )
+        def configWithBackpressure = BatcherConfig.builder()
+            .batchSize(config.getBatchSize())
+            .lingerTime(config.getLingerTime())
+            .backpressureMonitorInterval(config.getBackpressureMonitorInterval())
+            .maxQueueSize(config.getMaxQueueSize())
+            .debugMode(config.isDebugMode())
+            .backpressureProvider(provider)
+            .backpressureStrategy(strategy)
+            .build()
+        
+        SimpleMeterRegistry registry = new SimpleMeterRegistry()
+        MicroBatcher<String> batcher = new MicroBatcher<>(backend, configWithBackpressure, registry)
         
         when:
         CompletableFuture<BatchResult<String>> future = batcher.submit("item1")
@@ -1046,9 +1194,18 @@ class MicroBatcherBackpressureSpec extends Specification {
         
         BackpressureStrategy<String> strategy = new DropStrategy<>(0.7)
         
-        MicroBatcher<String> batcher = MicroBatcher.withBackpressure(
-            backend, config, provider, strategy
-        )
+        def configWithBackpressure = BatcherConfig.builder()
+            .batchSize(config.getBatchSize())
+            .lingerTime(config.getLingerTime())
+            .backpressureMonitorInterval(config.getBackpressureMonitorInterval())
+            .maxQueueSize(config.getMaxQueueSize())
+            .debugMode(config.isDebugMode())
+            .backpressureProvider(provider)
+            .backpressureStrategy(strategy)
+            .build()
+        
+        SimpleMeterRegistry registry = new SimpleMeterRegistry()
+        MicroBatcher<String> batcher = new MicroBatcher<>(backend, configWithBackpressure, registry)
         
         when:
         CompletableFuture<BatchResult<String>> future = batcher.submit("item1")
@@ -1081,9 +1238,18 @@ class MicroBatcherBackpressureSpec extends Specification {
         
         BackpressureStrategy<String> strategy = new DropStrategy<>(0.7)
         
-        MicroBatcher<String> batcher = MicroBatcher.withBackpressure(
-            backend, config, provider, strategy
-        )
+        def configWithBackpressure = BatcherConfig.builder()
+            .batchSize(config.getBatchSize())
+            .lingerTime(config.getLingerTime())
+            .backpressureMonitorInterval(config.getBackpressureMonitorInterval())
+            .maxQueueSize(config.getMaxQueueSize())
+            .debugMode(config.isDebugMode())
+            .backpressureProvider(provider)
+            .backpressureStrategy(strategy)
+            .build()
+        
+        SimpleMeterRegistry registry = new SimpleMeterRegistry()
+        MicroBatcher<String> batcher = new MicroBatcher<>(backend, configWithBackpressure, registry)
         
         when:
         CompletableFuture<BatchResult<String>> future = batcher.submit("item1")
@@ -1115,9 +1281,18 @@ class MicroBatcherBackpressureSpec extends Specification {
         
         BackpressureStrategy<String> strategy = new DropStrategy<>(0.7)
         
-        MicroBatcher<String> batcher = MicroBatcher.withBackpressure(
-            backend, config, provider, strategy
-        )
+        def configWithBackpressure = BatcherConfig.builder()
+            .batchSize(config.getBatchSize())
+            .lingerTime(config.getLingerTime())
+            .backpressureMonitorInterval(config.getBackpressureMonitorInterval())
+            .maxQueueSize(config.getMaxQueueSize())
+            .debugMode(config.isDebugMode())
+            .backpressureProvider(provider)
+            .backpressureStrategy(strategy)
+            .build()
+        
+        SimpleMeterRegistry registry = new SimpleMeterRegistry()
+        MicroBatcher<String> batcher = new MicroBatcher<>(backend, configWithBackpressure, registry)
         
         when:
         def futures = []
@@ -1155,9 +1330,18 @@ class MicroBatcherBackpressureSpec extends Specification {
         
         BackpressureStrategy<Integer> strategy = new DropStrategy<>(0.7)
         
-        MicroBatcher<Integer> batcher = MicroBatcher.withBackpressure(
-            backend, config, provider, strategy
-        )
+        def configWithBackpressure = BatcherConfig.builder()
+            .batchSize(config.getBatchSize())
+            .lingerTime(config.getLingerTime())
+            .backpressureMonitorInterval(config.getBackpressureMonitorInterval())
+            .maxQueueSize(config.getMaxQueueSize())
+            .debugMode(config.isDebugMode())
+            .backpressureProvider(provider)
+            .backpressureStrategy(strategy)
+            .build()
+        
+        SimpleMeterRegistry registry = new SimpleMeterRegistry()
+        MicroBatcher<Integer> batcher = new MicroBatcher<>(backend, configWithBackpressure, registry)
         
         when:
         CompletableFuture<BatchResult<Integer>> future = batcher.submit(42)
