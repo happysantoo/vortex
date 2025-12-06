@@ -8,7 +8,7 @@
 
 A lightweight Java 21 library for micro-batching requests to any backend. Built with virtual threads, smart batching (size or time-based), comprehensive metrics, and production-ready features.
 
-**Current Version**: 0.0.6
+**Current Version**: 0.0.7
 
 ## Features
 
@@ -23,6 +23,8 @@ A lightweight Java 21 library for micro-batching requests to any backend. Built 
 - ✅ **Batch Callbacks**: Submit items with callbacks for async result handling (with immediate rejection support)
 - ✅ **Per-Item Metrics**: Optional detailed metrics for individual items (queue wait time vs full latency)
 - ✅ **Backpressure Caching**: TTL-based caching reduces provider calls by ~95% in high-throughput scenarios
+- ✅ **Concurrent Dispatch Limiting**: Prevent connection pool exhaustion by limiting concurrent batch dispatches
+- ✅ **Graceful Shutdown**: `awaitCompletion()` method for waiting on queue and in-flight batches
 - ✅ **OpenTelemetry Integration**: Optional distributed tracing support with graceful degradation
 - ✅ **Dynamic Configuration**: Update batch size and linger time at runtime
 - ✅ **Debug Mode**: Detailed logging for troubleshooting
@@ -38,7 +40,7 @@ A lightweight Java 21 library for micro-batching requests to any backend. Built 
 <dependency>
     <groupId>com.vajrapulse</groupId>
     <artifactId>vortex</artifactId>
-    <version>0.0.5</version>
+    <version>0.0.7</version>
 </dependency>
 ```
 
@@ -46,7 +48,7 @@ A lightweight Java 21 library for micro-batching requests to any backend. Built 
 
 ```kotlin
 dependencies {
-    implementation("com.vajrapulse:vortex:0.0.5")
+    implementation("com.vajrapulse:vortex:0.0.7")
 }
 ```
 
@@ -438,6 +440,8 @@ long submitted = registry.counter("vortex.requests.submitted").count();
 - `vortex.queue.wait.time` - Distribution of queue wait times with percentiles (Timer)
   - Includes p50, p95, p99 percentiles
 - `vortex.batch.size` - Distribution of batch sizes (DistributionSummary)
+- `vortex.dispatch.rejected` - Batches rejected due to concurrent dispatch limit (Counter, 0.0.7+)
+- `vortex.dispatch.active.batches` - Current number of batches being dispatched concurrently (Gauge, 0.0.7+)
 
 ### Per-Item Metrics (when enabled)
 
@@ -801,6 +805,67 @@ MicroBatcher<String> batcher = MicroBatcher.withBackpressure(
 
 **Recommended Configuration:**
 - **Max Queue Size**: 20-50 batches worth of items (e.g., 20 batches × 50 items = 1000 items)
+
+#### Concurrent Batch Dispatch Limiting (0.0.7+)
+
+Prevent connection pool exhaustion by limiting concurrent batch dispatches:
+
+```java
+BatcherConfig config = BatcherConfig.builder()
+    .batchSize(50)
+    .lingerTime(Duration.ofMillis(50))
+    .maxConcurrentBatches(8)  // Limit to 80% of 10-connection pool
+    .build();
+
+MicroBatcher<String> batcher = new MicroBatcher<>(backend, config, meterRegistry);
+```
+
+**Recommended Value**: 80% of connection pool size
+- For a 10-connection pool: set to 8 (leaves 2 connections for other operations)
+- For a 20-connection pool: set to 16
+
+**How it works:**
+- When the limit is reached, new batches are rejected immediately
+- Rejected batches notify their futures/callbacks with `RejectedExecutionException`
+- Semaphore is released when batch completes, allowing new batches to dispatch
+- Metrics: `vortex.dispatch.rejected` counter and `vortex.dispatch.active.batches` gauge
+
+**Example with Metrics:**
+```java
+// Monitor active concurrent batches
+double activeBatches = registry.gauge("vortex.dispatch.active.batches", 0.0);
+long rejectedBatches = registry.counter("vortex.dispatch.rejected").count();
+
+if (activeBatches >= maxConcurrentBatches) {
+    log.warn("Concurrent batch limit reached: {}", activeBatches);
+}
+```
+
+#### CompositeBackpressureProvider Builder (0.0.7+)
+
+Use the builder pattern for cleaner composite provider construction:
+
+```java
+import com.vajrapulse.vortex.backpressure.*;
+
+// Using builder pattern
+BackpressureProvider composite = CompositeBackpressureProvider.builder()
+    .queueDepth(() -> batcher.getQueueDepth(), maxQueueSize)
+    .add(connectionPoolProvider)  // Your custom provider
+    .add(customProvider)
+    .build();
+
+// Alternative: Constructor-based (still supported)
+BackpressureProvider composite = new CompositeBackpressureProvider(
+    queueDepthProvider,
+    connectionPoolProvider
+);
+```
+
+**Benefits:**
+- Fluent API for combining multiple providers
+- Convenience method `queueDepth()` for queue depth provider
+- Cleaner, more intuitive than constructor-based approach
 - **RejectStrategy Threshold**: 0.7 (70% capacity) - rejects items when queue > 70% full
 - **AdaptiveLoadPattern Threshold**: 0.7 (70% capacity) - ramps down TPS when backpressure >= 0.7
 

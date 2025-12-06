@@ -223,5 +223,137 @@ class CompositeBackpressureProviderSpec extends Specification {
         details.containsKey("provider1.name")
         details.containsKey("provider1.level")
     }
+    
+    def "should create composite provider using builder"() {
+        given:
+        BackpressureProvider provider1 = Mock()
+        provider1.getBackpressureLevel() >> 0.3
+        provider1.getSourceName() >> "Provider 1"
+        provider1.getDetails() >> Map.of()
+        
+        BackpressureProvider provider2 = Mock()
+        provider2.getBackpressureLevel() >> 0.7
+        provider2.getSourceName() >> "Provider 2"
+        provider2.getDetails() >> Map.of()
+        
+        when:
+        CompositeBackpressureProvider composite = CompositeBackpressureProvider.builder()
+            .add(provider1)
+            .add(provider2)
+            .build()
+        
+        then:
+        composite.getBackpressureLevel() == 0.7  // Maximum
+        composite.getSourceName() == "Composite (2 sources)"
+    }
+    
+    def "should add queue depth provider using builder"() {
+        given:
+        def queueDepth = 50
+        def maxQueueSize = 100
+        
+        when:
+        CompositeBackpressureProvider composite = CompositeBackpressureProvider.builder()
+            .queueDepth({ queueDepth }, maxQueueSize)
+            .build()
+        
+        then:
+        composite.getBackpressureLevel() == 0.5  // 50/100
+        composite.getSourceName() == "Composite (1 sources)"
+    }
+    
+    def "should combine queue depth and custom providers using builder"() {
+        given:
+        def queueDepth = 30
+        def maxQueueSize = 100
+        
+        BackpressureProvider customProvider = Mock()
+        customProvider.getBackpressureLevel() >> 0.8
+        customProvider.getSourceName() >> "Custom Provider"
+        customProvider.getDetails() >> Map.of()
+        
+        when:
+        CompositeBackpressureProvider composite = CompositeBackpressureProvider.builder()
+            .queueDepth({ queueDepth }, maxQueueSize)
+            .add(customProvider)
+            .build()
+        
+        then:
+        composite.getBackpressureLevel() == 0.8  // Maximum of 0.3 and 0.8
+        composite.getSourceName() == "Composite (2 sources)"
+    }
+    
+    def "should throw exception when building with no providers"() {
+        when:
+        CompositeBackpressureProvider.builder().build()
+        
+        then:
+        thrown(IllegalArgumentException)
+    }
+    
+    def "should throw exception when adding null provider to builder"() {
+        when:
+        CompositeBackpressureProvider.builder()
+            .add(null)
+            .build()
+        
+        then:
+        thrown(IllegalArgumentException)
+    }
+    
+    def "should throw exception when queue depth supplier is null"() {
+        when:
+        CompositeBackpressureProvider.builder()
+            .queueDepth(null, 100)
+            .build()
+        
+        then:
+        thrown(IllegalArgumentException)
+    }
+    
+    def "should throw exception when max queue size is not positive"() {
+        when:
+        CompositeBackpressureProvider.builder()
+            .queueDepth({ 10 }, 0)
+            .build()
+        
+        then:
+        thrown(IllegalArgumentException)
+    }
+    
+    def "should handle multiple queue depth providers"() {
+        given:
+        def queueDepth1 = 20
+        def maxQueueSize1 = 100
+        def queueDepth2 = 40
+        def maxQueueSize2 = 100
+        
+        when:
+        CompositeBackpressureProvider composite = CompositeBackpressureProvider.builder()
+            .queueDepth({ queueDepth1 }, maxQueueSize1)
+            .queueDepth({ queueDepth2 }, maxQueueSize2)
+            .build()
+        
+        then:
+        composite.getBackpressureLevel() == 0.4  // Maximum of 0.2 and 0.4
+        composite.getSourceName() == "Composite (2 sources)"
+    }
+    
+    def "should handle builder with single provider"() {
+        given:
+        BackpressureProvider provider = Mock()
+        provider.getBackpressureLevel() >> 0.6
+        provider.getSourceName() >> "Single Provider"
+        provider.getDetails() >> Map.of()
+        
+        when:
+        CompositeBackpressureProvider composite = CompositeBackpressureProvider.builder()
+            .add(provider)
+            .build()
+        
+        then:
+        composite.getBackpressureLevel() == 0.6
+        composite.getSourceName() == "Composite (1 sources)"
+    }
 }
 

@@ -447,9 +447,55 @@ class BatcherConfigSpec extends Specification {
     def "should reject negative backpressure cache TTL"() {
         when:
         BatcherConfig.builder().backpressureCacheTtl(Duration.ofMillis(-1)).build()
+
+        then:
+        thrown(IllegalArgumentException)
+    }
+    
+    def "should use default maxConcurrentBatches when not specified"() {
+        when:
+        def config = BatcherConfig.builder().build()
+        
+        then:
+        config.maxConcurrentBatches == 0  // Default: unlimited
+    }
+    
+    def "should set custom maxConcurrentBatches"() {
+        when:
+        def config = BatcherConfig.builder()
+            .maxConcurrentBatches(8)
+            .build()
+        
+        then:
+        config.maxConcurrentBatches == 8
+    }
+    
+    def "should reject maxConcurrentBatches that is not positive"() {
+        when:
+        BatcherConfig.builder().maxConcurrentBatches(0).build()
         
         then:
         thrown(IllegalArgumentException)
+        
+        when:
+        BatcherConfig.builder().maxConcurrentBatches(-1).build()
+        
+        then:
+        thrown(IllegalArgumentException)
+    }
+    
+    def "should allow maxConcurrentBatches in builder chain"() {
+        when:
+        def config = BatcherConfig.builder()
+            .batchSize(10)
+            .lingerTime(Duration.ofMillis(100))
+            .maxConcurrentBatches(5)
+            .build()
+        
+        then:
+        config.batchSize == 10
+        config.lingerTime == Duration.ofMillis(100)
+        config.maxConcurrentBatches == 5
     }
 }
 

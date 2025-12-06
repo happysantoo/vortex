@@ -25,6 +25,7 @@ public class BatcherConfig {
     private final BackpressureStrategy<?> backpressureStrategy;
     private final Duration backpressureMonitorInterval;
     private final Duration backpressureCacheTtl;
+    private final int maxConcurrentBatches;
     
     /**
      * Private constructor for BatcherConfig.
@@ -54,6 +55,10 @@ public class BatcherConfig {
         this.backpressureCacheTtl = builder.backpressureCacheTtl != null 
             ? builder.backpressureCacheTtl 
             : Duration.ofMillis(50);
+        // Default to 0 (unlimited) if not explicitly set
+        this.maxConcurrentBatches = builder.maxConcurrentBatches != null 
+            ? builder.maxConcurrentBatches 
+            : 0;
     }
     
     /**
@@ -223,6 +228,23 @@ public class BatcherConfig {
     }
     
     /**
+     * Gets the maximum number of batches that can be dispatched concurrently.
+     *
+     * <p>This prevents overwhelming the connection pool by limiting concurrent
+     * batch dispatches. When set to 0 (default), there is no limit.
+     *
+     * <p>Recommended value: 80% of connection pool size. For example, for a
+     * 10-connection pool, set to 8 to leave 2 connections available for other
+     * operations.
+     *
+     * @return the maximum concurrent batches (0 means unlimited)
+     * @since 0.0.7
+     */
+    public int getMaxConcurrentBatches() {
+        return maxConcurrentBatches;
+    }
+    
+    /**
      * Creates a new builder instance.
      * 
      * @return a new Builder instance
@@ -260,6 +282,7 @@ public class BatcherConfig {
         private BackpressureStrategy<?> backpressureStrategy = null;
         private Duration backpressureMonitorInterval = null; // null means use default (100ms)
         private Duration backpressureCacheTtl = null; // null means use default (50ms)
+        private Integer maxConcurrentBatches = null; // null means use default (0 = unlimited)
         
         /**
          * Sets the batch size.
@@ -570,6 +593,41 @@ public class BatcherConfig {
                 );
             }
             this.backpressureCacheTtl = ttl;
+            return this;
+        }
+        
+        /**
+         * Sets the maximum number of batches that can be dispatched concurrently.
+         *
+         * <p>This prevents overwhelming the connection pool by limiting concurrent
+         * batch dispatches. Recommended value: 80% of connection pool size.
+         *
+         * <p>Example: For a 10-connection pool, set to 8 to leave 2 connections
+         * available for other operations.
+         *
+         * <p>Default: 0 (unlimited - no limit)
+         *
+         * <p>When a batch cannot be dispatched due to the limit, it will be rejected
+         * and the items in the batch will be notified via their callbacks (if using
+         * {@link com.vajrapulse.vortex.MicroBatcher#submitWithCallback(Object, java.util.function.BiConsumer)})
+         * or their futures will complete exceptionally.
+         *
+         * <p>Example:
+         * <pre>{@code
+         * // Limit to 80% of 10-connection pool
+         * config.maxConcurrentBatches(8);
+         * }</pre>
+         *
+         * @param maxConcurrentBatches the maximum concurrent batches (must be > 0)
+         * @return this builder instance
+         * @throws IllegalArgumentException if maxConcurrentBatches is not positive
+         * @since 0.0.7
+         */
+        public Builder maxConcurrentBatches(int maxConcurrentBatches) {
+            if (maxConcurrentBatches <= 0) {
+                throw new IllegalArgumentException("maxConcurrentBatches must be > 0");
+            }
+            this.maxConcurrentBatches = maxConcurrentBatches;
             return this;
         }
         

@@ -27,6 +27,7 @@ class MetricsManager {
     private final Counter backpressureCheckFailures;
     private final Counter backpressureInvalidLevels;
     private final Counter queueOfferFailures;
+    private final Counter dispatchRejected;
     private final Timer batchDispatchLatency;
     private final Timer requestWaitLatency;
     private final Timer queueWaitTime;
@@ -89,6 +90,10 @@ class MetricsManager {
         
         this.queueOfferFailures = Counter.builder("vortex.queue.offer.failures")
             .description("Total number of queue offer failures (race condition occurrences)")
+            .register(meterRegistry);
+        
+        this.dispatchRejected = Counter.builder("vortex.dispatch.rejected")
+            .description("Number of batches rejected due to concurrent dispatch limit")
             .register(meterRegistry);
         
         this.batchDispatchLatency = Timer.builder("vortex.batch.dispatch.latency")
@@ -177,6 +182,10 @@ class MetricsManager {
     
     void recordQueueOfferFailure() {
         queueOfferFailures.increment();
+    }
+    
+    void recordDispatchRejected() {
+        dispatchRejected.increment();
     }
     
     Timer.Sample startBatchDispatchTimer() {

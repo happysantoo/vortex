@@ -7,14 +7,26 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 
 /**
  * Manages retry logic for failed items.
+ * 
+ * <p>This class tracks retry counts for items and schedules retries with configurable delays.
+ * To prevent memory leaks, the retry counts map has a size limit and periodic cleanup of stale entries.
  */
 class RetryManager<T> {
     private static final Logger logger = LoggerFactory.getLogger(RetryManager.class);
+    
+    // Maximum number of retry count entries to prevent unbounded growth
+    private static final int MAX_RETRY_COUNT_ENTRIES = 10000;
+    
+    // Cleanup interval for stale retry entries (5 minutes)
+    private static final long CLEANUP_INTERVAL_MINUTES = 5;
     
     private final BatcherConfig config;
     private final ExecutorService executor;
@@ -22,6 +34,7 @@ class RetryManager<T> {
     private final java.util.function.Supplier<Boolean> isClosedSupplier;
     private final MetricsManager metrics;
     private final ConcurrentHashMap<T, AtomicInteger> retryCounts = new ConcurrentHashMap<>();
+    private final ScheduledExecutorService cleanupExecutor;
     private final boolean debugMode;
     
     RetryManager(BatcherConfig config, ExecutorService executor,
@@ -35,6 +48,21 @@ class RetryManager<T> {
         this.isClosedSupplier = isClosedSupplier;
         this.metrics = metrics;
         this.debugMode = debugMode;
+        
+        // Start periodic cleanup of stale retry entries to prevent memory leaks
+        this.cleanupExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "vortex-retry-cleanup");
+            t.setDaemon(true);
+            return t;
+        });
+        
+        // Schedule periodic cleanup every 5 minutes
+        this.cleanupExecutor.scheduleAtFixedRate(
+            this::cleanupStaleRetries,
+            CLEANUP_INTERVAL_MINUTES,
+            CLEANUP_INTERVAL_MINUTES,
+            TimeUnit.MINUTES
+        );
     }
     
     boolean shouldRetry(T item, Throwable error) {
@@ -53,6 +81,29 @@ class RetryManager<T> {
     }
     
     void scheduleRetry(T item, Throwable error, CompletableFuture<BatchResult<T>> originalFuture) {
+        // Check size limit to prevent unbounded growth
+        if (retryCounts.size() >= MAX_RETRY_COUNT_ENTRIES) {
+            // Map is full - perform aggressive cleanup before adding new entry
+            cleanupStaleRetries();
+            
+            // If still full after cleanup, remove oldest entries (simple FIFO eviction)
+            if (retryCounts.size() >= MAX_RETRY_COUNT_ENTRIES) {
+                // Remove 10% of entries (simple eviction strategy)
+                int entriesToRemove = MAX_RETRY_COUNT_ENTRIES / 10;
+                int removed = 0;
+                for (T key : retryCounts.keySet()) {
+                    if (removed >= entriesToRemove) {
+                        break;
+                    }
+                    retryCounts.remove(key);
+                    removed++;
+                }
+                if (debugMode) {
+                    logger.warn("Retry count map full, evicted {} entries", removed);
+                }
+            }
+        }
+        
         AtomicInteger retryCount = retryCounts.computeIfAbsent(item, k -> new AtomicInteger(0));
         int currentRetries = retryCount.incrementAndGet();
         metrics.recordRequestRetried();
@@ -119,6 +170,49 @@ class RetryManager<T> {
     
     void clearAll() {
         retryCounts.clear();
+        if (cleanupExecutor != null) {
+            cleanupExecutor.shutdown();
+            try {
+                if (!cleanupExecutor.awaitTermination(1, TimeUnit.SECONDS)) {
+                    cleanupExecutor.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                cleanupExecutor.shutdownNow();
+            }
+        }
+    }
+    
+    /**
+     * Cleans up stale retry count entries.
+     * 
+     * <p>This method removes entries for items that have reached max retries
+     * or haven't been retried recently. This prevents the map from growing
+     * unbounded in scenarios with many unique items being retried.
+     */
+    private void cleanupStaleRetries() {
+        if (isClosedSupplier.get()) {
+            // Batcher is closed, no need to clean up
+            return;
+        }
+        
+        int maxRetries = config.getMaxRetries();
+        AtomicInteger removedCount = new AtomicInteger(0);
+        
+        // Remove entries that have reached max retries
+        retryCounts.entrySet().removeIf(entry -> {
+            AtomicInteger count = entry.getValue();
+            if (count.get() >= maxRetries) {
+                removedCount.incrementAndGet();
+                return true;
+            }
+            return false;
+        });
+        
+        int removed = removedCount.get();
+        if (debugMode && removed > 0) {
+            logger.debug("Cleaned up {} stale retry count entries", removed);
+        }
     }
 }
 
