@@ -470,18 +470,22 @@ class BatcherConfigSpec extends Specification {
         config.maxConcurrentBatches == 8
     }
     
-    def "should reject maxConcurrentBatches that is not positive"() {
-        when:
-        BatcherConfig.builder().maxConcurrentBatches(0).build()
-        
-        then:
-        thrown(IllegalArgumentException)
-        
+    def "should reject negative maxConcurrentBatches"() {
         when:
         BatcherConfig.builder().maxConcurrentBatches(-1).build()
         
         then:
         thrown(IllegalArgumentException)
+    }
+    
+    def "should allow maxConcurrentBatches of 0 for unlimited"() {
+        when:
+        def config = BatcherConfig.builder()
+            .maxConcurrentBatches(0)
+            .build()
+        
+        then:
+        config.maxConcurrentBatches == 0
     }
     
     def "should allow maxConcurrentBatches in builder chain"() {

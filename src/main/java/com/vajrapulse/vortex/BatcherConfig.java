@@ -618,14 +618,14 @@ public class BatcherConfig {
          * config.maxConcurrentBatches(8);
          * }</pre>
          *
-         * @param maxConcurrentBatches the maximum concurrent batches (must be > 0)
+         * @param maxConcurrentBatches the maximum concurrent batches (must be >= 0, where 0 means unlimited)
          * @return this builder instance
-         * @throws IllegalArgumentException if maxConcurrentBatches is not positive
+         * @throws IllegalArgumentException if maxConcurrentBatches is negative
          * @since 0.0.7
          */
         public Builder maxConcurrentBatches(int maxConcurrentBatches) {
-            if (maxConcurrentBatches <= 0) {
-                throw new IllegalArgumentException("maxConcurrentBatches must be > 0");
+            if (maxConcurrentBatches < 0) {
+                throw new IllegalArgumentException("maxConcurrentBatches must be >= 0 (0 means unlimited)");
             }
             this.maxConcurrentBatches = maxConcurrentBatches;
             return this;

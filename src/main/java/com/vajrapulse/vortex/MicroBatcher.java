@@ -1325,7 +1325,7 @@ public class MicroBatcher<T> implements AutoCloseable {
     /**
      * Waits for all in-flight batches to complete.
      * 
-     * @param timeoutMs the maximum time to wait in milliseconds
+     * @param timeout the maximum time to wait
      * @param unit the time unit of the timeout
      * @return true if all batches completed within the timeout, false otherwise
      * @throws InterruptedException if the current thread is interrupted while waiting
