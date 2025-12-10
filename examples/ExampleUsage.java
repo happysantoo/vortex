@@ -58,7 +58,8 @@ public class ExampleUsage {
             // 
             // BACKPRESSURE HANDLING:
             // - Queue size is limited to 2x batch size (e.g., batchSize=5 → queue=10 items)
-            // - If queue is full, submit() waits up to 100ms, then rejects with RejectedExecutionException
+            // - If queue is full, submit() waits up to 100ms, then rejects with BackpressureException
+            // - As of 0.0.8, all rejections (queue full, concurrent limit, backpressure) throw BackpressureException
             // - Always handle exceptions to detect backpressure!
             List<CompletableFuture<Void>> callbacks = new ArrayList<>();
             for (int requestIndex = 0; requestIndex < 15; requestIndex++) {
@@ -75,10 +76,14 @@ public class ExampleUsage {
                     }
                 );
                 
-                // Handle backpressure: queue full or other errors
+                // Handle backpressure: queue full, concurrent limit, or backpressure threshold
                 callback.exceptionally(throwable -> {
-                    if (throwable.getCause() instanceof RejectedExecutionException) {
-                        System.err.println("⚠ Request " + requestId + " REJECTED: Queue is full (backpressure)");
+                    Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
+                    if (cause instanceof com.vajrapulse.vortex.backpressure.BackpressureException) {
+                        com.vajrapulse.vortex.backpressure.BackpressureException bpEx = 
+                            (com.vajrapulse.vortex.backpressure.BackpressureException) cause;
+                        System.err.println("⚠ Request " + requestId + " REJECTED: " + bpEx.getMessage() +
+                            " (level: " + bpEx.getBackpressureLevel() + ", source: " + bpEx.getSourceName() + ")");
                         // Options: retry, log, send to dead letter queue, or fail fast
                     } else {
                         System.err.println("⚠ Request " + requestId + " ERROR: " + throwable.getMessage());

@@ -46,10 +46,5 @@ public class DropStrategy<T> implements BackpressureStrategy<T> {
         }
         return BackpressureResult.accept(context.item());
     }
-    
-    @Override
-    public double getThreshold() {
-        return threshold;
-    }
 }
 

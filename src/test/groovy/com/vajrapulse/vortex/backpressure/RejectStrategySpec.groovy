@@ -123,24 +123,5 @@ class RejectStrategySpec extends Specification {
         then:
         result.action() == BackpressureAction.ACCEPT
     }
-    
-    def "should return threshold via getThreshold method"() {
-        given:
-        RejectStrategy<String> strategy = new RejectStrategy<>(0.7)
-        
-        expect:
-        strategy.getThreshold() == 0.7
-    }
-    
-    def "should return correct threshold for different values"() {
-        when:
-        RejectStrategy<String> strategy = new RejectStrategy<>(thresholdValue)
-        
-        then:
-        strategy.getThreshold() == thresholdValue
-        
-        where:
-        thresholdValue << [0.0, 0.5, 0.7, 1.0]
-    }
 }
 
