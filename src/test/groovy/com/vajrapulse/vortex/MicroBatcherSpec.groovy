@@ -2,6 +2,7 @@ package com.vajrapulse.vortex
 
 import com.vajrapulse.vortex.backpressure.BackpressureProvider
 import com.vajrapulse.vortex.backpressure.BackpressureStrategy
+import com.vajrapulse.vortex.backpressure.BackpressureException
 import com.vajrapulse.vortex.backpressure.DropStrategy
 import com.vajrapulse.vortex.backpressure.RejectStrategy
 import io.micrometer.core.instrument.MeterRegistry
@@ -15,7 +16,6 @@ import java.util.HashSet
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicInteger
@@ -431,10 +431,10 @@ class MicroBatcherSpec extends Specification {
         // The third one might timeout or be rejected
         try {
             def result = future3.get(200, TimeUnit.MILLISECONDS)
-            !result.isAllSuccess() || result.failures.any { it.error instanceof RejectedExecutionException }
+            !result.isAllSuccess() || result.failures.any { it.error instanceof BackpressureException }
         } catch (Exception e) {
             // Timeout or rejection is acceptable
-            assert e instanceof TimeoutException || e.cause instanceof RejectedExecutionException
+            assert e instanceof TimeoutException || e.cause instanceof BackpressureException
         }
 
         cleanup:
@@ -879,7 +879,7 @@ class MicroBatcherSpec extends Specification {
         try {
             def result = future3.get(200, TimeUnit.MILLISECONDS)
             !result.isAllSuccess()
-            result.failures[0].error instanceof RejectedExecutionException
+            result.failures[0].error instanceof BackpressureException
         } catch (TimeoutException e) {
             // If it times out, the queue might have accepted it, which is also valid
             // The important thing is we tested the code path
@@ -4905,7 +4905,7 @@ class MicroBatcherSpec extends Specification {
         // If queue was full, we should get rejection. If queue wasn't full, that's also OK (race condition)
         if (queueDepthBefore >= 2) {
             assert result instanceof ItemResult.Failure
-            assert result.error instanceof RejectedExecutionException
+            assert result.error instanceof BackpressureException
             assert result.error.message.contains("Queue full")
         } else {
             // Queue wasn't full - item might have been accepted, which is also valid

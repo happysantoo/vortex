@@ -164,6 +164,29 @@ class RetryManager<T> {
         }
     }
     
+    /**
+     * Attempts to retry the item if retryable, otherwise records failure metric and completes the future.
+     * This is a convenience method that combines shouldRetry(), scheduleRetry(), and failure handling.
+     * 
+     * @param item the item to retry
+     * @param error the error that occurred
+     * @param future the future to complete if retry is not possible
+     * @return true if retry was scheduled, false if the future was completed with failure
+     */
+    boolean tryRetryOrFail(T item, Throwable error, CompletableFuture<BatchResult<T>> future) {
+        if (shouldRetry(item, error)) {
+            scheduleRetry(item, error, future);
+            return true;
+        } else {
+            metrics.recordRequestFailed();
+            future.complete(new BatchResult<>(
+                List.of(),
+                List.of(new FailureEvent<>(item, error))
+            ));
+            return false;
+        }
+    }
+    
     void clearRetryCount(T item) {
         retryCounts.remove(item);
     }

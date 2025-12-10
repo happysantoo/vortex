@@ -11,15 +11,17 @@ package com.vajrapulse.vortex.backpressure;
  * </ul>
  * 
  * <p>Strategies are called synchronously during item submission, so they should
- * be fast and non-blocking. For blocking operations (e.g., throttling), use
- * {@link LifecycleAwareStrategy} instead.
+ * be fast and non-blocking.
  * 
  * <p>Example implementations:
  * <ul>
  *   <li>{@link DropStrategy}: Silently drops items when backpressure is high</li>
  *   <li>{@link RejectStrategy}: Rejects items with exception when backpressure is high</li>
- *   <li>{@link OverflowStrategy}: Stores items to overflow and handles lifecycle</li>
  * </ul>
+ * 
+ * <p>Note: Overflow handling (storing items for later replay) is no longer
+ * supported in the library. Applications should implement overflow handling
+ * themselves when needed.
  * 
  * @param <T> the type of items being handled
  */
@@ -28,9 +30,7 @@ public interface BackpressureStrategy<T> {
      * Handles an item when backpressure is detected.
      * 
      * <p>This method is called synchronously during {@code MicroBatcher.submit()},
-     * so it should be fast and non-blocking. If the strategy needs to perform
-     * blocking operations or manage state transitions, implement
-     * {@link LifecycleAwareStrategy} instead.
+     * so it should be fast and non-blocking.
      * 
      * @param context the backpressure context containing the item, backpressure level, and provider
      * @return result indicating how the item was handled (ACCEPT, REJECT, or DROP)
@@ -46,7 +46,7 @@ public interface BackpressureStrategy<T> {
      * should return {@link Double#NaN} or a default value.
      * 
      * <p>Default implementation returns {@link Double#NaN} to indicate no threshold.
-     * Built-in strategies ({@link DropStrategy}, {@link RejectStrategy}, {@link OverflowStrategy})
+     * Built-in strategies ({@link DropStrategy}, {@link RejectStrategy})
      * override this method to return their configured threshold.
      * 
      * @return the backpressure threshold (0.0 to 1.0), or {@link Double#NaN} if not applicable

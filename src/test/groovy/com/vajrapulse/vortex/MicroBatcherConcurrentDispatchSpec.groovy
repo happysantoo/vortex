@@ -1,12 +1,12 @@
 package com.vajrapulse.vortex
 
+import com.vajrapulse.vortex.backpressure.BackpressureException
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import spock.lang.Specification
 
 import java.time.Duration
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.CountDownLatch
-import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -58,7 +58,7 @@ class MicroBatcherConcurrentDispatchSpec extends Specification {
             } catch (Exception e) {
                 // Expected for rejected batches (wrapped in ExecutionException)
                 if (!(e instanceof java.util.concurrent.ExecutionException) && 
-                    !(e.getCause() instanceof RejectedExecutionException)) {
+                    !(e.getCause() instanceof BackpressureException)) {
                     throw e
                 }
             }
@@ -159,7 +159,7 @@ class MicroBatcherConcurrentDispatchSpec extends Specification {
             assert false: "Expected RejectedExecutionException"
         } catch (Exception e) {
             def cause = e instanceof java.util.concurrent.ExecutionException ? e.cause : e
-            assert cause instanceof RejectedExecutionException
+            assert cause instanceof BackpressureException
             assert cause.message.contains("too many concurrent batches")
         }
         

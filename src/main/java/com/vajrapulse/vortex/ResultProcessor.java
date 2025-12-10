@@ -48,16 +48,7 @@ class ResultProcessor<T> {
         
         for (PendingRequest<T> req : batch) {
             recordMetrics(req, batchCompletionTime);
-            
-            if (retryManager.shouldRetry(req.getData(), atomicError)) {
-                retryManager.scheduleRetry(req.getData(), atomicError, req.getFuture());
-            } else {
-                metrics.recordRequestFailed();
-                req.getFuture().complete(new BatchResult<>(
-                    List.of(),
-                    List.of(new FailureEvent<>(req.getData(), atomicError))
-                ));
-            }
+            retryManager.tryRetryOrFail(req.getData(), atomicError, req.getFuture());
         }
     }
     
@@ -136,16 +127,7 @@ class ResultProcessor<T> {
                 FailureEvent<T> failure = failureMap.get(data);
                 if (failure != null && !usedFailures.getOrDefault(data, false)) {
                     Throwable error = failure.getError();
-                    
-                    if (retryManager.shouldRetry(data, error)) {
-                        retryManager.scheduleRetry(data, error, req.getFuture());
-                    } else {
-                        metrics.recordRequestFailed();
-                        req.getFuture().complete(new BatchResult<>(
-                            List.of(),
-                            List.of(failure)
-                        ));
-                    }
+                    retryManager.tryRetryOrFail(data, error, req.getFuture());
                     usedFailures.put(data, true);
                     matched = true;
                 }
@@ -205,28 +187,11 @@ class ResultProcessor<T> {
             // Note: We use req.getData() to preserve request identity, but use the error from the failure event
             FailureEvent<T> failure = unmatchedFailures.remove(0);
             Throwable failureError = failure.getError();
-            
-            if (retryManager.shouldRetry(req.getData(), failureError)) {
-                retryManager.scheduleRetry(req.getData(), failureError, req.getFuture());
-            } else {
-                metrics.recordRequestFailed();
-                req.getFuture().complete(new BatchResult<>(
-                    List.of(),
-                    List.of(new FailureEvent<>(req.getData(), failureError))
-                ));
-            }
+            retryManager.tryRetryOrFail(req.getData(), failureError, req.getFuture());
         } else {
             // No unmatched results available - treat as failure
             Throwable failureError = new RuntimeException("Request failed in batch");
-            if (retryManager.shouldRetry(req.getData(), failureError)) {
-                retryManager.scheduleRetry(req.getData(), failureError, req.getFuture());
-            } else {
-                metrics.recordRequestFailed();
-                req.getFuture().complete(new BatchResult<>(
-                    List.of(),
-                    List.of(new FailureEvent<>(req.getData(), failureError))
-                ));
-            }
+            retryManager.tryRetryOrFail(req.getData(), failureError, req.getFuture());
         }
     }
     
@@ -260,16 +225,7 @@ class ResultProcessor<T> {
         long batchCompletionTime = System.nanoTime();
         for (PendingRequest<T> req : batch) {
             recordMetrics(req, batchCompletionTime);
-            
-            if (retryManager.shouldRetry(req.getData(), error)) {
-                retryManager.scheduleRetry(req.getData(), error, req.getFuture());
-            } else {
-                metrics.recordRequestFailed();
-                req.getFuture().complete(new BatchResult<>(
-                    List.of(),
-                    List.of(new FailureEvent<>(req.getData(), error))
-                ));
-            }
+            retryManager.tryRetryOrFail(req.getData(), error, req.getFuture());
         }
     }
 }

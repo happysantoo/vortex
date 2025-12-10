@@ -2,6 +2,8 @@
 
 ## Code Quality Standards
 
+1. Never use reflection in the code for any reason unless its approved by me.
+
 ### Test Coverage Requirements
 - **Minimum 90% line coverage** - All classes must maintain >90% line coverage (excluding examples and PendingRequest)
 - **Minimum 80% instruction coverage** - Overall code coverage must be >80% (realistic for async code with lambdas)

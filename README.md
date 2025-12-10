@@ -25,7 +25,7 @@ A lightweight Java 21 library for micro-batching requests to any backend. Built 
 - ✅ **Backpressure Caching**: TTL-based caching reduces provider calls by ~95% in high-throughput scenarios
 - ✅ **Concurrent Dispatch Limiting**: Prevent connection pool exhaustion by limiting concurrent batch dispatches
 - ✅ **Graceful Shutdown**: `awaitCompletion()` method for waiting on queue and in-flight batches
-- ✅ **OpenTelemetry Integration**: Optional distributed tracing support with graceful degradation
+- ✅ **Micrometer Tracing Integration**: Distributed tracing support via Micrometer Tracing API
 - ✅ **Dynamic Configuration**: Update batch size and linger time at runtime
 - ✅ **Debug Mode**: Detailed logging for troubleshooting
 - ✅ **Auto-Replay**: Automatic replay of successful items when batches have mixed results
@@ -697,6 +697,49 @@ BatcherConfig config = BatcherConfig.builder()
 
 These hooks and metrics can be wired into OpenTelemetry, Zipkin, or any other observability stack by implementing `BatchTracingHook` in your application.
 
+#### Built-in Tracing Hooks
+
+Vortex provides two built-in tracing hook implementations:
+
+**1. LoggingTracingHook** - Simple log-based tracing using SLF4J:
+```java
+import com.vajrapulse.vortex.tracing.LoggingTracingHook;
+
+// Use default logger
+LoggingTracingHook loggingHook = new LoggingTracingHook();
+
+// Or use custom logger name
+LoggingTracingHook customHook = new LoggingTracingHook("com.example.MyBatcher");
+
+BatcherConfig config = BatcherConfig.builder()
+    .batchSize(10)
+    .lingerTime(Duration.ofMillis(50))
+    .tracingHook(loggingHook)
+    .build();
+```
+
+Log levels:
+- **DEBUG**: Item submission, batch dispatch start, batch dispatch success
+- **WARN**: Retry events
+- **ERROR**: Batch dispatch failures
+
+**2. MicrometerTracingHook** - Distributed tracing via Micrometer Tracing:
+```java
+import com.vajrapulse.vortex.tracing.MicrometerTracingHook;
+import io.micrometer.tracing.Tracer;
+
+// Get Tracer from your Micrometer Tracing setup
+Tracer tracer = ...; // From your Micrometer Tracing configuration
+
+MicrometerTracingHook micrometerHook = new MicrometerTracingHook(tracer);
+
+BatcherConfig config = BatcherConfig.builder()
+    .batchSize(10)
+    .lingerTime(Duration.ofMillis(50))
+    .tracingHook(micrometerHook)
+    .build();
+```
+
 #### Diagnostics API
 
 For lightweight health checks and dashboards, use the diagnostics view:
@@ -794,13 +837,14 @@ AdaptiveLoadPattern pattern = new AdaptiveLoadPattern(
 
 // Configure MicroBatcher with backpressure
 BackpressureStrategy<String> strategy = new RejectStrategy<>(0.7);  // 70% threshold
-MicroBatcher<String> batcher = MicroBatcher.withBackpressure(
-    backend,
-    config,
-    meterRegistry,
-    backpressureProvider,
-    strategy
-);
+BatcherConfig configWithBackpressure = BatcherConfig.builder()
+    .batchSize(50)
+    .lingerTime(Duration.ofMillis(50))
+    .backpressureProvider(backpressureProvider)
+    .backpressureStrategy(strategy)
+    .build();
+
+MicroBatcher<String> batcher = new MicroBatcher<>(backend, configWithBackpressure, meterRegistry);
 ```
 
 **Recommended Configuration:**

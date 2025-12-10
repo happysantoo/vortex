@@ -199,13 +199,15 @@ public class BatcherConfig {
     /**
      * Gets the backpressure monitoring interval.
      *
-     * <p>This is the interval at which the MicroBatcher checks for backpressure
-     * state transitions when using a {@link com.vajrapulse.vortex.backpressure.LifecycleAwareStrategy}.
-     * The default is 100ms.
+     * <p>This method is deprecated and no longer used. Backpressure monitoring
+     * for lifecycle-aware strategies has been removed. Applications should handle
+     * backpressure lifecycle events themselves.
      *
-     * @return the monitoring interval duration
+     * @return the monitoring interval duration (default: 100ms)
+     * @deprecated No longer used. Will be removed in a future version.
      * @since 0.0.4
      */
+    @Deprecated
     public Duration getBackpressureMonitorInterval() {
         return backpressureMonitorInterval;
     }
@@ -500,8 +502,11 @@ public class BatcherConfig {
          *   <li>Accept items (proceed normally)</li>
          *   <li>Reject items (return failure callback)</li>
          *   <li>Drop items (silently ignore)</li>
-         *   <li>Overflow items (store for later replay)</li>
          * </ul>
+         * 
+         * <p>Note: Overflow handling (storing items for later replay) is no longer
+         * supported in the library. Applications should implement overflow handling
+         * themselves when needed.
          *
          * <p>Example:
          * <pre>{@code
@@ -524,31 +529,17 @@ public class BatcherConfig {
         /**
          * Sets the backpressure monitoring interval.
          *
-         * <p>This is the interval at which the MicroBatcher checks for backpressure
-         * state transitions when using a {@link com.vajrapulse.vortex.backpressure.LifecycleAwareStrategy}.
-         * The default is 100ms.
-         *
-         * <p>Shorter intervals provide faster response to backpressure changes but
-         * consume more CPU. Longer intervals reduce CPU usage but may delay detection
-         * of backpressure resolution.
-         *
-         * <p>Recommended values:
-         * <ul>
-         *   <li>50-100ms: For high-throughput systems requiring fast response</li>
-         *   <li>100-200ms: Default, suitable for most use cases</li>
-         *   <li>200-500ms: For low-throughput systems or when CPU is a concern</li>
-         * </ul>
-         *
-         * <p>Example:
-         * <pre>{@code
-         * config.backpressureMonitorInterval(Duration.ofMillis(50));
-         * }</pre>
+         * <p>This method is deprecated and no longer used. Backpressure monitoring
+         * for lifecycle-aware strategies has been removed. Applications should handle
+         * backpressure lifecycle events themselves.
          *
          * @param interval the monitoring interval (must be positive)
          * @return this builder instance
          * @throws IllegalArgumentException if interval is null, zero, or negative
+         * @deprecated No longer used. Will be removed in a future version.
          * @since 0.0.4
          */
+        @Deprecated
         public Builder backpressureMonitorInterval(Duration interval) {
             if (interval == null || interval.isZero() || interval.isNegative()) {
                 throw new IllegalArgumentException(
