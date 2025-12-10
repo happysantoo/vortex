@@ -26,10 +26,10 @@ class BatcherHealthSpec extends Specification {
         MicroBatcher<String> batcher = new MicroBatcher<>(backend, config, new SimpleMeterRegistry())
         
         when:
-        BatcherHealth.HealthStatus status = BatcherHealth.check(batcher)
+        HealthStatus status = BatcherHealth.check(batcher)
         
         then:
-        status == BatcherHealth.HealthStatus.UP
+        status == HealthStatus.UP
         
         cleanup:
         batcher?.close()
@@ -49,10 +49,10 @@ class BatcherHealthSpec extends Specification {
         batcher.close()
         
         when:
-        BatcherHealth.HealthStatus status = BatcherHealth.check(batcher)
+        HealthStatus status = BatcherHealth.check(batcher)
         
         then:
-        status == BatcherHealth.HealthStatus.DOWN
+        status == HealthStatus.DOWN
     }
     
     def "should return DEGRADED for high failure rate"() {
@@ -79,10 +79,10 @@ class BatcherHealthSpec extends Specification {
         Thread.sleep(200)
         
         when:
-        BatcherHealth.HealthStatus status = BatcherHealth.check(batcher)
+        HealthStatus status = BatcherHealth.check(batcher)
         
         then:
-        status == BatcherHealth.HealthStatus.DEGRADED || status == BatcherHealth.HealthStatus.DOWN
+        status == HealthStatus.DEGRADED || status == HealthStatus.DOWN
         
         cleanup:
         batcher?.close()
@@ -112,11 +112,11 @@ class BatcherHealthSpec extends Specification {
         Thread.sleep(300)
         
         when:
-        BatcherHealth.HealthStatus status = BatcherHealth.check(batcher)
+        HealthStatus status = BatcherHealth.check(batcher)
         
         then:
         // With 100% failure rate, should be DOWN
-        status == BatcherHealth.HealthStatus.DOWN
+        status == HealthStatus.DOWN
         
         cleanup:
         batcher?.close()
@@ -137,14 +137,14 @@ class BatcherHealthSpec extends Specification {
         MicroBatcher<String> batcher = new MicroBatcher<>(backend, config, new SimpleMeterRegistry())
         
         when:
-        BatcherHealth.HealthStatus status = BatcherHealth.checkWithThresholds(
+        HealthStatus status = BatcherHealth.checkWithThresholds(
             batcher,
             0.05,  // max failure rate: 5%
             0.9    // max queue utilization: 90%
         )
         
         then:
-        status == BatcherHealth.HealthStatus.UP
+        status == HealthStatus.UP
         
         cleanup:
         batcher?.close()
@@ -187,11 +187,11 @@ class BatcherHealthSpec extends Specification {
         MicroBatcher<String> batcher = new MicroBatcher<>(backend, config, new SimpleMeterRegistry())
         
         when:
-        BatcherHealth.HealthInfo info = BatcherHealth.getHealthInfo(batcher)
+        HealthInfo info = BatcherHealth.getHealthInfo(batcher)
         
         then:
         info != null
-        info.status() == BatcherHealth.HealthStatus.UP
+        info.status() == HealthStatus.UP
         !info.closed()
         info.failureRate() >= 0.0
         info.failureRate() <= 1.0
@@ -214,8 +214,8 @@ class BatcherHealthSpec extends Specification {
     def "should test HealthInfo helper methods"() {
         given:
         // Test isHealthy() - UP status
-        def healthyInfo = new BatcherHealth.HealthInfo(
-            BatcherHealth.HealthStatus.UP,
+        def healthyInfo = new HealthInfo(
+            HealthStatus.UP,
             false,
             0.0,
             1.0,
@@ -228,8 +228,8 @@ class BatcherHealthSpec extends Specification {
         )
         
         // Test isDegraded() - DEGRADED status
-        def degradedInfo = new BatcherHealth.HealthInfo(
-            BatcherHealth.HealthStatus.DEGRADED,
+        def degradedInfo = new HealthInfo(
+            HealthStatus.DEGRADED,
             false,
             0.1,
             0.9,
@@ -242,8 +242,8 @@ class BatcherHealthSpec extends Specification {
         )
         
         // Test isDown() - DOWN status
-        def downInfo = new BatcherHealth.HealthInfo(
-            BatcherHealth.HealthStatus.DOWN,
+        def downInfo = new HealthInfo(
+            HealthStatus.DOWN,
             true,
             0.5,
             0.5,
@@ -284,11 +284,11 @@ class BatcherHealthSpec extends Specification {
         MicroBatcher<String> batcher = new MicroBatcher<>(backend, config, new SimpleMeterRegistry())
         
         when:
-        BatcherHealth.HealthInfo info = BatcherHealth.getHealthInfo(batcher)
+        HealthInfo info = BatcherHealth.getHealthInfo(batcher)
         
         then:
         info != null
-        info.status() == BatcherHealth.HealthStatus.UP
+        info.status() == HealthStatus.UP
         !info.closed()
         info.isHealthy()
         !info.isDegraded()

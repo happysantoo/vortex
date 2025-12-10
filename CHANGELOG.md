@@ -5,6 +5,64 @@ All notable changes to the Vortex Micro-Batching Library will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.8] - 2025-12-09
+
+### Added
+- **LoggingTracingHook**: New SLF4J-based tracing hook for simple log-based observability
+  - Emits DEBUG logs for successful events (submit, batch dispatch start, batch dispatch success)
+  - Emits WARN logs for retry events
+  - Emits ERROR logs for failure events (batch dispatch failure)
+  - Uses standard SLF4J parameterized logging (no String.format)
+  - No additional dependencies required (SLF4J already included)
+- **Micrometer Tracing Integration**: Direct integration with Micrometer Tracing API
+  - Replaced reflection-based OpenTelemetry implementation
+  - Direct API usage improves performance and maintainability
+  - Works with any Micrometer Tracing backend (OpenTelemetry, Zipkin, Brave, etc.)
+  - Added `micrometer-tracing` as a dependency
+
+### Changed
+- **Exception Unification**: Unified all rejection exceptions into `BackpressureException`
+  - `BackpressureException` is now the single exception type for all rejection scenarios
+  - Queue full, concurrent limit, and backpressure rejections all throw `BackpressureException`
+  - Simplified application-side exception handling
+  - Rich metadata (backpressure level, threshold, source) available in exception
+  - Changed from extending `RejectedExecutionException` to `RuntimeException` (no backward compatibility concerns)
+- **PendingRequest Modernization**: Converted `PendingRequest` to Java Record
+  - More concise and immutable
+  - Leverages modern Java 21 features
+  - Maintains backward compatibility with convenience getters
+- **BatcherHealth Refactoring**: Improved organization and maintainability
+  - Extracted `HealthStatus` enum to separate file
+  - Extracted `HealthInfo` record to separate file
+  - Reduced code duplication by consolidating common logic
+  - Replaced magic numbers with named constants
+  - More modular and testable design
+
+### Removed
+- **Overflow Strategy**: Removed overflow functionality from library
+  - Removed `OverflowStrategy`, `OverflowStorage`, `InMemoryOverflowStorage`, `LifecycleAwareStrategy`
+  - Overflow handling is now an application concern
+  - Library focuses on rejecting items when capacity is exceeded
+  - Applications can implement their own overflow handling using `RejectStrategy` and external queues
+  - Simplified library API and reduced complexity
+- **Reflection-based OpenTelemetry**: Removed `OpenTelemetryTracingHook`
+  - Replaced with direct `MicrometerTracingHook` using Micrometer Tracing API
+  - Eliminates brittle reflection-based implementation
+  - Better performance and maintainability
+
+### Documentation
+- **Analysis Documents**: Added comprehensive analysis documents
+  - `BACKPRESSURE_DESIGN_ANALYSIS.md` - Analysis of backpressure package design
+  - `BACKPRESSURE_EXCEPTION_HANDLING.md` - Exception handling patterns
+  - `EXCEPTION_UNIFICATION_ANALYSIS.md` - Exception unification rationale
+  - `EXCEPTION_UNIFICATION_NO_BC.md` - Exception unification without BC concerns
+  - `PENDING_REQUEST_ANALYSIS.md` - PendingRequest modernization analysis
+  - `BATCHER_HEALTH_ANALYSIS.md` - BatcherHealth refactoring analysis
+- **Updated Examples**: Rewrote examples to reflect new API
+  - `KafkaConsumerBackpressureExample` demonstrates application-level overflow handling
+  - `TracingExample` demonstrates both `LoggingTracingHook` and `MicrometerTracingHook`
+- **README Updates**: Updated documentation for new tracing hooks and simplified API
+
 ## [0.0.7] - 2025-12-06
 
 ### Added

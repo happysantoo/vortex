@@ -57,10 +57,5 @@ public class RejectStrategy<T> implements BackpressureStrategy<T> {
         }
         return BackpressureResult.accept(context.item());
     }
-    
-    @Override
-    public double getThreshold() {
-        return threshold;
-    }
 }
 

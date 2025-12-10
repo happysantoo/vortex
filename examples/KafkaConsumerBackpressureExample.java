@@ -13,18 +13,19 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Example demonstrating Vortex Micro-Batching Library with Spring Kafka Consumer
- * and backpressure handling using OverflowStrategy.
+ * Example demonstrating Vortex Micro-Batching Library with Kafka Consumer
+ * and application-level overflow handling.
  * 
  * <p>This example shows:
  * <ul>
  *   <li>How to integrate Vortex with Kafka consumer</li>
- *   <li>How to use OverflowStrategy for backpressure handling</li>
+ *   <li>How to use RejectStrategy for backpressure signaling</li>
+ *   <li>How to implement application-level overflow handling</li>
  *   <li>How to pause/resume Kafka consumer based on backpressure</li>
  *   <li>Clear separation of application vs library responsibilities</li>
  * </ul>
@@ -33,7 +34,9 @@ import java.util.concurrent.atomic.AtomicLong;
  * <ul>
  *   <li>Kafka consumer setup and configuration</li>
  *   <li>Polling Kafka for records</li>
+ *   <li>Overflow storage and replay logic</li>
  *   <li>Pausing/resuming consumer partitions</li>
+ *   <li>Monitoring backpressure state transitions</li>
  *   <li>Business logic (processing items)</li>
  *   <li>Error handling and logging</li>
  * </ul>
@@ -42,10 +45,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * <ul>
  *   <li>Batching items efficiently</li>
  *   <li>Detecting backpressure (queue depth)</li>
- *   <li>Storing items to overflow when backpressure is high</li>
- *   <li>Monitoring backpressure state transitions</li>
- *   <li>Replaying items from overflow when capacity available</li>
- *   <li>Calling pause/resume callbacks at appropriate times</li>
+ *   <li>Signaling backpressure (rejecting items)</li>
  *   <li>Providing metrics and diagnostics</li>
  * </ul>
  */
@@ -58,24 +58,30 @@ public class KafkaConsumerBackpressureExample {
     private static final Duration LINGER_TIME = Duration.ofMillis(100);
     private static final int MAX_QUEUE_SIZE = 1000;
     private static final double BACKPRESSURE_THRESHOLD = 0.7; // 70% queue capacity
+    private static final int OVERFLOW_CAPACITY = 5000; // Application-managed overflow capacity
     
     // Application state
     private final KafkaConsumer<String, String> kafkaConsumer;
     private final MicroBatcher<String> batcher;
+    private final Queue<String> overflowQueue; // Application-managed overflow storage
     private final AtomicBoolean running = new AtomicBoolean(true);
+    private final AtomicBoolean backpressureActive = new AtomicBoolean(false);
     private final AtomicLong processedCount = new AtomicLong(0);
     private final AtomicLong overflowCount = new AtomicLong(0);
+    private final ScheduledExecutorService overflowMonitor;
     
     public KafkaConsumerBackpressureExample(KafkaConsumer<String, String> kafkaConsumer) {
         this.kafkaConsumer = kafkaConsumer;
+        this.overflowQueue = new LinkedBlockingQueue<>(OVERFLOW_CAPACITY);
         this.batcher = createMicroBatcher();
+        this.overflowMonitor = startOverflowMonitoring();
     }
     
     /**
      * Creates and configures the MicroBatcher with backpressure support.
      * 
-     * <p><b>Library Responsibility:</b> This method demonstrates how the library
-     * handles backpressure configuration and setup.
+     * <p><b>Library Responsibility:</b> The library detects and signals backpressure.
+     * The application handles overflow storage and replay.
      */
     private MicroBatcher<String> createMicroBatcher() {
         // Backend: Application's business logic
@@ -115,50 +121,104 @@ public class KafkaConsumerBackpressureExample {
             MAX_QUEUE_SIZE
         );
         
-        // Overflow Storage: Library manages temporary storage
-        // LIBRARY RESPONSIBILITY: Provides overflow storage for items during backpressure
-        OverflowStorage<String> overflowStorage = new InMemoryOverflowStorage<>();
+        // Backpressure Strategy: Library signals backpressure by rejecting items
+        // LIBRARY RESPONSIBILITY: Signals backpressure (application handles overflow)
+        BackpressureStrategy<String> strategy = new RejectStrategy<>(BACKPRESSURE_THRESHOLD);
         
-        // Overflow Strategy: Library handles overflow and lifecycle
-        // LIBRARY RESPONSIBILITY: 
-        // - Stores items to overflow when backpressure is high
-        // - Monitors backpressure state transitions
-        // - Replays items when capacity becomes available
-        // - Calls pause/resume callbacks at appropriate times
-        OverflowStrategy<String> overflowStrategy = new OverflowStrategy<>(
-            BACKPRESSURE_THRESHOLD,
-            overflowStorage,
-            backpressureProvider,
-            item -> {
-                // Resubmit item to batcher when replaying from overflow
-                overflowCount.decrementAndGet();
-                return batcher.submit(item);
-            },
-            // APPLICATION RESPONSIBILITY: Pause Kafka consumer
-            // Called by library when backpressure enters high state
-            () -> {
-                logger.warn("Backpressure detected - pausing Kafka consumer");
-                pauseKafkaConsumer();
-            },
-            // APPLICATION RESPONSIBILITY: Resume Kafka consumer
-            // Called by library when backpressure resolves
-            () -> {
-                logger.info("Backpressure resolved - resuming Kafka consumer");
-                resumeKafkaConsumer();
-            }
-        );
+        // Configure backpressure in config
+        BatcherConfig configWithBackpressure = BatcherConfig.builder()
+            .batchSize(BATCH_SIZE)
+            .lingerTime(LINGER_TIME)
+            .maxQueueSize(MAX_QUEUE_SIZE)
+            .backpressureProvider(backpressureProvider)
+            .backpressureStrategy(strategy)
+            .build();
         
         MeterRegistry meterRegistry = new SimpleMeterRegistry();
         
         // Create batcher with backpressure support
-        // LIBRARY RESPONSIBILITY: Manages batching, backpressure detection, and overflow
-        return MicroBatcher.withBackpressure(
-            backend,
-            config,
-            meterRegistry,
-            backpressureProvider,
-            overflowStrategy
+        // LIBRARY RESPONSIBILITY: Manages batching and backpressure signaling
+        return new MicroBatcher<>(backend, configWithBackpressure, meterRegistry);
+    }
+    
+    /**
+     * APPLICATION RESPONSIBILITY: Start monitoring backpressure and managing overflow.
+     * This replaces the library's lifecycle monitoring that was removed.
+     */
+    private ScheduledExecutorService startOverflowMonitoring() {
+        ScheduledExecutorService monitor = Executors.newSingleThreadScheduledExecutor(
+            r -> {
+                Thread t = new Thread(r, "overflow-monitor");
+                t.setDaemon(true);
+                return t;
+            }
         );
+        
+        // Monitor backpressure state and manage overflow replay
+        monitor.scheduleAtFixedRate(() -> {
+            try {
+                double backpressureLevel = batcher.diagnostics().getQueueDepth() / (double) MAX_QUEUE_SIZE;
+                boolean wasActive = backpressureActive.get();
+                boolean isActive = backpressureLevel >= BACKPRESSURE_THRESHOLD;
+                
+                if (!wasActive && isActive) {
+                    // Entering backpressure: pause Kafka consumer
+                    backpressureActive.set(true);
+                    logger.warn("Backpressure detected (level: {:.2f}) - pausing Kafka consumer", backpressureLevel);
+                    pauseKafkaConsumer();
+                } else if (wasActive && !isActive) {
+                    // Exiting backpressure: resume Kafka consumer and start replay
+                    backpressureActive.set(false);
+                    logger.info("Backpressure resolved (level: {:.2f}) - resuming Kafka consumer", backpressureLevel);
+                    resumeKafkaConsumer();
+                    replayOverflow();
+                } else if (isActive && !overflowQueue.isEmpty()) {
+                    // Still in backpressure but may be able to replay some items
+                    replayOverflow();
+                }
+            } catch (Exception e) {
+                logger.error("Error in overflow monitoring", e);
+            }
+        }, 0, 100, TimeUnit.MILLISECONDS);
+        
+        return monitor;
+    }
+    
+    /**
+     * APPLICATION RESPONSIBILITY: Replay items from overflow when capacity is available.
+     */
+    private void replayOverflow() {
+        int replayed = 0;
+        int maxReplayPerCycle = 100; // Limit replay rate
+        
+        while (!overflowQueue.isEmpty() && replayed < maxReplayPerCycle) {
+            // Check if we can accept more items
+            double backpressureLevel = batcher.diagnostics().getQueueDepth() / (double) MAX_QUEUE_SIZE;
+            if (backpressureLevel >= BACKPRESSURE_THRESHOLD) {
+                // Still under pressure, stop replaying
+                break;
+            }
+            
+            String item = overflowQueue.poll();
+            if (item != null) {
+                try {
+                    batcher.submit(item);
+                    overflowCount.decrementAndGet();
+                    replayed++;
+                } catch (Exception e) {
+                    // If submission fails, put item back
+                    logger.warn("Failed to replay item, putting back in overflow", e);
+                    overflowQueue.offer(item);
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+        
+        if (replayed > 0) {
+            logger.debug("Replayed {} items from overflow", replayed);
+        }
     }
     
     /**
@@ -176,7 +236,7 @@ public class KafkaConsumerBackpressureExample {
     
     /**
      * APPLICATION RESPONSIBILITY: Pause Kafka consumer partitions.
-     * Called by the library when backpressure is detected.
+     * Called by application when backpressure is detected.
      */
     private void pauseKafkaConsumer() {
         try {
@@ -192,7 +252,7 @@ public class KafkaConsumerBackpressureExample {
     
     /**
      * APPLICATION RESPONSIBILITY: Resume Kafka consumer partitions.
-     * Called by the library when backpressure resolves.
+     * Called by application when backpressure resolves.
      */
     private void resumeKafkaConsumer() {
         try {
@@ -211,7 +271,7 @@ public class KafkaConsumerBackpressureExample {
      * Polls Kafka and submits items to the batcher.
      */
     public void run() {
-        logger.info("Starting Kafka consumer with backpressure support");
+        logger.info("Starting Kafka consumer with application-level overflow handling");
         
         try {
             while (running.get()) {
@@ -225,25 +285,33 @@ public class KafkaConsumerBackpressureExample {
                 logger.debug("Polled {} records from Kafka", records.count());
                 
                 // APPLICATION RESPONSIBILITY: Extract and submit items to batcher
-                // LIBRARY RESPONSIBILITY: Handles batching, backpressure, and overflow
+                // LIBRARY RESPONSIBILITY: Handles batching and signals backpressure
                 for (ConsumerRecord<String, String> record : records) {
                     String value = record.value();
                     
-                    // Submit to batcher
-                    // If backpressure is high, library will:
-                    // 1. Store item to overflow storage
-                    // 2. Call pause callback (pauses Kafka consumer)
-                    // 3. Monitor for resolution
-                    // 4. Replay items when capacity available
-                    // 5. Call resume callback (resumes Kafka consumer)
-                    CompletableFuture<BatchResult<String>> future = batcher.submit(value);
-                    
-                    // Track overflow items
-                    future.whenComplete((result, error) -> {
-                        if (error != null) {
-                            logger.error("Error processing item", error);
+                    try {
+                        // Try to submit to batcher
+                        CompletableFuture<BatchResult<String>> future = batcher.submit(value);
+                        
+                        // Handle rejection (backpressure signaled)
+                        future.whenComplete((result, error) -> {
+                            if (error != null) {
+                                if (error.getCause() instanceof BackpressureException) {
+                                    // LIBRARY SIGNALED BACKPRESSURE: Application handles overflow
+                                    handleBackpressureRejection(value);
+                                } else {
+                                    logger.error("Error processing item", error);
+                                }
+                            }
+                        });
+                    } catch (Exception e) {
+                        // Handle synchronous rejection
+                        if (e.getCause() instanceof BackpressureException) {
+                            handleBackpressureRejection(value);
+                        } else {
+                            logger.error("Error submitting item", e);
                         }
-                    });
+                    }
                 }
                 
                 // APPLICATION RESPONSIBILITY: Commit offsets (if manual commit)
@@ -257,11 +325,61 @@ public class KafkaConsumerBackpressureExample {
     }
     
     /**
+     * APPLICATION RESPONSIBILITY: Handle backpressure rejection by storing to overflow.
+     * This is called when the library signals backpressure by rejecting an item.
+     */
+    private void handleBackpressureRejection(String item) {
+        if (overflowQueue.offer(item)) {
+            overflowCount.incrementAndGet();
+            logger.debug("Item stored to overflow (overflow size: {})", overflowQueue.size());
+        } else {
+            // Overflow is full - application decides what to do
+            // Options: log, alert, send to dead letter queue, drop, etc.
+            logger.error("Overflow storage is full, dropping item: {}", item);
+            // In production, you might want to:
+            // - Send to dead letter queue
+            // - Alert monitoring system
+            // - Retry with exponential backoff
+        }
+    }
+    
+    /**
      * APPLICATION RESPONSIBILITY: Graceful shutdown.
      */
     public void shutdown() {
         logger.info("Shutting down...");
         running.set(false);
+        
+        // Stop overflow monitoring
+        overflowMonitor.shutdown();
+        try {
+            if (!overflowMonitor.awaitTermination(1, TimeUnit.SECONDS)) {
+                overflowMonitor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            overflowMonitor.shutdownNow();
+        }
+        
+        // Replay remaining overflow items before shutdown
+        logger.info("Replaying {} remaining overflow items", overflowQueue.size());
+        while (!overflowQueue.isEmpty()) {
+            String item = overflowQueue.poll();
+            if (item != null) {
+                try {
+                    batcher.submit(item);
+                } catch (Exception e) {
+                    logger.warn("Failed to replay item during shutdown: {}", item, e);
+                }
+            }
+        }
+        
+        // Wait for batcher to process remaining items
+        try {
+            batcher.awaitCompletion(5, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
         
         // LIBRARY RESPONSIBILITY: Gracefully close batcher (processes remaining items)
         batcher.close();
@@ -269,7 +387,7 @@ public class KafkaConsumerBackpressureExample {
         // APPLICATION RESPONSIBILITY: Close Kafka consumer
         kafkaConsumer.close();
         
-        logger.info("Shutdown complete. Processed: {}, Overflow: {}", 
+        logger.info("Shutdown complete. Processed: {}, Overflow handled: {}", 
             processedCount.get(), overflowCount.get());
     }
     
@@ -288,7 +406,7 @@ public class KafkaConsumerBackpressureExample {
         logger.info("Total Succeeded: {}", metrics.getTotalSucceeded());
         logger.info("Total Failed: {}", metrics.getTotalFailed());
         logger.info("Total Backpressure Rejected: {}", metrics.getTotalBackpressureRejected());
-        logger.info("Total Backpressure Dropped: {}", metrics.getTotalBackpressureDropped());
+        logger.info("Overflow Queue Size: {}", overflowQueue.size());
         logger.info("Average Batch Dispatch Latency: {} ms", 
             metrics.getAverageBatchDispatchLatency().toMillis());
     }
@@ -332,4 +450,3 @@ public class KafkaConsumerBackpressureExample {
         example.run();
     }
 }
-

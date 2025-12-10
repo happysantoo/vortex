@@ -27,30 +27,16 @@ import java.util.Objects;
  */
 public final class BatcherHealth {
     
+    // Default thresholds for health checks
+    private static final double DEFAULT_MAX_FAILURE_RATE = 0.5;
+    private static final double DEFAULT_MAX_QUEUE_UTILIZATION = 0.95;
+    
+    // Degraded thresholds as multipliers of max thresholds
+    private static final double DEGRADED_FAILURE_RATE_MULTIPLIER = 0.5;
+    private static final double DEGRADED_QUEUE_UTILIZATION_MULTIPLIER = 0.8;
+    
     private BatcherHealth() {
         // Utility class - no instantiation
-    }
-    
-    /**
-     * Health status values.
-     */
-    public enum HealthStatus {
-        /**
-         * Batcher is healthy and operating normally.
-         */
-        UP,
-        
-        /**
-         * Batcher is operating but in a degraded state.
-         * May indicate performance issues or approaching limits.
-         */
-        DEGRADED,
-        
-        /**
-         * Batcher is down or critically unhealthy.
-         * Immediate attention required.
-         */
-        DOWN
     }
     
     /**
@@ -74,38 +60,11 @@ public final class BatcherHealth {
      * @throws NullPointerException if batcher is null
      */
     public static HealthStatus check(MicroBatcher<?> batcher) {
-        Objects.requireNonNull(batcher, "Batcher cannot be null");
-        
-        BatcherDiagnostics diag = batcher.diagnostics();
-        MetricsProvider metrics = batcher.getMetricsProvider();
-        
-        // Check if closed
-        if (diag.isClosed()) {
-            return HealthStatus.DOWN;
-        }
-        
-        // Check failure rate
-        double failureRate = metrics.getFailureRate();
-        if (failureRate > 0.5) {
-            return HealthStatus.DOWN;
-        } else if (failureRate > 0.1) {
-            return HealthStatus.DEGRADED;
-        }
-        
-        // Check queue utilization
-        int queueDepth = diag.getQueueDepth();
-        int maxQueueSize = batcher.getConfig().getMaxQueueSize();
-        double queueUtilization = maxQueueSize > 0 
-            ? (double) queueDepth / maxQueueSize 
-            : 0.0;
-        
-        if (queueUtilization > 0.95) {
-            return HealthStatus.DOWN;
-        } else if (queueUtilization > 0.8) {
-            return HealthStatus.DEGRADED;
-        }
-        
-        return HealthStatus.UP;
+        return checkWithThresholds(
+            batcher,
+            DEFAULT_MAX_FAILURE_RATE,
+            DEFAULT_MAX_QUEUE_UTILIZATION
+        );
     }
     
     /**
@@ -150,35 +109,53 @@ public final class BatcherHealth {
             return HealthStatus.DOWN;
         }
         
-        // Check failure rate
+        // Get metrics
         double failureRate = metrics.getFailureRate();
-        if (failureRate > maxFailureRate) {
-            return HealthStatus.DOWN;
-        } else if (failureRate > maxFailureRate * 0.5) {
-            return HealthStatus.DEGRADED;
-        }
-        
-        // Check queue utilization
         int queueDepth = diag.getQueueDepth();
-        int maxQueueSize = getMaxQueueSize(batcher);
+        int maxQueueSize = batcher.getConfig().getMaxQueueSize();
         double queueUtilization = maxQueueSize > 0 
             ? (double) queueDepth / maxQueueSize 
             : 0.0;
         
+        // Evaluate health status
+        return evaluateHealth(
+            failureRate,
+            queueUtilization,
+            maxFailureRate,
+            maxQueueUtilization
+        );
+    }
+    
+    /**
+     * Evaluates health status based on failure rate and queue utilization.
+     * 
+     * @param failureRate current failure rate
+     * @param queueUtilization current queue utilization
+     * @param maxFailureRate maximum acceptable failure rate
+     * @param maxQueueUtilization maximum acceptable queue utilization
+     * @return the health status
+     */
+    private static HealthStatus evaluateHealth(
+            double failureRate,
+            double queueUtilization,
+            double maxFailureRate,
+            double maxQueueUtilization) {
+        
+        // Check failure rate thresholds
+        if (failureRate > maxFailureRate) {
+            return HealthStatus.DOWN;
+        } else if (failureRate > maxFailureRate * DEGRADED_FAILURE_RATE_MULTIPLIER) {
+            return HealthStatus.DEGRADED;
+        }
+        
+        // Check queue utilization thresholds
         if (queueUtilization > maxQueueUtilization) {
             return HealthStatus.DOWN;
-        } else if (queueUtilization > maxQueueUtilization * 0.8) {
+        } else if (queueUtilization > maxQueueUtilization * DEGRADED_QUEUE_UTILIZATION_MULTIPLIER) {
             return HealthStatus.DEGRADED;
         }
         
         return HealthStatus.UP;
-    }
-    
-    /**
-     * Gets the maximum queue size from the batcher.
-     */
-    private static int getMaxQueueSize(MicroBatcher<?> batcher) {
-        return batcher.getConfig().getMaxQueueSize();
     }
     
     /**
@@ -205,7 +182,7 @@ public final class BatcherHealth {
         HealthStatus status = check(batcher);
         
         int queueDepth = diag.getQueueDepth();
-        int maxQueueSize = getMaxQueueSize(batcher);
+        int maxQueueSize = batcher.getConfig().getMaxQueueSize();
         double queueUtilization = maxQueueSize > 0 
             ? (double) queueDepth / maxQueueSize 
             : 0.0;
@@ -223,59 +200,4 @@ public final class BatcherHealth {
             metrics.getTotalFailed()
         );
     }
-    
-    /**
-     * Detailed health information record.
-     * 
-     * @param status overall health status
-     * @param closed whether the batcher is closed
-     * @param failureRate current failure rate (0.0 to 1.0)
-     * @param successRate current success rate (0.0 to 1.0)
-     * @param queueDepth current queue depth
-     * @param maxQueueSize maximum queue size
-     * @param queueUtilization queue utilization (0.0 to 1.0)
-     * @param totalSubmitted total requests submitted
-     * @param totalSucceeded total requests succeeded
-     * @param totalFailed total requests failed
-     */
-    public record HealthInfo(
-        HealthStatus status,
-        boolean closed,
-        double failureRate,
-        double successRate,
-        int queueDepth,
-        int maxQueueSize,
-        double queueUtilization,
-        long totalSubmitted,
-        long totalSucceeded,
-        long totalFailed
-    ) {
-        /**
-         * Checks if the batcher is healthy (UP status).
-         * 
-         * @return true if healthy, false otherwise
-         */
-        public boolean isHealthy() {
-            return status == HealthStatus.UP;
-        }
-        
-        /**
-         * Checks if the batcher is in a degraded state.
-         * 
-         * @return true if degraded, false otherwise
-         */
-        public boolean isDegraded() {
-            return status == HealthStatus.DEGRADED;
-        }
-        
-        /**
-         * Checks if the batcher is down.
-         * 
-         * @return true if down, false otherwise
-         */
-        public boolean isDown() {
-            return status == HealthStatus.DOWN;
-        }
-    }
 }
-

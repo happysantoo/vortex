@@ -5,10 +5,7 @@ import com.vajrapulse.vortex.backpressure.BackpressureStrategy;
 import com.vajrapulse.vortex.backpressure.BackpressureContext;
 import com.vajrapulse.vortex.backpressure.BackpressureResult;
 import com.vajrapulse.vortex.backpressure.BackpressureAction;
-import com.vajrapulse.vortex.backpressure.LifecycleAwareStrategy;
-import com.vajrapulse.vortex.backpressure.DropStrategy;
-import com.vajrapulse.vortex.backpressure.RejectStrategy;
-import com.vajrapulse.vortex.backpressure.OverflowStrategy;
+import com.vajrapulse.vortex.backpressure.BackpressureException;
 import com.vajrapulse.vortex.backpressure.BackpressureLevelCache;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -50,8 +47,6 @@ public class MicroBatcher<T> implements AutoCloseable {
     private final BackpressureProvider backpressureProvider;
     private final BackpressureStrategy<T> backpressureStrategy;
     private final BackpressureLevelCache backpressureCache;
-    private final ScheduledExecutorService backpressureMonitor;
-    private volatile boolean backpressureActive = false;
     
     // Concurrent dispatch limiting (optional)
     private final Semaphore dispatchSemaphore;
@@ -170,13 +165,6 @@ public class MicroBatcher<T> implements AutoCloseable {
         
         this.retryManager = new RetryManager<>(config, executor, this::submit, () -> closed, metrics, debugMode);
         this.resultProcessor = new ResultProcessor<>(config, backend, metrics, retryManager, this::submit, debugMode);
-        
-        // Start backpressure monitoring if lifecycle-aware strategy is provided
-        if (backpressureStrategy instanceof LifecycleAwareStrategy) {
-            this.backpressureMonitor = startBackpressureMonitoring();
-        } else {
-            this.backpressureMonitor = null;
-        }
         
         // Start the batch processor
         startBatchProcessor();
@@ -379,8 +367,9 @@ public class MicroBatcher<T> implements AutoCloseable {
      * 
      * <p>If the batcher is closed, this method will throw {@link IllegalStateException}.
      * If backpressure is detected, the strategy will determine how to handle the item
-     * (ACCEPT, REJECT, or DROP). If the queue is full, the returned future will complete
-     * exceptionally with {@link RejectedExecutionException}.
+     * (ACCEPT, REJECT, or DROP). If the item is rejected (backpressure, queue full, or
+     * concurrent limit), the returned future will complete exceptionally with
+     * {@link com.vajrapulse.vortex.backpressure.BackpressureException}.
      * 
      * @param data the request data
      * @return a CompletableFuture that completes with the batch result
@@ -470,7 +459,9 @@ public class MicroBatcher<T> implements AutoCloseable {
         try {
             if (!queue.offer(request, QUEUE_OFFER_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
                 metrics.recordRequestRejected();
-                future.completeExceptionally(new RejectedExecutionException("Queue is full"));
+                int currentSize = queue.size();
+                int maxSize = config.getMaxQueueSize();
+                future.completeExceptionally(BackpressureException.queueFull(currentSize, maxSize));
                 return future;
             }
         } catch (InterruptedException e) {
@@ -645,9 +636,7 @@ public class MicroBatcher<T> implements AutoCloseable {
             int currentQueueSize = queue.size();
             int maxQueueSize = config.getMaxQueueSize();
             metrics.recordRequestRejected();
-            return ItemResult.failure(item, new RejectedExecutionException(
-                String.format("Queue full: %d/%d", currentQueueSize, maxQueueSize)
-            ));
+            return ItemResult.failure(item, BackpressureException.queueFull(currentQueueSize, maxQueueSize));
         }
     }
     
@@ -658,9 +647,9 @@ public class MicroBatcher<T> implements AutoCloseable {
      * The callback will be invoked with the result when:
      * <ul>
      *   <li><strong>Immediate Rejection</strong>: If the item is rejected due to
-     *       backpressure (queue full), the callback fires immediately with a
-     *       {@link ItemResult.Failure} containing a {@link java.util.concurrent.RejectedExecutionException}
-     *       or {@link com.vajrapulse.vortex.backpressure.BackpressureException}.</li>
+     *       capacity constraints (backpressure, queue full, or concurrent limit), the
+     *       callback fires immediately with a {@link ItemResult.Failure} containing a
+     *       {@link com.vajrapulse.vortex.backpressure.BackpressureException}.</li>
      *   <li><strong>Batch Processing</strong>: If the item is accepted, the callback
      *       fires when the batch containing this item is processed (typically 10-50ms
      *       after submission, depending on batch size and linger time).</li>
@@ -692,8 +681,8 @@ public class MicroBatcher<T> implements AutoCloseable {
      *         successCounter.increment();
      *     } else if (result instanceof ItemResult.Failure<MyItem> failure) {
      *         // Item failed (either rejected or batch processing failed)
-     *         if (failure.error() instanceof RejectedExecutionException) {
-     *             // Immediate rejection due to backpressure
+     *         if (failure.error() instanceof BackpressureException) {
+     *             // Immediate rejection due to capacity constraints
      *             rejectionCounter.increment();
      *         } else {
      *             // Batch processing failure
@@ -1042,8 +1031,9 @@ public class MicroBatcher<T> implements AutoCloseable {
      * @param batch the batch that was rejected
      */
     private void handleDispatchRejection(List<PendingRequest<T>> batch) {
-        Exception rejectionError = new RejectedExecutionException(
-            "Batch rejected: too many concurrent batches (limit: " + maxConcurrentBatches + ")");
+        int activeBatches = activeBatchCount != null ? activeBatchCount.get() : 0;
+        BackpressureException rejectionError = BackpressureException.concurrentLimitReached(
+            activeBatches, maxConcurrentBatches);
         
         for (PendingRequest<T> request : batch) {
             CompletableFuture<BatchResult<T>> future = request.getFuture();
@@ -1071,144 +1061,10 @@ public class MicroBatcher<T> implements AutoCloseable {
      * 
      * <p>Thread safety: This method is thread-safe and can be called from any thread.
      */
-    /**
-     * Starts backpressure monitoring for lifecycle-aware strategies.
-     * 
-     * @return the ScheduledExecutorService used for monitoring
-     */
-    private ScheduledExecutorService startBackpressureMonitoring() {
-        ScheduledExecutorService monitor = Executors.newSingleThreadScheduledExecutor(
-            r -> {
-                Thread t = new Thread(r, "vortex-backpressure-monitor");
-                t.setDaemon(true);
-                return t;
-            }
-        );
-        
-        // Get monitoring interval from config (defaults to 100ms)
-        long intervalMs = config.getBackpressureMonitorInterval().toMillis();
-        if (intervalMs <= 0) {
-            if (debugMode) {
-                logger.warn("Invalid backpressure monitor interval: {}ms, using default 100ms", intervalMs);
-            }
-            intervalMs = 100;
-        }
-        
-        monitor.scheduleAtFixedRate(() -> {
-            if (backpressureProvider != null && 
-                backpressureStrategy instanceof LifecycleAwareStrategy) {
-                try {
-                    double level = backpressureCache.getBackpressureLevel();
-                    double threshold = getBackpressureThreshold();
-                    
-                    // Validate level
-                    if (Double.isNaN(level) || level < 0.0 || level > 1.0) {
-                        if (debugMode) {
-                            logger.warn("Invalid backpressure level in monitor: {}", level);
-                        }
-                        return;
-                    }
-                    
-                    // Validate threshold
-                    if (Double.isNaN(threshold) || threshold < 0.0 || threshold > 1.0) {
-                        if (debugMode) {
-                            logger.warn("Invalid backpressure threshold in monitor: {}", threshold);
-                        }
-                        return;
-                    }
-                    
-                    boolean isActive = level >= threshold;
-                    
-                    if (!backpressureActive && isActive) {
-                        // Entering backpressure
-                        backpressureActive = true;
-                        try {
-                            ((LifecycleAwareStrategy<T>) backpressureStrategy)
-                                .onBackpressureEntered(backpressureProvider);
-                            if (debugMode) {
-                                logger.debug("Backpressure entered: level={}, threshold={}", level, threshold);
-                            }
-                        } catch (Exception e) {
-                            if (debugMode) {
-                                logger.error("Error in onBackpressureEntered callback", e);
-                            }
-                            // Continue monitoring despite callback error
-                        }
-                    } else if (backpressureActive && !isActive) {
-                        // Exiting backpressure
-                        backpressureActive = false;
-                        try {
-                            ((LifecycleAwareStrategy<T>) backpressureStrategy)
-                                .onBackpressureResolved(backpressureProvider);
-                            if (debugMode) {
-                                logger.debug("Backpressure resolved: level={}, threshold={}", level, threshold);
-                            }
-                        } catch (Exception e) {
-                            if (debugMode) {
-                                logger.error("Error in onBackpressureResolved callback", e);
-                            }
-                            // Continue monitoring despite callback error
-                        }
-                    } else if (backpressureActive) {
-                        // Active backpressure - periodic check
-                        try {
-                            ((LifecycleAwareStrategy<T>) backpressureStrategy)
-                                .onBackpressureActive(backpressureProvider);
-                        } catch (Exception e) {
-                            if (debugMode) {
-                                logger.error("Error in onBackpressureActive callback", e);
-                            }
-                            // Continue monitoring despite callback error
-                        }
-                    }
-                } catch (Exception e) {
-                    // Catch all exceptions to prevent monitoring thread from dying
-                    if (debugMode) {
-                        logger.error("Error in backpressure monitoring", e);
-                    }
-                    // Continue monitoring despite errors
-                }
-            }
-        }, 0, intervalMs, TimeUnit.MILLISECONDS);
-        
-        return monitor;
-    }
-    
-    /**
-     * Gets the backpressure threshold from the strategy.
-     * 
-     * <p>Uses the strategy's {@link BackpressureStrategy#getThreshold()} method
-     * if available, otherwise returns a default value.
-     * 
-     * @return the threshold (0.0 to 1.0), or 0.7 as default
-     */
-    private double getBackpressureThreshold() {
-        if (backpressureStrategy != null) {
-            double threshold = backpressureStrategy.getThreshold();
-            if (!Double.isNaN(threshold) && threshold >= 0.0 && threshold <= 1.0) {
-                return threshold;
-            }
-        }
-        // Default threshold if strategy doesn't provide one
-        return 0.7;
-    }
     
     @Override
     public void close() {
         closed = true;
-        
-        // Shutdown backpressure monitoring
-        if (backpressureMonitor != null) {
-            backpressureMonitor.shutdown();
-            try {
-                if (!backpressureMonitor.awaitTermination(1, TimeUnit.SECONDS)) {
-                    backpressureMonitor.shutdownNow();
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                backpressureMonitor.shutdownNow();
-            }
-        }
         
         retryManager.clearAll();
         

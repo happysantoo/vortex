@@ -60,10 +60,11 @@ public class ExampleUsageSimplified {
                         }
                     }
                 );
-                // Handle backpressure (queue full)
+                // Handle backpressure (queue full, concurrent limit, or backpressure threshold)
                 callback.exceptionally(throwable -> {
-                    if (throwable.getCause() instanceof java.util.concurrent.RejectedExecutionException) {
-                        System.err.println("⚠ " + itemId + " rejected: Queue full");
+                    Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
+                    if (cause instanceof com.vajrapulse.vortex.backpressure.BackpressureException) {
+                        System.err.println("⚠ " + itemId + " rejected: " + cause.getMessage());
                     }
                     return null;
                 });

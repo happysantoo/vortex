@@ -8,7 +8,7 @@
 
 A lightweight Java 21 library for micro-batching requests to any backend. Built with virtual threads, smart batching (size or time-based), comprehensive metrics, and production-ready features.
 
-**Current Version**: 0.0.7
+**Current Version**: 0.0.8
 
 ## Features
 
@@ -25,7 +25,7 @@ A lightweight Java 21 library for micro-batching requests to any backend. Built 
 - ✅ **Backpressure Caching**: TTL-based caching reduces provider calls by ~95% in high-throughput scenarios
 - ✅ **Concurrent Dispatch Limiting**: Prevent connection pool exhaustion by limiting concurrent batch dispatches
 - ✅ **Graceful Shutdown**: `awaitCompletion()` method for waiting on queue and in-flight batches
-- ✅ **OpenTelemetry Integration**: Optional distributed tracing support with graceful degradation
+- ✅ **Tracing Hooks**: LoggingTracingHook (SLF4J) and MicrometerTracingHook for distributed tracing
 - ✅ **Dynamic Configuration**: Update batch size and linger time at runtime
 - ✅ **Debug Mode**: Detailed logging for troubleshooting
 - ✅ **Auto-Replay**: Automatic replay of successful items when batches have mixed results
@@ -40,7 +40,7 @@ A lightweight Java 21 library for micro-batching requests to any backend. Built 
 <dependency>
     <groupId>com.vajrapulse</groupId>
     <artifactId>vortex</artifactId>
-    <version>0.0.7</version>
+    <version>0.0.8</version>
 </dependency>
 ```
 
@@ -48,7 +48,7 @@ A lightweight Java 21 library for micro-batching requests to any backend. Built 
 
 ```kotlin
 dependencies {
-    implementation("com.vajrapulse:vortex:0.0.7")
+    implementation("com.vajrapulse:vortex:0.0.8")
 }
 ```
 
@@ -237,9 +237,12 @@ CompletableFuture<Void> callbackFuture = batcher.submitWithCallback(
             System.out.println("Success: " + success.getItem());
         } else if (result instanceof ItemResult.Failure<String> failure) {
             // Item failed (either rejected or batch processing failed)
-            if (failure.getError() instanceof RejectedExecutionException) {
-                // Immediate rejection due to backpressure
-                System.out.println("Rejected: " + failure.getError().getMessage());
+            if (failure.getError() instanceof com.vajrapulse.vortex.backpressure.BackpressureException) {
+                // Immediate rejection due to backpressure (queue full, concurrent limit, or backpressure threshold)
+                com.vajrapulse.vortex.backpressure.BackpressureException bpEx = 
+                    (com.vajrapulse.vortex.backpressure.BackpressureException) failure.getError();
+                System.out.println("Rejected: " + bpEx.getMessage() + 
+                    " (level: " + bpEx.getBackpressureLevel() + ", source: " + bpEx.getSourceName() + ")");
             } else {
                 // Batch processing failure
                 System.out.println("Failed: " + failure.getError().getMessage());
@@ -697,6 +700,49 @@ BatcherConfig config = BatcherConfig.builder()
 
 These hooks and metrics can be wired into OpenTelemetry, Zipkin, or any other observability stack by implementing `BatchTracingHook` in your application.
 
+#### Built-in Tracing Hooks
+
+Vortex provides two built-in tracing hook implementations:
+
+**1. LoggingTracingHook** - Simple log-based tracing using SLF4J:
+```java
+import com.vajrapulse.vortex.tracing.LoggingTracingHook;
+
+// Use default logger
+LoggingTracingHook loggingHook = new LoggingTracingHook();
+
+// Or use custom logger name
+LoggingTracingHook customHook = new LoggingTracingHook("com.example.MyBatcher");
+
+BatcherConfig config = BatcherConfig.builder()
+    .batchSize(10)
+    .lingerTime(Duration.ofMillis(50))
+    .tracingHook(loggingHook)
+    .build();
+```
+
+Log levels:
+- **DEBUG**: Item submission, batch dispatch start, batch dispatch success
+- **WARN**: Retry events
+- **ERROR**: Batch dispatch failures
+
+**2. MicrometerTracingHook** - Distributed tracing via Micrometer Tracing:
+```java
+import com.vajrapulse.vortex.tracing.MicrometerTracingHook;
+import io.micrometer.tracing.Tracer;
+
+// Get Tracer from your Micrometer Tracing setup
+Tracer tracer = ...; // From your Micrometer Tracing configuration
+
+MicrometerTracingHook micrometerHook = new MicrometerTracingHook(tracer);
+
+BatcherConfig config = BatcherConfig.builder()
+    .batchSize(10)
+    .lingerTime(Duration.ofMillis(50))
+    .tracingHook(micrometerHook)
+    .build();
+```
+
 #### Diagnostics API
 
 For lightweight health checks and dashboards, use the diagnostics view:
@@ -724,19 +770,23 @@ The library provides built-in backpressure control through configurable queue si
 
 **Backpressure Behavior:**
 - When queue is full, `submit()` waits up to 100ms for space
-- If still full after 100ms, returns `RejectedExecutionException`
+- If still full after 100ms, returns `BackpressureException`
 - Monitor `vortex.queue.depth` metric to detect backpressure early
 
-**Handling Rejections:**
+**Handling Rejections (0.0.8+):**
+
+As of 0.0.8, all rejections (queue full, concurrent limit, backpressure threshold) throw `BackpressureException` for unified exception handling:
 
 ```java
+import com.vajrapulse.vortex.backpressure.BackpressureException;
+
 // Option 1: Handle in callback
 CompletableFuture<Void> future = batcher.submitWithCallback(
     "item",
     (item, result) -> { /* handle result */ }
 );
 future.exceptionally(throwable -> {
-    if (throwable.getCause() instanceof RejectedExecutionException) {
+    if (throwable.getCause() instanceof com.vajrapulse.vortex.backpressure.BackpressureException) {
         // Queue is full - handle backpressure
         // Options: retry, log, send to dead letter queue, or fail fast
         System.err.println("Request rejected: Queue full");
@@ -747,7 +797,7 @@ future.exceptionally(throwable -> {
 // Option 2: Handle in submit() future
 CompletableFuture<BatchResult<String>> future = batcher.submit("item");
 future.exceptionally(throwable -> {
-    if (throwable instanceof RejectedExecutionException) {
+    if (throwable instanceof com.vajrapulse.vortex.backpressure.BackpressureException) {
         // Handle backpressure
     }
     return null;
@@ -757,7 +807,7 @@ future.exceptionally(throwable -> {
 **Best Practices:**
 - Set `maxQueueSize` based on expected throughput and backend capacity
 - Monitor `vortex.queue.depth` to detect backpressure early
-- Handle `RejectedExecutionException` appropriately (retry, circuit breaker, etc.)
+- Handle `BackpressureException` appropriately (retry, circuit breaker, etc.)
 - Consider increasing `maxQueueSize` for high-throughput scenarios
 - Use `submitWithCallback()` for cleaner error handling
 
@@ -794,13 +844,14 @@ AdaptiveLoadPattern pattern = new AdaptiveLoadPattern(
 
 // Configure MicroBatcher with backpressure
 BackpressureStrategy<String> strategy = new RejectStrategy<>(0.7);  // 70% threshold
-MicroBatcher<String> batcher = MicroBatcher.withBackpressure(
-    backend,
-    config,
-    meterRegistry,
-    backpressureProvider,
-    strategy
-);
+BatcherConfig configWithBackpressure = BatcherConfig.builder()
+    .batchSize(50)
+    .lingerTime(Duration.ofMillis(50))
+    .backpressureProvider(backpressureProvider)
+    .backpressureStrategy(strategy)
+    .build();
+
+MicroBatcher<String> batcher = new MicroBatcher<>(backend, configWithBackpressure, meterRegistry);
 ```
 
 **Recommended Configuration:**
@@ -826,7 +877,7 @@ MicroBatcher<String> batcher = new MicroBatcher<>(backend, config, meterRegistry
 
 **How it works:**
 - When the limit is reached, new batches are rejected immediately
-- Rejected batches notify their futures/callbacks with `RejectedExecutionException`
+- Rejected batches notify their futures/callbacks with `BackpressureException`
 - Semaphore is released when batch completes, allowing new batches to dispatch
 - Metrics: `vortex.dispatch.rejected` counter and `vortex.dispatch.active.batches` gauge
 
@@ -907,5 +958,5 @@ None - 0.0.3 is backward compatible with 0.0.2 and 0.0.1.
 3. Consider enabling retry for transient failures
 4. Use `submitWithCallback()` for cleaner async code
 5. Configure `maxQueueSize` based on your throughput requirements
-6. Always handle `RejectedExecutionException` to detect backpressure
+6. Always handle `BackpressureException` to detect backpressure
 
