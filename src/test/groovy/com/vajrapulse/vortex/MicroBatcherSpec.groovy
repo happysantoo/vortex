@@ -215,21 +215,27 @@ class MicroBatcherSpec extends Specification {
             .build()
 
         when:
-        def batcher = new MicroBatcher<>(backend, config)
-        batcher.submit("success-1")
-        batcher.submit("fail-item")
-        batcher.submit("success-2")
-        Thread.sleep(20)
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def batcher = new MicroBatcher<>(backendWithCapture, config)
+        def result1 = batcher.submit("success-1")
+        def result2 = batcher.submit("fail-item")
+        def result3 = batcher.submit("success-2")
         Thread.sleep(200)  // Wait for batch processing
-        def result3 = future3.get(1, TimeUnit.SECONDS)
 
         then:
-        // !result1.isAllSuccess()  // ItemResult doesn't have isAllSuccess(), check batch results instead
-        // !result2.isAllSuccess()  // ItemResult doesn't have isAllSuccess(), check batch results instead
-        // !result3.isAllSuccess()  // ItemResult doesn't have isAllSuccess(), check batch results instead
-        result1.failures[0].error.message.contains("atomic commit")
-        result2.failures[0].error.message.contains("atomic commit")
-        result3.failures[0].error.message.contains("atomic commit")
+        result1 instanceof ItemResult.Success
+        result2 instanceof ItemResult.Success
+        result3 instanceof ItemResult.Success
+        batchResults.size() >= 1
+        def batchResult = batchResults[0]
+        !batchResult.isAllSuccess()
+        batchResult.failures.size() >= 1
+        batchResult.failures[0].error.message.contains("atomic commit")
 
         cleanup:
         batcher?.close()
@@ -824,16 +830,24 @@ class MicroBatcherSpec extends Specification {
             .build()
 
         when:
-        def batcher = new MicroBatcher<>(backend, config)
-        def results = [
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def batcher = new MicroBatcher<>(backendWithCapture, config)
+        def submitResults = [
             batcher.submit("success-1"),
             batcher.submit("success-2"),
             batcher.submit("success-3")
         ]
-        Thread.sleep(20)  // Wait for batch processing
+        Thread.sleep(200)  // Wait for batch processing
 
         then:
-        results.every { it.isAllSuccess() }
+        submitResults.every { it instanceof ItemResult.Success }  // All accepted
+        batchResults.size() >= 1
+        batchResults.every { it.isAllSuccess() }
 
         cleanup:
         batcher?.close()
@@ -1475,18 +1489,26 @@ class MicroBatcherSpec extends Specification {
             .build()
 
         when:
-        def batcher = new MicroBatcher<>(backend, config)
-        def results = [
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def batcher = new MicroBatcher<>(backendWithCapture, config)
+        def submitResults = [
             batcher.submit("item-1"),
             batcher.submit("item-2"),
             batcher.submit("item-3")
         ]
-        Thread.sleep(20)  // Wait for batch processing
+        Thread.sleep(200)  // Wait for batch processing
 
         then:
-        results.size() == 3
+        submitResults.size() == 3
+        submitResults.every { it instanceof ItemResult.Success }  // All accepted
+        batchResults.size() >= 1
         // Fallback should assign successes
-        results.every { it.isAllSuccess() }
+        batchResults.every { it.isAllSuccess() }
 
         cleanup:
         batcher?.close()
