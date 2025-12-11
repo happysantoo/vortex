@@ -348,6 +348,33 @@ public class MicroBatcher<T> implements AutoCloseable {
     }
     
     /**
+     * Submits an item for batch processing without a callback.
+     * 
+     * <p>This is a convenience method that calls {@link #submit(Object, ItemCallback)} with a null callback.
+     * Use this when you only need to check immediate acceptance/rejection and don't need to be notified
+     * when the item is processed.
+     * 
+     * <p>Example:
+     * <pre>{@code
+     * ItemResult<String> result = batcher.submit("item-1");
+     * if (result instanceof ItemResult.Failure<String> failure) {
+     *     // Item was rejected (e.g., queue full)
+     *     handleRejection(failure.error());
+     * }
+     * // Item accepted - will be processed in batch later
+     * }</pre>
+     * 
+     * @param item the item to submit
+     * @return ItemResult indicating immediate acceptance (SUCCESS) or rejection (FAILURE)
+     * @throws IllegalStateException if batcher is closed
+     * @throws NullPointerException if item is null
+     * @since 0.0.9
+     */
+    public ItemResult<T> submit(T item) {
+        return submit(item, null);
+    }
+    
+    /**
      * Submits an item with immediate rejection feedback and optional callback for batch processing result.
      * 
      * <p>This method provides:

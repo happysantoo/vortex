@@ -82,7 +82,7 @@ class MicroBatcherAwaitCompletionSpec extends Specification {
         
         when:
         // Submit batches
-        def results = (1..maxConcurrent).collect { batcher.submit("item-$it", null) }
+        def results = (1..maxConcurrent).collect { batcher.submit("item-$it") }
         
         // Wait for processing to start
         Thread.sleep(50)
@@ -223,7 +223,7 @@ class MicroBatcherAwaitCompletionSpec extends Specification {
         
         when:
         // Submit item
-        def result = batcher.submit("item-1", null)
+        def result = batcher.submit("item-1")
         
         // Wait a bit for batch to complete
         Thread.sleep(100)
