@@ -124,9 +124,17 @@ class MicroBatcherSpec extends Specification {
             .lingerTime(Duration.ofMillis(50))
             .build()
 
-        when:
+   
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def backend = backendWithCapture
+     when:
         def batcher = new MicroBatcher<>(backend, config)
-        def submitResult = batcher.submit("test-item")
+        def submitResult = def submitResult = batcher.submit("test-item")
         Thread.sleep(200)  // Wait for batch processing
 
         then:
@@ -156,9 +164,17 @@ class MicroBatcherSpec extends Specification {
             .lingerTime(Duration.ofMillis(50))
             .build()
 
-        when:
+   
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def backend = backendWithCapture
+     when:
         def batcher = new MicroBatcher<>(backend, config)
-        def submitResult = batcher.submit("test-item")
+        def submitResult = def submitResult = batcher.submit("test-item")
         Thread.sleep(200)  // Wait for batch processing
 
         then:
@@ -193,9 +209,17 @@ class MicroBatcherSpec extends Specification {
             .lingerTime(Duration.ofMillis(100))
             .build()
 
-        when:
+   
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def backend = backendWithCapture
+     when:
         def batcher = new MicroBatcher<>(backend, config)
-        def submitResult = batcher.submit("test-item")
+        def submitResult = def submitResult = batcher.submit("test-item")
         Thread.sleep(200)  // Wait for batch processing
 
         then:
@@ -1616,10 +1640,18 @@ class MicroBatcherSpec extends Specification {
             .lingerTime(Duration.ofMillis(100))
             .build()
 
-        when:
+   
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def backend = backendWithCapture
+     when:
         def batcher = new MicroBatcher<>(backend, config)
         def results = [
-            batcher.submit("item-1"),
+            def submitResult = batcher.submit("item-1"),
             batcher.submit("item-2"),
             batcher.submit("item-3")
         ]
@@ -2249,9 +2281,17 @@ class MicroBatcherSpec extends Specification {
             .retryableErrorPredicate { it instanceof RuntimeException && it.message == "retryable" }
             .build()
 
-        when:
+   
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def backend = backendWithCapture
+     when:
         def batcher = new MicroBatcher<>(backend, config)
-        batcher.submit("item-1")
+        def submitResult = batcher.submit("item-1")
         Thread.sleep(80)
         Thread.sleep(200)  // Wait for batch processing
 
@@ -2348,9 +2388,17 @@ class MicroBatcherSpec extends Specification {
             .retryableErrorPredicate { it instanceof RuntimeException }
             .build()
 
-        when:
+   
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def backend = backendWithCapture
+     when:
         def batcher = new MicroBatcher<>(backend, config)
-        batcher.submit("item-1")
+        def submitResult = batcher.submit("item-1")
         Thread.sleep(80)
         Thread.sleep(200)  // Wait for batch processing
 
@@ -2383,9 +2431,17 @@ class MicroBatcherSpec extends Specification {
             .retryableErrorPredicate { it instanceof IllegalStateException && it.message.contains("transient") }
             .build()
 
-        when:
+   
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def backend = backendWithCapture
+     when:
         def batcher = new MicroBatcher<>(backend, config)
-        batcher.submit("item-1")
+        def submitResult = batcher.submit("item-1")
         Thread.sleep(30)
         Thread.sleep(200)  // Wait for batch processing
 
@@ -2418,9 +2474,17 @@ class MicroBatcherSpec extends Specification {
             .retryableErrorPredicate { it instanceof RuntimeException }
             .build()
 
-        when:
+   
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def backend = backendWithCapture
+     when:
         def batcher = new MicroBatcher<>(backend, config)
-        batcher.submit("item-1")
+        def submitResult = batcher.submit("item-1")
         Thread.sleep(30)
         Thread.sleep(200)  // Wait for batch processing
 
@@ -2451,9 +2515,17 @@ class MicroBatcherSpec extends Specification {
             .retryableErrorPredicate { it instanceof RuntimeException }
             .build()
 
-        when:
+   
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def backend = backendWithCapture
+     when:
         def batcher = new MicroBatcher<>(backend, config)
-        batcher.submit("item-1")
+        def submitResult = batcher.submit("item-1")
         Thread.sleep(30)
         Thread.sleep(200)  // Wait for batch processing
 
@@ -2895,9 +2967,17 @@ class MicroBatcherSpec extends Specification {
             .retryableErrorPredicate { it instanceof RuntimeException }
             .build()
 
-        when:
+   
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def backend = backendWithCapture
+     when:
         def batcher = new MicroBatcher<>(backend, config)
-        batcher.submit("item-1")
+        def submitResult = batcher.submit("item-1")
         // Wait for all retries to complete
         Thread.sleep(200)  // Wait for batch processing
 
@@ -2960,9 +3040,17 @@ class MicroBatcherSpec extends Specification {
             .retryableErrorPredicate { it instanceof RuntimeException }
             .build()
 
-        when:
+   
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def backend = backendWithCapture
+     when:
         def batcher = new MicroBatcher<>(backend, config)
-        batcher.submit("item-1")
+        def submitResult = batcher.submit("item-1")
         // Wait for all retries to complete
         Thread.sleep(200)  // Wait for batch processing
 
@@ -3031,9 +3119,17 @@ class MicroBatcherSpec extends Specification {
             .retryableErrorPredicate { it instanceof RuntimeException }
             .build()
 
-        when:
+   
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def backend = backendWithCapture
+     when:
         def batcher = new MicroBatcher<>(backend, config)
-        batcher.submit("item-1")
+        def submitResult = batcher.submit("item-1")
         Thread.sleep(30)
         Thread.sleep(200)  // Wait for batch processing
 
@@ -3082,9 +3178,17 @@ class MicroBatcherSpec extends Specification {
             .lingerTime(Duration.ofMillis(100))
             .build()
 
-        when:
+   
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def backend = backendWithCapture
+     when:
         def batcher = new MicroBatcher<>(backend, config)
-        def result = batcher.submit("item-1")
+        def result = def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -3107,9 +3211,17 @@ class MicroBatcherSpec extends Specification {
             .lingerTime(Duration.ofMillis(10)) // Very short linger time
             .build()
 
-        when:
+   
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def backend = backendWithCapture
+     when:
         def batcher = new MicroBatcher<>(backend, config)
-        def result = batcher.submit("item-1")
+        def result = def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -3235,9 +3347,17 @@ class MicroBatcherSpec extends Specification {
             .lingerTime(Duration.ofMillis(100))
             .build()
 
-        when:
+   
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def backend = backendWithCapture
+     when:
         def batcher = new MicroBatcher<>(backend, config)
-        def result = batcher.submit("item-1")
+        def result = def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -3289,9 +3409,17 @@ class MicroBatcherSpec extends Specification {
             .lingerTime(Duration.ofMillis(50))
             .build()
 
-        when:
+   
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def backend = backendWithCapture
+     when:
         def batcher = new MicroBatcher<>(backend, config)
-        def result = batcher.submit("item-1")
+        def result = def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -3487,9 +3615,17 @@ class MicroBatcherSpec extends Specification {
             .lingerTime(Duration.ofMillis(100))
             .build()
 
-        when:
+   
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def backend = backendWithCapture
+     when:
         def batcher = new MicroBatcher<>(backend, config)
-        def result = batcher.submit("item-1")
+        def result = def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -3513,9 +3649,17 @@ class MicroBatcherSpec extends Specification {
             .lingerTime(Duration.ofMillis(100))
             .build()
 
-        when:
+   
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def backend = backendWithCapture
+     when:
         def batcher = new MicroBatcher<>(backend, config)
-        def result = batcher.submit("item-1")
+        def result = def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -3543,9 +3687,17 @@ class MicroBatcherSpec extends Specification {
             .retryableErrorPredicate { it instanceof RuntimeException }
             .build()
 
-        when:
+   
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def backend = backendWithCapture
+     when:
         def batcher = new MicroBatcher<>(backend, config)
-        batcher.submit("item-1")
+        def submitResult = batcher.submit("item-1")
         Thread.sleep(30)
         Thread.sleep(200)  // Wait for batch processing
 
@@ -3580,9 +3732,17 @@ class MicroBatcherSpec extends Specification {
             .retryableErrorPredicate { it instanceof RuntimeException }
             .build()
 
-        when:
+   
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def backend = backendWithCapture
+     when:
         def batcher = new MicroBatcher<>(backend, config)
-        def result = batcher.submit("item-1")
+        def result = def submitResult = batcher.submit("item-1")
         Thread.sleep(2000)  // Wait for batch processing
         def elapsed = System.currentTimeMillis() - startTime
 
@@ -3608,9 +3768,17 @@ class MicroBatcherSpec extends Specification {
             .lingerTime(Duration.ofMillis(100))
             .build()
 
-        when:
+   
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def backend = backendWithCapture
+     when:
         def batcher = new MicroBatcher<>(backend, config)
-        def result = batcher.submit("item-1")
+        def result = def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -3634,9 +3802,17 @@ class MicroBatcherSpec extends Specification {
             .lingerTime(Duration.ofMillis(100))
             .build()
 
-        when:
+   
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def backend = backendWithCapture
+     when:
         def batcher = new MicroBatcher<>(backend, config)
-        def result = batcher.submit("item-1")
+        def result = def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -3659,9 +3835,17 @@ class MicroBatcherSpec extends Specification {
             .lingerTime(Duration.ofMillis(100))
             .build()
 
-        when:
+   
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def backend = backendWithCapture
+     when:
         def batcher = new MicroBatcher<>(backend, config)
-        def result = batcher.submit("item-1")
+        def result = def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -3688,9 +3872,17 @@ class MicroBatcherSpec extends Specification {
             .retryableErrorPredicate { it instanceof RuntimeException } // Only RuntimeException is retryable
             .build()
 
-        when:
+   
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def backend = backendWithCapture
+     when:
         def batcher = new MicroBatcher<>(backend, config)
-        def result = batcher.submit("item-1")
+        def result = def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -3715,9 +3907,17 @@ class MicroBatcherSpec extends Specification {
             .retryableErrorPredicate { it instanceof RuntimeException }
             .build()
 
-        when:
+   
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def backend = backendWithCapture
+     when:
         def batcher = new MicroBatcher<>(backend, config)
-        def result = batcher.submit("item-1")
+        def result = def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -3771,9 +3971,17 @@ class MicroBatcherSpec extends Specification {
             .retryableErrorPredicate { it instanceof RuntimeException }
             .build()
 
-        when:
+   
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def backend = backendWithCapture
+     when:
         def batcher = new MicroBatcher<>(backend, config)
-        def result = batcher.submit("item-1")
+        def result = def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -3796,9 +4004,17 @@ class MicroBatcherSpec extends Specification {
             .lingerTime(Duration.ofMillis(100))
             .build()
 
-        when:
+   
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def backend = backendWithCapture
+     when:
         def batcher = new MicroBatcher<>(backend, config)
-        def result = batcher.submit(null)
+        def result = def submitResult = batcher.submit(null)
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -3831,9 +4047,17 @@ class MicroBatcherSpec extends Specification {
             .retryableErrorPredicate { it instanceof RuntimeException }
             .build()
 
-        when:
+   
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def backend = backendWithCapture
+     when:
         def batcher = new MicroBatcher<>(backend, config)
-        def result = batcher.submit("item-1")
+        def result = def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -3915,9 +4139,17 @@ class MicroBatcherSpec extends Specification {
             .retryableErrorPredicate { it instanceof RuntimeException }
             .build()
 
-        when:
+   
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def backend = backendWithCapture
+     when:
         def batcher = new MicroBatcher<>(backend, config)
-        batcher.submit("item-1")
+        def submitResult = batcher.submit("item-1")
         Thread.sleep(30)
         Thread.sleep(200)  // Wait for batch processing
 
@@ -3946,9 +4178,17 @@ class MicroBatcherSpec extends Specification {
             .retryableErrorPredicate { it instanceof RuntimeException }
             .build()
 
-        when:
+   
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def backend = backendWithCapture
+     when:
         def batcher = new MicroBatcher<>(backend, config)
-        batcher.submit("item-1")
+        def submitResult = batcher.submit("item-1")
         Thread.sleep(30)
         Thread.sleep(200)  // Wait for batch processing
 
@@ -3972,9 +4212,17 @@ class MicroBatcherSpec extends Specification {
             .lingerTime(Duration.ofMillis(100))
             .build()
 
-        when:
+   
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def backend = backendWithCapture
+     when:
         def batcher = new MicroBatcher<>(backend, config)
-        def result = batcher.submit("item-1")
+        def result = def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -4107,9 +4355,17 @@ class MicroBatcherSpec extends Specification {
             .lingerTime(Duration.ofMillis(50))
             .build()
 
-        when:
+   
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def backend = backendWithCapture
+     when:
         def batcher = new MicroBatcher<>(backend, config)
-        def result = batcher.submit("item-1")
+        def result = def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -4131,9 +4387,17 @@ class MicroBatcherSpec extends Specification {
             .lingerTime(Duration.ofMillis(50))
             .build()
 
-        when:
+   
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def backend = backendWithCapture
+     when:
         def batcher = new MicroBatcher<>(backend, config)
-        def result = batcher.submit("item-1")
+        def result = def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -4156,9 +4420,17 @@ class MicroBatcherSpec extends Specification {
             .lingerTime(Duration.ofMillis(100))
             .build()
 
-        when:
+   
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def backend = backendWithCapture
+     when:
         def batcher = new MicroBatcher<>(backend, config)
-        def result = batcher.submit("item-1")
+        def result = def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -4186,9 +4458,17 @@ class MicroBatcherSpec extends Specification {
             .retryableErrorPredicate { it instanceof RuntimeException }
             .build()
 
-        when:
+   
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def backend = backendWithCapture
+     when:
         def batcher = new MicroBatcher<>(backend, config)
-        batcher.submit("item-1")
+        def submitResult = batcher.submit("item-1")
         Thread.sleep(30)
         Thread.sleep(200)  // Wait for batch processing
 
@@ -4258,9 +4538,17 @@ class MicroBatcherSpec extends Specification {
             .lingerTime(Duration.ofMillis(100))
             .build()
 
-        when:
+   
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def backend = backendWithCapture
+     when:
         def batcher = new MicroBatcher<>(backend, config)
-        def result = batcher.submit("item-1")
+        def result = def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -4284,9 +4572,17 @@ class MicroBatcherSpec extends Specification {
             .lingerTime(Duration.ofMillis(100))
             .build()
 
-        when:
+   
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def backend = backendWithCapture
+     when:
         def batcher = new MicroBatcher<>(backend, config)
-        def result = batcher.submit("item-1")
+        def result = def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -4517,9 +4813,17 @@ class MicroBatcherSpec extends Specification {
             .lingerTime(Duration.ofMillis(50))
             .build()
 
-        when:
+   
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def backend = backendWithCapture
+     when:
         def batcher = new MicroBatcher<>(backend, config)
-        def result = batcher.submit("item-1")
+        def result = def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -4541,9 +4845,17 @@ class MicroBatcherSpec extends Specification {
             .lingerTime(Duration.ofMillis(50))
             .build()
 
-        when:
+   
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def backend = backendWithCapture
+     when:
         def batcher = new MicroBatcher<>(backend, config)
-        def result = batcher.submit("item-1")
+        def result = def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -4769,9 +5081,17 @@ class MicroBatcherSpec extends Specification {
             .debugMode(true)
             .build()
 
-        when:
+   
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def backend = backendWithCapture
+     when:
         def batcher = new MicroBatcher<>(backend, config)
-        def result = batcher.submit("item-1")
+        def result = def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -4883,9 +5203,17 @@ class MicroBatcherSpec extends Specification {
             .debugMode(true)
             .build()
 
-        when:
+   
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def backend = backendWithCapture
+     when:
         def batcher = new MicroBatcher<>(backend, config)
-        def result = batcher.submit("item-1")
+        def result = def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -4913,9 +5241,17 @@ class MicroBatcherSpec extends Specification {
             .debugMode(false)
             .build()
 
-        when:
+   
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def backend = backendWithCapture
+     when:
         def batcher = new MicroBatcher<>(backend, config)
-        def result = batcher.submit("item-1")
+        def result = def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -4941,9 +5277,17 @@ class MicroBatcherSpec extends Specification {
             .tracingHook(tracingHook)
             .build()
 
-        when:
+   
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def backend = backendWithCapture
+     when:
         def batcher = new MicroBatcher<>(backend, config)
-        def result = batcher.submit("item-1")
+        def result = def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
