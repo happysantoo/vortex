@@ -6,6 +6,7 @@ import com.vajrapulse.vortex.health.HealthStatus
 import com.vajrapulse.vortex.health.HealthInfo
 import com.vajrapulse.vortex.results.BatchResult
 import com.vajrapulse.vortex.results.SuccessEvent
+import com.vajrapulse.vortex.results.FailureEvent
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import spock.lang.Specification
 

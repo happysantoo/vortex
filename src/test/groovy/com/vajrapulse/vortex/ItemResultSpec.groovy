@@ -1,6 +1,8 @@
 package com.vajrapulse.vortex
 
 import com.vajrapulse.vortex.results.ItemResult
+import com.vajrapulse.vortex.results.SuccessEvent
+import com.vajrapulse.vortex.results.FailureEvent
 import spock.lang.Specification
 
 class ItemResultSpec extends Specification {
