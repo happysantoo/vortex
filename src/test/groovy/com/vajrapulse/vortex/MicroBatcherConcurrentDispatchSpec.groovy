@@ -1,6 +1,6 @@
 package com.vajrapulse.vortex
 
-import com.vajrapulse.vortex.backpressure.CannotAcceptException
+import com.vajrapulse.vortex.CannotAcceptException
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import spock.lang.Specification
 
