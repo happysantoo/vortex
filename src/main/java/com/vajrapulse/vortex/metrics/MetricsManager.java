@@ -189,7 +189,7 @@ public class MetricsManager {
         dispatchRejected.increment();
     }
     
-    Timer.Sample startBatchDispatchTimer() {
+    public Timer.Sample startBatchDispatchTimer() {
         return Timer.start(meterRegistry);
     }
     

@@ -196,7 +196,7 @@ public class RetryManager<T> {
         retryCounts.remove(item);
     }
     
-    void clearAll() {
+    public void clearAll() {
         retryCounts.clear();
         if (cleanupExecutor != null) {
             cleanupExecutor.shutdown();

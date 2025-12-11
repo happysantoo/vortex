@@ -40,7 +40,7 @@ public class ResultProcessor<T> {
         this.debugMode = debugMode;
     }
     
-    void processResults(List<PendingRequest<T>> batch, BatchResult<T> result) {
+    public void processResults(List<PendingRequest<T>> batch, BatchResult<T> result) {
         if (config.isAtomicCommit() && !result.isAllSuccess()) {
             processAtomicCommitFailure(batch, result);
         } else {
@@ -227,7 +227,7 @@ public class ResultProcessor<T> {
         }
     }
     
-    void processFailure(List<PendingRequest<T>> batch, Throwable error) {
+    public void processFailure(List<PendingRequest<T>> batch, Throwable error) {
         long batchCompletionTime = System.nanoTime();
         for (PendingRequest<T> req : batch) {
             recordMetrics(req, batchCompletionTime);

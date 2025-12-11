@@ -22,7 +22,7 @@ public record PendingRequest<T>(
      * @param data the request data
      * @param future the CompletableFuture that will be completed with the batch result
      */
-    PendingRequest(T data, CompletableFuture<BatchResult<T>> future) {
+    public PendingRequest(T data, CompletableFuture<BatchResult<T>> future) {
         this(data, future, System.nanoTime());
     }
     
