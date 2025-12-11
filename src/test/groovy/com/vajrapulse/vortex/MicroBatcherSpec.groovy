@@ -450,10 +450,13 @@ class MicroBatcherSpec extends Specification {
 
     def "should handle mixed success and failure results"() {
         given:
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
         Backend<String> backend = { batch ->
             def successes = batch.findAll { it.startsWith("success") }.collect { new SuccessEvent<>(it) }
             def failures = batch.findAll { it.startsWith("fail") }.collect { new FailureEvent<>(it, new RuntimeException("error")) }
-            new BatchResult<>(successes, failures)
+            def result = new BatchResult<>(successes, failures)
+            batchResults.add(result)
+            result
         }
         def config = BatcherConfig.builder()
             .batchSize(4)
@@ -462,13 +465,7 @@ class MicroBatcherSpec extends Specification {
             .build()
 
         when:
-        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
-        Backend<String> backendWithCapture = { batch ->
-            def result = backend.dispatch(batch)
-            batchResults.add(result)
-            result
-        }
-        def batcher = new MicroBatcher<>(backendWithCapture, config)
+        def batcher = new MicroBatcher<>(backend, config)
         def submitResults = [
             batcher.submit("success-1"),
             batcher.submit("fail-1"),
