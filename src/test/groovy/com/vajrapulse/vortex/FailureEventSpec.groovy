@@ -9,7 +9,7 @@ class FailureEventSpec extends Specification {
         def error = new RuntimeException("test error")
 
         when:
-        def event = new new FailureEvent<>("test-data", error)
+        def event = new FailureEvent<>("test-data", error)
 
         then:
         event.data == "test-data"
@@ -22,7 +22,7 @@ class FailureEventSpec extends Specification {
         def error = new IllegalArgumentException("invalid")
 
         when:
-        def event = new new FailureEvent<>(null, error)
+        def event = new FailureEvent<>(null, error)
 
         then:
         event.data == null
@@ -31,7 +31,7 @@ class FailureEventSpec extends Specification {
 
     def "should handle null error"() {
         when:
-        def event = new new FailureEvent<>("test-data", null)
+        def event = new FailureEvent<>("test-data", null)
 
         then:
         event.data == "test-data"
@@ -48,7 +48,7 @@ class FailureEventSpec extends Specification {
         ]
 
         when:
-        def events = exceptions.collect { new new FailureEvent<>("data", it) }
+        def events = exceptions.collect { new FailureEvent<>("data", it) }
 
         then:
         events.size() == 4

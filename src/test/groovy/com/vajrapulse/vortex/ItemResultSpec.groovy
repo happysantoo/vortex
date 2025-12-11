@@ -30,7 +30,7 @@ class ItemResultSpec extends Specification {
 
     def "should create success from SuccessEvent"() {
         given:
-        def event = new new SuccessEvent<>("item1")
+        def event = new SuccessEvent<>("item1")
 
         when:
         def result = ItemResult.success(event)
@@ -43,7 +43,7 @@ class ItemResultSpec extends Specification {
     def "should create failure from FailureEvent"() {
         given:
         def error = new RuntimeException("test error")
-        def event = new new FailureEvent<>("item1", error)
+        def event = new FailureEvent<>("item1", error)
 
         when:
         def result = ItemResult.failure(event)

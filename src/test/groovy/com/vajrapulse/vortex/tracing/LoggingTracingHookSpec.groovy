@@ -108,8 +108,8 @@ class LoggingTracingHookSpec extends Specification {
         logger.isDebugEnabled() >> true
         def hook = new LoggingTracingHook(logger)
         def batchResult = new BatchResult<>(
-            [new new SuccessEvent<>("item-1"), new new SuccessEvent<>("item-2")],
-            [new new FailureEvent<>("item-3", new RuntimeException("error"))]
+            [new SuccessEvent<>("item-1"), new SuccessEvent<>("item-2")],
+            [new FailureEvent<>("item-3", new RuntimeException("error"))]
         )
 
         when:
@@ -123,7 +123,7 @@ class LoggingTracingHookSpec extends Specification {
         given:
         def logger = Mock(Logger)
         def hook = new LoggingTracingHook(logger)
-        def batchResult = new BatchResult<>([new new SuccessEvent<>("item-1")], [])
+        def batchResult = new BatchResult<>([new SuccessEvent<>("item-1")], [])
 
         when:
         hook.onBatchDispatchSuccess(null, batchResult)
@@ -219,7 +219,7 @@ class LoggingTracingHookSpec extends Specification {
         when:
         hook.onSubmit("item")
         hook.onBatchDispatchStart(["item"])
-        hook.onBatchDispatchSuccess(["item"], new BatchResult<>([new new SuccessEvent<>("item")], []))
+        hook.onBatchDispatchSuccess(["item"], new BatchResult<>([new SuccessEvent<>("item")], []))
 
         then:
         0 * logger.debug(_, _)

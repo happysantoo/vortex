@@ -98,8 +98,8 @@ class MicrometerTracingHookSpec extends Specification {
         given:
         def hook = new MicrometerTracingHook(tracer)
         def batchResult = new BatchResult<>(
-            [new new SuccessEvent<>("item-1")],
-            [new new FailureEvent<>("item-2", new RuntimeException("error"))]
+            [new SuccessEvent<>("item-1")],
+            [new FailureEvent<>("item-2", new RuntimeException("error"))]
         )
 
         when:
@@ -116,7 +116,7 @@ class MicrometerTracingHookSpec extends Specification {
         given:
         def hook = new MicrometerTracingHook(tracer)
         def batchResult = new BatchResult<>(
-            [new new SuccessEvent<>("item-1")],
+            [new SuccessEvent<>("item-1")],
             []
         )
 
@@ -240,7 +240,7 @@ class MicrometerTracingHookSpec extends Specification {
     def "should handle exceptions gracefully in onBatchDispatchSuccess"() {
         given:
         def hook = new MicrometerTracingHook(tracer)
-        def batchResult = new BatchResult<>([new new SuccessEvent<>("item-1")], [])
+        def batchResult = new BatchResult<>([new SuccessEvent<>("item-1")], [])
 
         when:
         hook.onBatchDispatchSuccess(["item-1"], batchResult)

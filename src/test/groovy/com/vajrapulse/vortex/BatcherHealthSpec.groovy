@@ -16,7 +16,7 @@ class BatcherHealthSpec extends Specification {
     def "should return UP for healthy batcher"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new new SuccessEvent<>(it) }
+            def successes = batch.collect { new SuccessEvent<>(it) }
             new BatchResult<>(successes, List.of())
         }
         
@@ -61,7 +61,7 @@ class BatcherHealthSpec extends Specification {
     def "should return DEGRADED for high failure rate"() {
         given:
         Backend<String> backend = { batch ->
-            def failures = batch.collect { new new FailureEvent<>(it, new RuntimeException("Fail")) }
+            def failures = batch.collect { new FailureEvent<>(it, new RuntimeException("Fail")) }
             new BatchResult<>(List.of(), failures)
         }
         
@@ -94,7 +94,7 @@ class BatcherHealthSpec extends Specification {
     def "should return DOWN for very high failure rate"() {
         given:
         Backend<String> backend = { batch ->
-            def failures = batch.collect { new new FailureEvent<>(it, new RuntimeException("Fail")) }
+            def failures = batch.collect { new FailureEvent<>(it, new RuntimeException("Fail")) }
             new BatchResult<>(List.of(), failures)
         }
         
@@ -128,7 +128,7 @@ class BatcherHealthSpec extends Specification {
     def "should use custom thresholds"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new new SuccessEvent<>(it) }
+            def successes = batch.collect { new SuccessEvent<>(it) }
             new BatchResult<>(successes, List.of())
         }
         
@@ -178,7 +178,7 @@ class BatcherHealthSpec extends Specification {
     def "should get detailed health info"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new new SuccessEvent<>(it) }
+            def successes = batch.collect { new SuccessEvent<>(it) }
             new BatchResult<>(successes, List.of())
         }
         
@@ -275,7 +275,7 @@ class BatcherHealthSpec extends Specification {
     def "should get health info with all status types"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new new SuccessEvent<>(it) }
+            def successes = batch.collect { new SuccessEvent<>(it) }
             new BatchResult<>(successes, List.of())
         }
         

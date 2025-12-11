@@ -13,7 +13,7 @@ class MicroBatcherFactoryMethodsSpec extends Specification {
     def "should create high-throughput batcher"() {
         given:
         Backend<String> backend = { batch ->
-            new BatchResult<>(batch.collect { new new SuccessEvent<>(it) }, List.of())
+            new BatchResult<>(batch.collect { new SuccessEvent<>(it) }, List.of())
         }
         
         SimpleMeterRegistry registry = new SimpleMeterRegistry()
@@ -34,7 +34,7 @@ class MicroBatcherFactoryMethodsSpec extends Specification {
     def "should create low-latency batcher"() {
         given:
         Backend<String> backend = { batch ->
-            new BatchResult<>(batch.collect { new new SuccessEvent<>(it) }, List.of())
+            new BatchResult<>(batch.collect { new SuccessEvent<>(it) }, List.of())
         }
         
         SimpleMeterRegistry registry = new SimpleMeterRegistry()
@@ -55,7 +55,7 @@ class MicroBatcherFactoryMethodsSpec extends Specification {
     def "should create balanced batcher"() {
         given:
         Backend<String> backend = { batch ->
-            new BatchResult<>(batch.collect { new new SuccessEvent<>(it) }, List.of())
+            new BatchResult<>(batch.collect { new SuccessEvent<>(it) }, List.of())
         }
         
         SimpleMeterRegistry registry = new SimpleMeterRegistry()
@@ -76,7 +76,7 @@ class MicroBatcherFactoryMethodsSpec extends Specification {
     def "should create resilient batcher"() {
         given:
         Backend<String> backend = { batch ->
-            new BatchResult<>(batch.collect { new new SuccessEvent<>(it) }, List.of())
+            new BatchResult<>(batch.collect { new SuccessEvent<>(it) }, List.of())
         }
         
         SimpleMeterRegistry registry = new SimpleMeterRegistry()
@@ -101,7 +101,7 @@ class MicroBatcherFactoryMethodsSpec extends Specification {
     def "should work with factory methods"() {
         given:
         Backend<String> backend = { batch ->
-            new BatchResult<>(batch.collect { new new SuccessEvent<>(it) }, List.of())
+            new BatchResult<>(batch.collect { new SuccessEvent<>(it) }, List.of())
         }
         
         SimpleMeterRegistry registry = new SimpleMeterRegistry()
