@@ -103,7 +103,7 @@ class MicroBatcherConcurrentDispatchSpec extends Specification {
         activeBatchesGauge <= maxConcurrent
         
         // Wait for batches to complete
-        results.each { // Wait for batch processing; // it.get(1, TimeUnit.SECONDS) }
+        Thread.sleep(200)  // Wait for batch processing
         
         cleanup:
         batcher?.close()
