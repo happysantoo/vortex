@@ -5,7 +5,7 @@ import com.vajrapulse.vortex.*;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import com.vajrapulse.vortex.backpressure.CannotAcceptException;
+import com.vajrapulse.vortex.backpressure.ItemRejectedException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -16,10 +16,10 @@ import java.util.concurrent.atomic.AtomicInteger;
  * Current backpressure mechanisms:
  * 1. Queue size: Limited to 2x batch size (e.g., batchSize=5 → queue=10 items)
  * 2. Queue offer timeout: 100ms - if queue is full, waits up to 100ms then rejects
- * 3. Rejection: Returns CannotAcceptException when queue is full, concurrent limit reached, or backpressure threshold exceeded
+ * 3. Rejection: Returns ItemRejectedException when queue is full, concurrent limit reached, or backpressure threshold exceeded
  * 4. Metrics: Queue depth is tracked via vortex.queue.depth gauge
  * 
- * Note: As of 0.0.8, all rejections (queue full, concurrent limit, backpressure) throw CannotAcceptException
+ * Note: As of 0.0.8, all rejections (queue full, concurrent limit, backpressure) throw ItemRejectedException
  * for unified exception handling.
  */
 public class ExampleUsageWithBackpressure {
@@ -59,9 +59,9 @@ public class ExampleUsageWithBackpressure {
             
             List<CompletableFuture<Void>> callbacks = new ArrayList<>();
             
-            // OPTION 1: Handle CannotAcceptException in callback
+            // OPTION 1: Handle ItemRejectedException in callback
             // When queue is full, concurrent limit reached, or backpressure threshold exceeded,
-            // the future completes exceptionally with CannotAcceptException
+            // the future completes exceptionally with ItemRejectedException
             System.out.println("=== Submitting 20 items (queue max = 15) ===");
             for (int requestIndex = 0; requestIndex < 20; requestIndex++) {
                 final int requestId = requestIndex;
@@ -81,8 +81,8 @@ public class ExampleUsageWithBackpressure {
                 // Handle rejection (queue full, concurrent limit, or backpressure)
                 callback.exceptionally(throwable -> {
                     Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
-                    if (cause instanceof CannotAcceptException) {
-                        CannotAcceptException bpEx = (CannotAcceptException) cause;
+                    if (cause instanceof ItemRejectedException) {
+                        ItemRejectedException bpEx = (ItemRejectedException) cause;
                         rejections.incrementAndGet();
                         System.out.println("⚠ Request " + requestId + " REJECTED: " + bpEx.getMessage() +
                             " (level: " + bpEx.getBackpressureLevel() + ", source: " + bpEx.getSourceName() + ")");

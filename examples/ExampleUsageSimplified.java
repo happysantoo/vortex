@@ -63,7 +63,7 @@ public class ExampleUsageSimplified {
                 // Handle backpressure (queue full, concurrent limit, or backpressure threshold)
                 callback.exceptionally(throwable -> {
                     Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
-                    if (cause instanceof com.vajrapulse.vortex.backpressure.CannotAcceptException) {
+                    if (cause instanceof com.vajrapulse.vortex.backpressure.ItemRejectedException) {
                         System.err.println("⚠ " + itemId + " rejected: " + cause.getMessage());
                     }
                     return null;

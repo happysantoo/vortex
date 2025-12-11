@@ -1,6 +1,6 @@
 package com.vajrapulse.vortex
 
-import com.vajrapulse.vortex.CannotAcceptException
+import com.vajrapulse.vortex.ItemRejectedException
 import io.micrometer.core.instrument.MeterRegistry
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import spock.lang.Specification
@@ -426,10 +426,10 @@ class MicroBatcherSpec extends Specification {
         // The third one might timeout or be rejected
         try {
             def result = future3.get(200, TimeUnit.MILLISECONDS)
-            !result.isAllSuccess() || result.failures.any { it.error instanceof CannotAcceptException }
+            !result.isAllSuccess() || result.failures.any { it.error instanceof ItemRejectedException }
         } catch (Exception e) {
             // Timeout or rejection is acceptable
-            assert e instanceof TimeoutException || e.cause instanceof CannotAcceptException
+            assert e instanceof TimeoutException || e.cause instanceof ItemRejectedException
         }
 
         cleanup:
@@ -874,7 +874,7 @@ class MicroBatcherSpec extends Specification {
         try {
             def result = future3.get(200, TimeUnit.MILLISECONDS)
             !result.isAllSuccess()
-            result.failures[0].error instanceof CannotAcceptException
+            result.failures[0].error instanceof ItemRejectedException
         } catch (TimeoutException e) {
             // If it times out, the queue might have accepted it, which is also valid
             // The important thing is we tested the code path
@@ -4899,7 +4899,7 @@ class MicroBatcherSpec extends Specification {
         results[0..7].every { it instanceof ItemResult.Success }
         // 9th item should be rejected
         result9 instanceof ItemResult.Failure
-        result9.error instanceof CannotAcceptException
+        result9.error instanceof ItemRejectedException
 
         cleanup:
         batcher?.close()
@@ -4938,7 +4938,7 @@ class MicroBatcherSpec extends Specification {
         results[0..9].every { it instanceof ItemResult.Success }
         // 11th item should be rejected
         result11 instanceof ItemResult.Failure
-        result11.error instanceof CannotAcceptException
+        result11.error instanceof ItemRejectedException
 
         cleanup:
         batcher?.close()
@@ -4977,7 +4977,7 @@ class MicroBatcherSpec extends Specification {
         // If queue was full, we should get rejection. If queue wasn't full, that's also OK (race condition)
         if (queueDepthBefore >= 2) {
             assert result instanceof ItemResult.Failure
-            assert result.error instanceof CannotAcceptException
+            assert result.error instanceof ItemRejectedException
             assert result.error.message.contains("Queue full")
         } else {
             // Queue wasn't full - item might have been accepted, which is also valid

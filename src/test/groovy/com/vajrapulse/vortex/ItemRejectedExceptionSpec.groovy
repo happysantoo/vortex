@@ -2,14 +2,14 @@ package com.vajrapulse.vortex
 
 import spock.lang.Specification
 
-class CannotAcceptExceptionSpec extends Specification {
+class ItemRejectedExceptionSpec extends Specification {
 
     def "should create queue full exception"() {
         when:
-        def exception = CannotAcceptException.queueFull(10, 20)
+        def exception = ItemRejectedException.queueFull(10, 20)
 
         then:
-        exception instanceof CannotAcceptException
+        exception instanceof ItemRejectedException
         exception.currentLevel == 10
         exception.maxLevel == 20
         exception.sourceName == "Vortex Queue Depth"
@@ -19,10 +19,10 @@ class CannotAcceptExceptionSpec extends Specification {
 
     def "should create concurrent limit exception"() {
         when:
-        def exception = CannotAcceptException.concurrentLimitReached(8, 10)
+        def exception = ItemRejectedException.concurrentLimitReached(8, 10)
 
         then:
-        exception instanceof CannotAcceptException
+        exception instanceof ItemRejectedException
         exception.currentLevel == 8
         exception.maxLevel == 10
         exception.sourceName == "Concurrent Batches"
@@ -33,7 +33,7 @@ class CannotAcceptExceptionSpec extends Specification {
 
     def "should create exception with custom message"() {
         when:
-        def exception = new CannotAcceptException("Custom message", 5, 10, "Custom Source")
+        def exception = new ItemRejectedException("Custom message", 5, 10, "Custom Source")
 
         then:
         exception.message == "Custom message"
@@ -47,7 +47,7 @@ class CannotAcceptExceptionSpec extends Specification {
         def cause = new RuntimeException("Root cause")
 
         when:
-        def exception = new CannotAcceptException("Custom message", cause, 5, 10, "Custom Source")
+        def exception = new ItemRejectedException("Custom message", cause, 5, 10, "Custom Source")
 
         then:
         exception.message == "Custom message"
@@ -59,7 +59,7 @@ class CannotAcceptExceptionSpec extends Specification {
 
     def "should get current level"() {
         when:
-        def exception = CannotAcceptException.queueFull(15, 20)
+        def exception = ItemRejectedException.queueFull(15, 20)
 
         then:
         exception.getCurrentLevel() == 15
@@ -67,7 +67,7 @@ class CannotAcceptExceptionSpec extends Specification {
 
     def "should get max level"() {
         when:
-        def exception = CannotAcceptException.queueFull(15, 20)
+        def exception = ItemRejectedException.queueFull(15, 20)
 
         then:
         exception.getMaxLevel() == 20
@@ -75,7 +75,7 @@ class CannotAcceptExceptionSpec extends Specification {
 
     def "should get source name"() {
         when:
-        def exception = CannotAcceptException.queueFull(15, 20)
+        def exception = ItemRejectedException.queueFull(15, 20)
 
         then:
         exception.getSourceName() == "Vortex Queue Depth"

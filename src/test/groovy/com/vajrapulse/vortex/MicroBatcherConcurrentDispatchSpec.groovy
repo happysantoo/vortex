@@ -1,6 +1,6 @@
 package com.vajrapulse.vortex
 
-import com.vajrapulse.vortex.CannotAcceptException
+import com.vajrapulse.vortex.ItemRejectedException
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import spock.lang.Specification
 
@@ -58,7 +58,7 @@ class MicroBatcherConcurrentDispatchSpec extends Specification {
             } catch (Exception e) {
                 // Expected for rejected batches (wrapped in ExecutionException)
                 if (!(e instanceof java.util.concurrent.ExecutionException) && 
-                    !(e.getCause() instanceof CannotAcceptException)) {
+                    !(e.getCause() instanceof ItemRejectedException)) {
                     throw e
                 }
             }
@@ -159,7 +159,7 @@ class MicroBatcherConcurrentDispatchSpec extends Specification {
             assert false: "Expected RejectedExecutionException"
         } catch (Exception e) {
             def cause = e instanceof java.util.concurrent.ExecutionException ? e.cause : e
-            assert cause instanceof CannotAcceptException
+            assert cause instanceof ItemRejectedException
             assert cause.message.contains("too many concurrent batches")
         }
         

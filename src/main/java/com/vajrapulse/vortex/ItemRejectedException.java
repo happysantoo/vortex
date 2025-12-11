@@ -1,7 +1,7 @@
 package com.vajrapulse.vortex;
 
 /**
- * Exception thrown when an item cannot be accepted due to capacity constraints.
+ * Exception thrown when an item is rejected due to capacity constraints.
  * 
  * <p>This exception is thrown in the following scenarios:
  * <ul>
@@ -19,7 +19,7 @@ package com.vajrapulse.vortex;
  * <pre>{@code
  * ItemResult<MyItem> result = batcher.submit(item, null);
  * if (result instanceof ItemResult.Failure<MyItem> failure) {
- *     if (failure.error() instanceof CannotAcceptException e) {
+ *     if (failure.error() instanceof ItemRejectedException e) {
  *         logger.warn("Item rejected: {}", e.getMessage());
  *         // Handle rejection: store to overflow, retry, etc.
  *         storeToOverflow(item);
@@ -35,7 +35,7 @@ package com.vajrapulse.vortex;
  * 
  * @since 0.0.9
  */
-public class CannotAcceptException extends RuntimeException {
+public class ItemRejectedException extends RuntimeException {
     /** The current capacity level (e.g., current queue size). */
     private final int currentLevel;
     /** The maximum capacity level (e.g., max queue size). */
@@ -44,14 +44,14 @@ public class CannotAcceptException extends RuntimeException {
     private final String sourceName;
     
     /**
-     * Creates a new cannot accept exception.
+     * Creates a new item rejected exception.
      * 
      * @param message the error message
      * @param currentLevel the current capacity level
      * @param maxLevel the maximum capacity level
      * @param sourceName the name of the rejection source
      */
-    public CannotAcceptException(String message, int currentLevel, int maxLevel, String sourceName) {
+    public ItemRejectedException(String message, int currentLevel, int maxLevel, String sourceName) {
         super(message);
         this.currentLevel = currentLevel;
         this.maxLevel = maxLevel;
@@ -59,7 +59,7 @@ public class CannotAcceptException extends RuntimeException {
     }
     
     /**
-     * Creates a new cannot accept exception with a cause.
+     * Creates a new item rejected exception with a cause.
      * 
      * @param message the error message
      * @param cause the cause of this exception
@@ -67,7 +67,7 @@ public class CannotAcceptException extends RuntimeException {
      * @param maxLevel the maximum capacity level
      * @param sourceName the name of the rejection source
      */
-    public CannotAcceptException(String message, Throwable cause, int currentLevel, int maxLevel, String sourceName) {
+    public ItemRejectedException(String message, Throwable cause, int currentLevel, int maxLevel, String sourceName) {
         super(message, cause);
         this.currentLevel = currentLevel;
         this.maxLevel = maxLevel;
@@ -75,17 +75,17 @@ public class CannotAcceptException extends RuntimeException {
     }
     
     /**
-     * Creates a cannot accept exception for queue full scenario.
+     * Creates an item rejected exception for queue full scenario.
      * 
      * <p>This is a convenience factory method for when the queue is at capacity or has reached
      * the rejection threshold.
      * 
      * @param currentSize the current queue size
      * @param maxSize the maximum queue size
-     * @return a CannotAcceptException with source="Vortex Queue Depth"
+     * @return an ItemRejectedException with source="Vortex Queue Depth"
      */
-    public static CannotAcceptException queueFull(int currentSize, int maxSize) {
-        return new CannotAcceptException(
+    public static ItemRejectedException queueFull(int currentSize, int maxSize) {
+        return new ItemRejectedException(
             String.format("Queue full: %d/%d", currentSize, maxSize),
             currentSize,
             maxSize,
@@ -94,16 +94,16 @@ public class CannotAcceptException extends RuntimeException {
     }
     
     /**
-     * Creates a cannot accept exception for concurrent batch limit scenario.
+     * Creates an item rejected exception for concurrent batch limit scenario.
      * 
      * <p>This is a convenience factory method for when too many batches are being dispatched.
      * 
      * @param activeBatches the current number of active batches
      * @param maxBatches the maximum allowed concurrent batches
-     * @return a CannotAcceptException with source="Concurrent Batches"
+     * @return an ItemRejectedException with source="Concurrent Batches"
      */
-    public static CannotAcceptException concurrentLimitReached(int activeBatches, int maxBatches) {
-        return new CannotAcceptException(
+    public static ItemRejectedException concurrentLimitReached(int activeBatches, int maxBatches) {
+        return new ItemRejectedException(
             String.format("Batch rejected: too many concurrent batches (active: %d, limit: %d)", 
                 activeBatches, maxBatches),
             activeBatches,

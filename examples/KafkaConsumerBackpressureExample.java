@@ -296,7 +296,7 @@ public class KafkaConsumerBackpressureExample {
                         // Handle rejection (backpressure signaled)
                         future.whenComplete((result, error) -> {
                             if (error != null) {
-                                if (error.getCause() instanceof CannotAcceptException) {
+                                if (error.getCause() instanceof ItemRejectedException) {
                                     // LIBRARY SIGNALED BACKPRESSURE: Application handles overflow
                                     handleBackpressureRejection(value);
                                 } else {
@@ -306,7 +306,7 @@ public class KafkaConsumerBackpressureExample {
                         });
                     } catch (Exception e) {
                         // Handle synchronous rejection
-                        if (e.getCause() instanceof CannotAcceptException) {
+                        if (e.getCause() instanceof ItemRejectedException) {
                             handleBackpressureRejection(value);
                         } else {
                             logger.error("Error submitting item", e);
