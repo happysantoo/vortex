@@ -137,55 +137,55 @@ public class MetricsManager {
             .register(meterRegistry);
     }
     
-    void recordRequestSubmitted() {
+    public void recordRequestSubmitted() {
         requestsSubmitted.increment();
     }
     
-    void recordBatchDispatched() {
+    public void recordBatchDispatched() {
         batchesDispatched.increment();
     }
     
-    void recordRequestSucceeded() {
+    public void recordRequestSucceeded() {
         requestsSucceeded.increment();
     }
     
-    void recordRequestFailed() {
+    public void recordRequestFailed() {
         requestsFailed.increment();
     }
     
-    void recordRequestReplayed() {
+    public void recordRequestReplayed() {
         requestsReplayed.increment();
     }
     
-    void recordRequestRetried() {
+    public void recordRequestRetried() {
         requestsRetried.increment();
     }
     
-    void recordRequestRejected() {
+    public void recordRequestRejected() {
         requestsRejected.increment();
     }
     
-    void recordBackpressureRejected() {
+    public void recordBackpressureRejected() {
         backpressureRejected.increment();
     }
     
-    void recordBackpressureDropped() {
+    public void recordBackpressureDropped() {
         backpressureDropped.increment();
     }
     
-    void recordBackpressureCheckFailure() {
+    public void recordBackpressureCheckFailure() {
         backpressureCheckFailures.increment();
     }
     
-    void recordBackpressureInvalidLevel() {
+    public void recordBackpressureInvalidLevel() {
         backpressureInvalidLevels.increment();
     }
     
-    void recordQueueOfferFailure() {
+    public void recordQueueOfferFailure() {
         queueOfferFailures.increment();
     }
     
-    void recordDispatchRejected() {
+    public void recordDispatchRejected() {
         dispatchRejected.increment();
     }
     
@@ -193,21 +193,21 @@ public class MetricsManager {
         return Timer.start(meterRegistry);
     }
     
-    void recordBatchDispatchLatency(Timer.Sample sample) {
+    public void recordBatchDispatchLatency(Timer.Sample sample) {
         sample.stop(batchDispatchLatency);
     }
     
-    void recordBatchSize(int size) {
+    public void recordBatchSize(int size) {
         batchSizeHistogram.record(size);
     }
     
-    void recordItemBatchSize(int batchSize) {
+    public void recordItemBatchSize(int batchSize) {
         if (itemBatchSize != null) {
             itemBatchSize.record(batchSize);
         }
     }
     
-    void recordWaitTime(long waitTimeNanos) {
+    public void recordWaitTime(long waitTimeNanos) {
         requestWaitLatency.record(waitTimeNanos, TimeUnit.NANOSECONDS);
         queueWaitTime.record(waitTimeNanos, TimeUnit.NANOSECONDS);
     }
@@ -218,7 +218,7 @@ public class MetricsManager {
      * 
      * @param queueWaitTimeNanos the queue wait time in nanoseconds
      */
-    void recordQueueWaitTime(long queueWaitTimeNanos) {
+    public void recordQueueWaitTime(long queueWaitTimeNanos) {
         if (config.isPerItemMetrics() && itemWaitTime != null) {
             itemWaitTime.record(queueWaitTimeNanos, TimeUnit.NANOSECONDS);
         }
@@ -230,7 +230,7 @@ public class MetricsManager {
      * 
      * @param fullLatencyNanos the full latency from submit to completion in nanoseconds
      */
-    void recordItemSubmitLatency(long fullLatencyNanos) {
+    public void recordItemSubmitLatency(long fullLatencyNanos) {
         if (config.isPerItemMetrics() && itemSubmitLatency != null) {
             itemSubmitLatency.record(fullLatencyNanos, TimeUnit.NANOSECONDS);
         }
@@ -241,7 +241,7 @@ public class MetricsManager {
      * 
      * @return a MetricsProvider instance
      */
-    MetricsProvider getMetricsProvider() {
+    public MetricsProvider getMetricsProvider() {
         return new MetricsProvider() {
             @Override
             public double getFailureRate() {

@@ -460,7 +460,7 @@ public class MicroBatcher<T> implements AutoCloseable {
         
         // Queue is below threshold - proceed with submission
         CompletableFuture<BatchResult<T>> future = new CompletableFuture<>();
-        PendingRequest<T> request = new PendingRequest<>(item, future);
+        PendingRequest<T> request = new PendingRequest<T>(item, future);
         
         // Try to offer to queue (should succeed since we checked threshold, but handle race condition)
         if (!queue.offer(request)) {
@@ -516,7 +516,7 @@ public class MicroBatcher<T> implements AutoCloseable {
         
         metrics.recordRequestSubmitted();
         CompletableFuture<BatchResult<T>> future = new CompletableFuture<>();
-        PendingRequest<T> request = new PendingRequest<>(item, future);
+        PendingRequest<T> request = new PendingRequest<T>(item, future);
         
         try {
             if (!queue.offer(request, QUEUE_OFFER_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
