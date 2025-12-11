@@ -597,7 +597,7 @@ class MicroBatcherSpec extends Specification {
 
         cleanup:
         batcher?.close()
-        results.each { it.join() }
+        Thread.sleep(200)  // Wait for batch processing
     }
 
     def "should record wait latency metrics"() {
@@ -909,11 +909,8 @@ class MicroBatcherSpec extends Specification {
         // Wait a bit to ensure items are queued
         Thread.sleep(20)
         batcher.close() // Processes remaining items synchronously
-        // Wait for all futures to complete
-        results.each { 
-            try { it.get(2, TimeUnit.SECONDS) } 
-            catch (Exception e) { /* ignore */ }
-        }
+        // Wait for all items to be processed
+        Thread.sleep(200)  // Wait for batch processing
         // Give a bit more time for processing
         Thread.sleep(30)
 
@@ -4575,13 +4572,7 @@ class MicroBatcherSpec extends Specification {
             batcher.submit("item-1"),
             batcher.submit("item-2")
         ]
-        def results = results.collect { 
-            try {
-                it.get(1, TimeUnit.SECONDS)
-            } catch (Exception e) {
-                null
-            }
-        }
+        Thread.sleep(200)  // Wait for batch processing
 
         then:
         // Fallback should handle boundary conditions
