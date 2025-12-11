@@ -39,7 +39,7 @@ public class MetricsManager {
     private final Timer itemWaitTime;
     private final DistributionSummary itemBatchSize;
     
-    MetricsManager(MeterRegistry meterRegistry, BatcherConfig config, BlockingQueue<?> queue) {
+    public MetricsManager(MeterRegistry meterRegistry, BatcherConfig config, BlockingQueue<?> queue) {
         this.meterRegistry = meterRegistry;
         this.config = config;
         this.queue = queue;

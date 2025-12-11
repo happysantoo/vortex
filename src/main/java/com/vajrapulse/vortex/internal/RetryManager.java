@@ -42,7 +42,7 @@ public class RetryManager<T> {
     private final ScheduledExecutorService cleanupExecutor;
     private final boolean debugMode;
     
-    RetryManager(BatcherConfig config, ExecutorService executor,
+    public RetryManager(BatcherConfig config, ExecutorService executor,
                  Function<T, CompletableFuture<BatchResult<T>>> submitFunction,
                  java.util.function.Supplier<Boolean> isClosedSupplier,
                  MetricsManager metrics,

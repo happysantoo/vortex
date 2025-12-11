@@ -28,7 +28,7 @@ public class ResultProcessor<T> {
     private final java.util.function.Function<T, CompletableFuture<BatchResult<T>>> submitFunction;
     private final boolean debugMode;
     
-    ResultProcessor(BatcherConfig config, Backend<T> backend, 
+    public ResultProcessor(BatcherConfig config, Backend<T> backend, 
                    MetricsManager metrics, RetryManager<T> retryManager,
                    java.util.function.Function<T, CompletableFuture<BatchResult<T>>> submitFunction,
                    boolean debugMode) {
