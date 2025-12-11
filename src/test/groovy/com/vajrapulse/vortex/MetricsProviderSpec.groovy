@@ -1,4 +1,5 @@
 package com.vajrapulse.vortex
+import com.vajrapulse.vortex.results.ItemResult
 
 import spock.lang.Specification
 import java.time.Duration

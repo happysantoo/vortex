@@ -1,4 +1,5 @@
 package com.vajrapulse.vortex
+import com.vajrapulse.vortex.results.ItemResult
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import spock.lang.Specification
