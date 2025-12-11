@@ -3175,7 +3175,7 @@ class MicroBatcherSpec extends Specification {
         }
              when:
         def batcher = new MicroBatcher<>(backendWithCapture, config)
-        def result = def submitResult = batcher.submit("item-1")
+        def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -3207,7 +3207,7 @@ class MicroBatcherSpec extends Specification {
         }
              when:
         def batcher = new MicroBatcher<>(backendWithCapture, config)
-        def result = def submitResult = batcher.submit("item-1")
+        def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -3342,7 +3342,7 @@ class MicroBatcherSpec extends Specification {
         }
              when:
         def batcher = new MicroBatcher<>(backendWithCapture, config)
-        def result = def submitResult = batcher.submit("item-1")
+        def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -3403,7 +3403,7 @@ class MicroBatcherSpec extends Specification {
         }
              when:
         def batcher = new MicroBatcher<>(backendWithCapture, config)
-        def result = def submitResult = batcher.submit("item-1")
+        def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -3608,7 +3608,7 @@ class MicroBatcherSpec extends Specification {
         }
              when:
         def batcher = new MicroBatcher<>(backendWithCapture, config)
-        def result = def submitResult = batcher.submit("item-1")
+        def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -3641,7 +3641,7 @@ class MicroBatcherSpec extends Specification {
         }
              when:
         def batcher = new MicroBatcher<>(backendWithCapture, config)
-        def result = def submitResult = batcher.submit("item-1")
+        def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -3722,7 +3722,7 @@ class MicroBatcherSpec extends Specification {
         }
              when:
         def batcher = new MicroBatcher<>(backendWithCapture, config)
-        def result = def submitResult = batcher.submit("item-1")
+        def submitResult = batcher.submit("item-1")
         Thread.sleep(2000)  // Wait for batch processing
         def elapsed = System.currentTimeMillis() - startTime
 
@@ -3757,7 +3757,7 @@ class MicroBatcherSpec extends Specification {
         }
              when:
         def batcher = new MicroBatcher<>(backendWithCapture, config)
-        def result = def submitResult = batcher.submit("item-1")
+        def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -3790,7 +3790,7 @@ class MicroBatcherSpec extends Specification {
         }
              when:
         def batcher = new MicroBatcher<>(backendWithCapture, config)
-        def result = def submitResult = batcher.submit("item-1")
+        def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -3822,7 +3822,7 @@ class MicroBatcherSpec extends Specification {
         }
              when:
         def batcher = new MicroBatcher<>(backendWithCapture, config)
-        def result = def submitResult = batcher.submit("item-1")
+        def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -3858,7 +3858,7 @@ class MicroBatcherSpec extends Specification {
         }
              when:
         def batcher = new MicroBatcher<>(backendWithCapture, config)
-        def result = def submitResult = batcher.submit("item-1")
+        def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -3892,7 +3892,7 @@ class MicroBatcherSpec extends Specification {
         }
              when:
         def batcher = new MicroBatcher<>(backendWithCapture, config)
-        def result = def submitResult = batcher.submit("item-1")
+        def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -3955,7 +3955,7 @@ class MicroBatcherSpec extends Specification {
         }
              when:
         def batcher = new MicroBatcher<>(backendWithCapture, config)
-        def result = def submitResult = batcher.submit("item-1")
+        def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -3987,7 +3987,7 @@ class MicroBatcherSpec extends Specification {
         }
              when:
         def batcher = new MicroBatcher<>(backendWithCapture, config)
-        def result = def submitResult = batcher.submit(null)
+        def submitResult = batcher.submit(null)
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -4029,7 +4029,7 @@ class MicroBatcherSpec extends Specification {
         }
              when:
         def batcher = new MicroBatcher<>(backendWithCapture, config)
-        def result = def submitResult = batcher.submit("item-1")
+        def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -4191,7 +4191,7 @@ class MicroBatcherSpec extends Specification {
         }
              when:
         def batcher = new MicroBatcher<>(backendWithCapture, config)
-        def result = def submitResult = batcher.submit("item-1")
+        def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -4333,7 +4333,7 @@ class MicroBatcherSpec extends Specification {
         }
              when:
         def batcher = new MicroBatcher<>(backendWithCapture, config)
-        def result = def submitResult = batcher.submit("item-1")
+        def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -4364,7 +4364,7 @@ class MicroBatcherSpec extends Specification {
         }
              when:
         def batcher = new MicroBatcher<>(backendWithCapture, config)
-        def result = def submitResult = batcher.submit("item-1")
+        def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -4396,7 +4396,7 @@ class MicroBatcherSpec extends Specification {
         }
              when:
         def batcher = new MicroBatcher<>(backendWithCapture, config)
-        def result = def submitResult = batcher.submit("item-1")
+        def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -4512,7 +4512,7 @@ class MicroBatcherSpec extends Specification {
         }
              when:
         def batcher = new MicroBatcher<>(backendWithCapture, config)
-        def result = def submitResult = batcher.submit("item-1")
+        def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -4545,7 +4545,7 @@ class MicroBatcherSpec extends Specification {
         }
              when:
         def batcher = new MicroBatcher<>(backendWithCapture, config)
-        def result = def submitResult = batcher.submit("item-1")
+        def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -4785,7 +4785,7 @@ class MicroBatcherSpec extends Specification {
         }
              when:
         def batcher = new MicroBatcher<>(backendWithCapture, config)
-        def result = def submitResult = batcher.submit("item-1")
+        def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -4816,7 +4816,7 @@ class MicroBatcherSpec extends Specification {
         }
              when:
         def batcher = new MicroBatcher<>(backendWithCapture, config)
-        def result = def submitResult = batcher.submit("item-1")
+        def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -5051,7 +5051,7 @@ class MicroBatcherSpec extends Specification {
         }
              when:
         def batcher = new MicroBatcher<>(backendWithCapture, config)
-        def result = def submitResult = batcher.submit("item-1")
+        def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -5172,7 +5172,7 @@ class MicroBatcherSpec extends Specification {
         }
              when:
         def batcher = new MicroBatcher<>(backendWithCapture, config)
-        def result = def submitResult = batcher.submit("item-1")
+        def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -5209,7 +5209,7 @@ class MicroBatcherSpec extends Specification {
         }
              when:
         def batcher = new MicroBatcher<>(backendWithCapture, config)
-        def result = def submitResult = batcher.submit("item-1")
+        def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
@@ -5244,7 +5244,7 @@ class MicroBatcherSpec extends Specification {
         }
              when:
         def batcher = new MicroBatcher<>(backendWithCapture, config)
-        def result = def submitResult = batcher.submit("item-1")
+        def submitResult = batcher.submit("item-1")
         Thread.sleep(1000)  // Wait for batch processing
 
         then:
