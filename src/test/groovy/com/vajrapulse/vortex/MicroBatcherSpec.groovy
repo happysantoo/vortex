@@ -1,10 +1,6 @@
 package com.vajrapulse.vortex
 
-import com.vajrapulse.vortex.backpressure.BackpressureProvider
-import com.vajrapulse.vortex.backpressure.BackpressureStrategy
 import com.vajrapulse.vortex.backpressure.BackpressureException
-import com.vajrapulse.vortex.backpressure.DropStrategy
-import com.vajrapulse.vortex.backpressure.RejectStrategy
 import io.micrometer.core.instrument.MeterRegistry
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import spock.lang.Specification
@@ -71,9 +67,8 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def futures = (1..5).collect { batcher.submit("item-$it") }
-        // Wait for all futures to complete (allow time for both batches)
-        futures.each { it.get(1000, TimeUnit.MILLISECONDS) }
+        (1..5).each { batcher.submit("item-$it", null) }
+        Thread.sleep(200) // Wait for batch processing
 
         then:
         batchCount.get() >= 1
@@ -97,8 +92,8 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future1 = batcher.submit("item-1")
-        def future2 = batcher.submit("item-2")
+        batcher.submit("item-1", null)
+        batcher.submit("item-2", null)
         // Wait for batch to complete (time-based trigger)
         future1.get(200, TimeUnit.MILLISECONDS)
         future2.get(200, TimeUnit.MILLISECONDS)
@@ -123,7 +118,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("test-item")
+        batcher.submit("test-item", null)
         def result = future.get(200, TimeUnit.MILLISECONDS)
 
         then:
@@ -149,7 +144,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("test-item")
+        batcher.submit("test-item", null)
         def result = future.get(200, TimeUnit.MILLISECONDS)
 
         then:
@@ -175,7 +170,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("test-item")
+        batcher.submit("test-item", null)
         Thread.sleep(20)
         def result = future.get(1, TimeUnit.SECONDS)
 
@@ -204,9 +199,9 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future1 = batcher.submit("success-1")
-        def future2 = batcher.submit("fail-item")
-        def future3 = batcher.submit("success-2")
+        batcher.submit("success-1", null)
+        batcher.submit("fail-item", null)
+        batcher.submit("success-2", null)
         Thread.sleep(20)
         def result1 = future1.get(1, TimeUnit.SECONDS)
         def result2 = future2.get(1, TimeUnit.SECONDS)
@@ -239,9 +234,9 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future1 = batcher.submit("success-1")
-        def future2 = batcher.submit("fail-item")
-        def future3 = batcher.submit("success-2")
+        batcher.submit("success-1", null)
+        batcher.submit("fail-item", null)
+        batcher.submit("success-2", null)
         Thread.sleep(20)
         def result1 = future1.get(1, TimeUnit.SECONDS)
         def result2 = future2.get(1, TimeUnit.SECONDS)
@@ -270,8 +265,8 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config, meterRegistry)
-        batcher.submit("item-1")
-        batcher.submit("item-2")
+        batcher.submit("item-1", null)
+        batcher.submit("item-2", null)
         Thread.sleep(20)
 
         then:
@@ -306,7 +301,7 @@ class MicroBatcherSpec extends Specification {
         diagnostics.getQueueDepth() == 0
 
         when:
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         future.get(500, TimeUnit.MILLISECONDS)
 
         then:
@@ -327,7 +322,7 @@ class MicroBatcherSpec extends Specification {
         batcher.close()
 
         when:
-        batcher.submit("item")
+        batcher.submit("item", null)
 
         then:
         thrown(IllegalStateException)
@@ -355,7 +350,7 @@ class MicroBatcherSpec extends Specification {
         when:
         def batcher = new MicroBatcher<>(backend, config)
         def items = (1..5).collect { "item-$it" }
-        def futures = items.collect { batcher.submit(it) }
+        items.each { batcher.submit(it, null) }
         // Small delay to ensure items are queued before close() is called
         // This ensures items are in the queue when close() processes remaining items
         def itemsQueuedLatch = new CountDownLatch(5)
@@ -422,10 +417,10 @@ class MicroBatcherSpec extends Specification {
         when:
         def batcher = new MicroBatcher<>(backend, config)
         // Fill the queue (size is 2x batchSize = 2)
-        def future1 = batcher.submit("item-1")
-        def future2 = batcher.submit("item-2")
+        batcher.submit("item-1", null)
+        batcher.submit("item-2", null)
         Thread.sleep(20) // Let queue fill
-        def future3 = batcher.submit("item-3") // Should be rejected or timeout
+        batcher.submit("item-3", null) // Should be rejected or timeout
 
         then:
         // The third one might timeout or be rejected
@@ -457,10 +452,10 @@ class MicroBatcherSpec extends Specification {
         when:
         def batcher = new MicroBatcher<>(backend, config)
         def futures = [
-            batcher.submit("success-1"),
-            batcher.submit("fail-1"),
-            batcher.submit("success-2"),
-            batcher.submit("fail-2")
+            batcher.submit("success-1", null),
+            batcher.submit("fail-1", null),
+            batcher.submit("success-2", null),
+            batcher.submit("fail-2", null)
         ]
         Thread.sleep(20)
         def results = futures.collect { it.get(1, TimeUnit.SECONDS) }
@@ -531,7 +526,7 @@ class MicroBatcherSpec extends Specification {
         when:
         def batcher = new MicroBatcher<>(backend, config)
         def futures = (1..20).collect { i ->
-            Thread.start { batcher.submit("item-$i") }
+            Thread.start { batcher.submit("item-$i", null) }
         }
         Thread.sleep(30)
 
@@ -558,8 +553,8 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config, meterRegistry)
-        batcher.submit("item-1")
-        batcher.submit("item-2")
+        batcher.submit("item-1", null)
+        batcher.submit("item-2", null)
         Thread.sleep(80)
 
         then:
@@ -584,7 +579,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         Thread.sleep(20)
         def result = future.get(1, TimeUnit.SECONDS)
 
@@ -614,7 +609,7 @@ class MicroBatcherSpec extends Specification {
             Thread.sleep(20)
             thread.interrupt()
         }
-        def future = batcher.submit("item")
+        batcher.submit("item", null)
 
         then:
         // Should handle interruption gracefully
@@ -665,11 +660,11 @@ class MicroBatcherSpec extends Specification {
         when:
         def batcher = new MicroBatcher<>(backend, config)
         def futures = [
-            batcher.submit("success-1"),
-            batcher.submit("fail-1"),
-            batcher.submit("success-2"),
-            batcher.submit("fail-2"),
-            batcher.submit("success-3")
+            batcher.submit("success-1", null),
+            batcher.submit("fail-1", null),
+            batcher.submit("success-2", null),
+            batcher.submit("fail-2", null),
+            batcher.submit("success-3", null)
         ]
         Thread.sleep(20)
         def results = futures.collect { it.get(1, TimeUnit.SECONDS) }
@@ -697,7 +692,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         Thread.sleep(20)
         def result = future.get(1, TimeUnit.SECONDS)
 
@@ -720,7 +715,7 @@ class MicroBatcherSpec extends Specification {
             .lingerTime(Duration.ofMillis(50))
             .build()
         def batcher = new MicroBatcher<>(backend, config)
-        batcher.submit("item-1")
+        batcher.submit("item-1", null)
 
         when:
         // Interrupt during close
@@ -749,7 +744,7 @@ class MicroBatcherSpec extends Specification {
             .lingerTime(Duration.ofMillis(50))
             .build()
         def batcher = new MicroBatcher<>(backend, config)
-        batcher.submit("item-1")
+        batcher.submit("item-1", null)
         Thread.sleep(20) // Let processing start
 
         when:
@@ -777,9 +772,9 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        batcher.submit("item-1")
+        batcher.submit("item-1", null)
         Thread.sleep(20)
-        batcher.submit("item-2")
+        batcher.submit("item-2", null)
         Thread.sleep(20)
 
         then:
@@ -805,9 +800,9 @@ class MicroBatcherSpec extends Specification {
         when:
         def batcher = new MicroBatcher<>(backend, config)
         def futures = [
-            batcher.submit("success-1"),
-            batcher.submit("success-2"),
-            batcher.submit("success-3")
+            batcher.submit("success-1", null),
+            batcher.submit("success-2", null),
+            batcher.submit("success-3", null)
         ]
         Thread.sleep(20)
         def results = futures.collect { it.get(1, TimeUnit.SECONDS) }
@@ -834,7 +829,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def futures = (1..3).collect { batcher.submit("item-$it") }
+        def futures = (1..3).collect { batcher.submit("item-$it", null) }
         // Wait a bit to ensure items are queued
         Thread.sleep(20)
         batcher.close() // Processes remaining items synchronously
@@ -870,10 +865,10 @@ class MicroBatcherSpec extends Specification {
         when:
         def batcher = new MicroBatcher<>(backend, config)
         // Fill queue - submit items that will be processed slowly
-        def future1 = batcher.submit("item-1")
-        def future2 = batcher.submit("item-2")
+        batcher.submit("item-1", null)
+        batcher.submit("item-2", null)
         Thread.sleep(20) // Let queue fill and processing start
-        def future3 = batcher.submit("item-3") // Should fail to offer
+        batcher.submit("item-3", null) // Should fail to offer
 
         then:
         try {
@@ -925,7 +920,7 @@ class MicroBatcherSpec extends Specification {
             .lingerTime(Duration.ofMillis(50))
             .build()
         def batcher = new MicroBatcher<>(backend, config)
-        batcher.submit("item-1")
+        batcher.submit("item-1", null)
         Thread.sleep(20)
 
         when:
@@ -950,7 +945,7 @@ class MicroBatcherSpec extends Specification {
             .lingerTime(Duration.ofMillis(50))
             .build()
         def batcher = new MicroBatcher<>(backend, config)
-        batcher.submit("item-1")
+        batcher.submit("item-1", null)
         Thread.sleep(20)
 
         when:
@@ -987,9 +982,9 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        batcher.submit("item-1")
+        batcher.submit("item-1", null)
         Thread.sleep(20)
-        batcher.submit("item-2") // Should still process
+        batcher.submit("item-2", null) // Should still process
         Thread.sleep(20)
 
         then:
@@ -1016,11 +1011,11 @@ class MicroBatcherSpec extends Specification {
         when:
         def batcher = new MicroBatcher<>(backend, config)
         def futures = [
-            batcher.submit("fail-1"),
-            batcher.submit("fail-2"),
-            batcher.submit("fail-3"),
-            batcher.submit("success-1"),
-            batcher.submit("fail-4")
+            batcher.submit("fail-1", null),
+            batcher.submit("fail-2", null),
+            batcher.submit("fail-3", null),
+            batcher.submit("success-1", null),
+            batcher.submit("fail-4", null)
         ]
         Thread.sleep(20)
         def results = futures.collect { it.get(1, TimeUnit.SECONDS) }
@@ -1046,7 +1041,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         Thread.sleep(20)
         def result = future.get(1, TimeUnit.SECONDS)
 
@@ -1076,11 +1071,11 @@ class MicroBatcherSpec extends Specification {
         when:
         def batcher = new MicroBatcher<>(backend, config)
         def futures = [
-            batcher.submit("success-1"),
-            batcher.submit("fail-1"),
-            batcher.submit("success-2"),
-            batcher.submit("fail-2"),
-            batcher.submit("success-3")
+            batcher.submit("success-1", null),
+            batcher.submit("fail-1", null),
+            batcher.submit("success-2", null),
+            batcher.submit("fail-2", null),
+            batcher.submit("success-3", null)
         ]
         Thread.sleep(80) // Wait for initial batch
         Thread.sleep(80) // Wait for replay batch
@@ -1114,9 +1109,9 @@ class MicroBatcherSpec extends Specification {
         when:
         def batcher = new MicroBatcher<>(backend, config)
         def futures = [
-            batcher.submit("success-1"),
-            batcher.submit("fail-1"),
-            batcher.submit("success-2")
+            batcher.submit("success-1", null),
+            batcher.submit("fail-1", null),
+            batcher.submit("success-2", null)
         ]
         Thread.sleep(150)
         def results = futures.collect { 
@@ -1147,9 +1142,9 @@ class MicroBatcherSpec extends Specification {
         when:
         def batcher = new MicroBatcher<>(backend, config)
         def futures = [
-            batcher.submit("success-1"),
-            batcher.submit("success-2"),
-            batcher.submit("success-3")
+            batcher.submit("success-1", null),
+            batcher.submit("success-2", null),
+            batcher.submit("success-3", null)
         ]
         Thread.sleep(80)
 
@@ -1176,9 +1171,9 @@ class MicroBatcherSpec extends Specification {
         when:
         def batcher = new MicroBatcher<>(backend, config)
         def futures = [
-            batcher.submit("fail-1"),
-            batcher.submit("fail-2"),
-            batcher.submit("fail-3")
+            batcher.submit("fail-1", null),
+            batcher.submit("fail-2", null),
+            batcher.submit("fail-3", null)
         ]
         Thread.sleep(80)
 
@@ -1216,9 +1211,9 @@ class MicroBatcherSpec extends Specification {
         when:
         def batcher = new MicroBatcher<>(backend, config)
         def futures = [
-            batcher.submit("success-1"),
-            batcher.submit("fail-1"),
-            batcher.submit("success-2")
+            batcher.submit("success-1", null),
+            batcher.submit("fail-1", null),
+            batcher.submit("success-2", null)
         ]
         Thread.sleep(150)
 
@@ -1259,9 +1254,9 @@ class MicroBatcherSpec extends Specification {
         when:
         def batcher = new MicroBatcher<>(backend, config)
         def futures = [
-            batcher.submit("success-1"),
-            batcher.submit("fail-1"),
-            batcher.submit("success-2")
+            batcher.submit("success-1", null),
+            batcher.submit("fail-1", null),
+            batcher.submit("success-2", null)
         ]
         Thread.sleep(150)
 
@@ -1291,9 +1286,9 @@ class MicroBatcherSpec extends Specification {
         when:
         def batcher = new MicroBatcher<>(backend, config)
         def futures = [
-            batcher.submit("success-1"),
-            batcher.submit("fail-1"),
-            batcher.submit("success-2")
+            batcher.submit("success-1", null),
+            batcher.submit("fail-1", null),
+            batcher.submit("success-2", null)
         ]
         Thread.sleep(150)
 
@@ -1321,8 +1316,8 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("success-1")
-        batcher.submit("fail-1")
+        batcher.submit("success-1", null)
+        batcher.submit("fail-1", null)
         Thread.sleep(20) // Let batch start processing
         batcher.close() // Close while replay might happen
         Thread.sleep(30) // Wait for processing
@@ -1356,8 +1351,8 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        batcher.submit("success-1")
-        batcher.submit("fail-1")
+        batcher.submit("success-1", null)
+        batcher.submit("fail-1", null)
         Thread.sleep(80) // Wait for processing and replay attempt
 
         then:
@@ -1380,7 +1375,7 @@ class MicroBatcherSpec extends Specification {
             .lingerTime(Duration.ofMillis(50))
             .build()
         def batcher = new MicroBatcher<>(backend, config)
-        batcher.submit("item-1")
+        batcher.submit("item-1", null)
         Thread.sleep(20) // Let item get queued
 
         when:
@@ -1403,7 +1398,7 @@ class MicroBatcherSpec extends Specification {
             .lingerTime(Duration.ofMillis(50))
             .build()
         def batcher = new MicroBatcher<>(backend, config)
-        batcher.submit("item-1")
+        batcher.submit("item-1", null)
         Thread.sleep(20)
 
         when:
@@ -1429,9 +1424,9 @@ class MicroBatcherSpec extends Specification {
         when:
         def batcher = new MicroBatcher<>(backend, config)
         def futures = [
-            batcher.submit("item-1"),
-            batcher.submit("item-2"),
-            batcher.submit("item-3")
+            batcher.submit("item-1", null),
+            batcher.submit("item-2", null),
+            batcher.submit("item-3", null)
         ]
         Thread.sleep(20)
         def results = futures.collect { it.get(1, TimeUnit.SECONDS) }
@@ -1459,9 +1454,9 @@ class MicroBatcherSpec extends Specification {
         when:
         def batcher = new MicroBatcher<>(backend, config)
         def futures = [
-            batcher.submit("item-1"),
-            batcher.submit("item-2"),
-            batcher.submit("item-3")
+            batcher.submit("item-1", null),
+            batcher.submit("item-2", null),
+            batcher.submit("item-3", null)
         ]
         Thread.sleep(20)
         def results = futures.collect { it.get(1, TimeUnit.SECONDS) }
@@ -1493,7 +1488,7 @@ class MicroBatcherSpec extends Specification {
             Thread.sleep(20)
             thread.interrupt()
         }
-        def future = batcher.submit("item")
+        batcher.submit("item", null)
 
         then:
         // Should handle interruption
@@ -1522,9 +1517,9 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        batcher.submit("item-1")
+        batcher.submit("item-1", null)
         Thread.sleep(20) // Let first error occur
-        batcher.submit("item-2")
+        batcher.submit("item-2", null)
         Thread.sleep(20) // Should continue processing
 
         then:
@@ -1551,9 +1546,9 @@ class MicroBatcherSpec extends Specification {
         when:
         def batcher = new MicroBatcher<>(backend, config)
         def futures = [
-            batcher.submit("item-1"),
-            batcher.submit("item-2"),
-            batcher.submit("item-3")
+            batcher.submit("item-1", null),
+            batcher.submit("item-2", null),
+            batcher.submit("item-3", null)
         ]
         Thread.sleep(20)
         def results = futures.collect { it.get(1, TimeUnit.SECONDS) }
@@ -1581,7 +1576,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         Thread.sleep(20)
         batcher.close() // Should process remaining with error
 
@@ -1608,8 +1603,8 @@ class MicroBatcherSpec extends Specification {
             .build()
         def batcher = new MicroBatcher<>(backend, config)
         // Submit multiple items to keep queue non-empty during close
-        batcher.submit("item-1")
-        batcher.submit("item-2")
+        batcher.submit("item-1", null)
+        batcher.submit("item-2", null)
         Thread.sleep(20) // Let items get queued
 
         when:
@@ -1654,8 +1649,8 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        batcher.submit("success-1")
-        batcher.submit("fail-1")
+        batcher.submit("success-1", null)
+        batcher.submit("fail-1", null)
         Thread.sleep(30) // Wait for processing and replay
 
         then:
@@ -1748,8 +1743,8 @@ class MicroBatcherSpec extends Specification {
         def callback = { item, result ->
             throw new RuntimeException("Callback error")
         }
-        def future = batcher.submitWithCallback("test-item", callback)
-        Thread.sleep(150)
+        batcher.submit("test-item", callback)
+        Thread.sleep(150) // Wait for batch processing
 
         then:
         future.isCompletedExceptionally()
@@ -1775,8 +1770,8 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config, meterRegistry)
-        batcher.submit("item-1")
-        batcher.submit("item-2")
+        batcher.submit("item-1", null)
+        batcher.submit("item-2", null)
         Thread.sleep(200) // Wait for both batches to complete
 
         then:
@@ -1817,7 +1812,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config, meterRegistry)
-        batcher.submit("item-1")
+        batcher.submit("item-1", null)
         Thread.sleep(20)
 
         then:
@@ -1843,7 +1838,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config, meterRegistry)
-        (1..7).each { batcher.submit("item-$it") }
+        (1..7).each { batcher.submit("item-$it", null) }
         Thread.sleep(80)
 
         then:
@@ -1871,7 +1866,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config, meterRegistry)
-        (1..5).each { batcher.submit("item-$it") }
+        (1..5).each { batcher.submit("item-$it", null) }
         Thread.sleep(30)
 
         then:
@@ -1923,7 +1918,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config, meterRegistry)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         Thread.sleep(20)
         def result = future.get(1, TimeUnit.SECONDS)
 
@@ -1950,7 +1945,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config, meterRegistry)
-        batcher.submit("item-1")
+        batcher.submit("item-1", null)
         Thread.sleep(150)
 
         then:
@@ -1979,8 +1974,8 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config, meterRegistry)
-        batcher.submit("item-1")
-        batcher.submit("item-2")
+        batcher.submit("item-1", null)
+        batcher.submit("item-2", null)
         Thread.sleep(20)
 
         then:
@@ -2006,8 +2001,8 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config, meterRegistry)
-        batcher.submit("item-1")
-        batcher.submit("item-2")
+        batcher.submit("item-1", null)
+        batcher.submit("item-2", null)
         Thread.sleep(20)
 
         then:
@@ -2033,7 +2028,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config, meterRegistry)
-        batcher.submit("item-1")
+        batcher.submit("item-1", null)
         Thread.sleep(20)
 
         then:
@@ -2060,7 +2055,7 @@ class MicroBatcherSpec extends Specification {
         when:
         def batcher = new MicroBatcher<>(backend, config, meterRegistry)
         // Fill queue quickly
-        (1..10).each { batcher.submit("item-$it") }
+        (1..10).each { batcher.submit("item-$it", null) }
         Thread.sleep(20) // Give it time to fill
 
         then:
@@ -2085,7 +2080,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config, meterRegistry)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         Thread.sleep(20)
         def result = future.get(1, TimeUnit.SECONDS)
 
@@ -2122,7 +2117,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         Thread.sleep(30) // Wait for retry
         def result = future.get(1, TimeUnit.SECONDS)
 
@@ -2153,7 +2148,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         Thread.sleep(80)
         def result = future.get(1, TimeUnit.SECONDS)
 
@@ -2183,7 +2178,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         Thread.sleep(150) // Wait for all retries
         def result = future.get(1, TimeUnit.SECONDS)
 
@@ -2213,7 +2208,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         Thread.sleep(120) // Wait for initial batch + retry delay + retry batch
         future.get(1, TimeUnit.SECONDS) // Wait for completion
 
@@ -2245,7 +2240,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         Thread.sleep(80)
         def result = future.get(1, TimeUnit.SECONDS)
 
@@ -2280,7 +2275,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         Thread.sleep(30)
         def result = future.get(1, TimeUnit.SECONDS)
 
@@ -2315,7 +2310,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         Thread.sleep(30)
         def result = future.get(1, TimeUnit.SECONDS)
 
@@ -2348,7 +2343,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         Thread.sleep(30)
         def result = future.get(1, TimeUnit.SECONDS)
 
@@ -2387,7 +2382,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         Thread.sleep(30)
         def result = future.get(1, TimeUnit.SECONDS)
 
@@ -2419,7 +2414,7 @@ class MicroBatcherSpec extends Specification {
         when:
         def batcher = new MicroBatcher<>(backend, config)
         // Submit items with old batch size (2)
-        (1..3).each { batcher.submit("item-$it") }
+        (1..3).each { batcher.submit("item-$it", null) }
         // Wait for first batch to complete
         while (batchCount.get() < 1 && System.currentTimeMillis() < System.currentTimeMillis() + 500) {
             Thread.sleep(10)
@@ -2427,7 +2422,7 @@ class MicroBatcherSpec extends Specification {
         // Update batch size
         batcher.updateBatchSize(5)
         // Submit more items - should use new batch size
-        (4..9).each { batcher.submit("item-$it") }
+        (4..9).each { batcher.submit("item-$it", null) }
         // Wait for batches to complete
         Thread.sleep(80)
 
@@ -2461,7 +2456,7 @@ class MicroBatcherSpec extends Specification {
         def batcher = new MicroBatcher<>(backend, config)
         // Update linger time before submitting
         batcher.updateLingerTime(Duration.ofMillis(50))
-        batcher.submit("item-1")
+        batcher.submit("item-1", null)
         // Wait for batch to be processed (should happen within 50ms with new linger time)
         def processed = batchLatch.await(200, TimeUnit.MILLISECONDS)
 
@@ -2539,12 +2534,12 @@ class MicroBatcherSpec extends Specification {
         when:
         def batcher = new MicroBatcher<>(backend, config)
         // Submit some items with old batch size
-        (1..3).each { batcher.submit("item-$it") }
+        (1..3).each { batcher.submit("item-$it", null) }
         Thread.sleep(80)
         // Update batch size
         batcher.updateBatchSize(5)
         // Submit more items - should use new batch size
-        (4..9).each { batcher.submit("item-$it") }
+        (4..9).each { batcher.submit("item-$it", null) }
         Thread.sleep(30)
 
         then:
@@ -2583,7 +2578,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         Thread.sleep(30)
         // Close batcher to cause retry submit to fail
         batcher.close()
@@ -2620,7 +2615,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         Thread.sleep(30)
         // Close batcher while retry is scheduled (with delay)
         batcher.close()
@@ -2657,7 +2652,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         Thread.sleep(30)
         // Close batcher to interrupt retry delay
         batcher.close()
@@ -2683,7 +2678,7 @@ class MicroBatcherSpec extends Specification {
             .lingerTime(Duration.ofMillis(50))
             .build()
         def batcher = new MicroBatcher<>(backend, config)
-        batcher.submit("item-1")
+        batcher.submit("item-1", null)
         Thread.sleep(20)
 
         when:
@@ -2726,7 +2721,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         Thread.sleep(30)
         // Close batcher to cause IllegalStateException on retry submit
         batcher.close()
@@ -2761,7 +2756,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         Thread.sleep(20)
         batcher.close() // Should process remaining with exception
 
@@ -2792,7 +2787,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         // Wait for all retries to complete
         def result = future.get(2, TimeUnit.SECONDS)
 
@@ -2824,7 +2819,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         Thread.sleep(30) // Let initial failure happen
         batcher.close() // Should clear all retry counts
 
@@ -2857,7 +2852,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         // Wait for all retries to complete
         def result = future.get(2, TimeUnit.SECONDS)
 
@@ -2889,7 +2884,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         Thread.sleep(30) // Let initial failure happen
         batcher.close() // Should clear all retry counts
 
@@ -2928,7 +2923,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         Thread.sleep(30)
         def result = future.get(1, TimeUnit.SECONDS)
 
@@ -2979,7 +2974,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         def result = future.get(1, TimeUnit.SECONDS)
 
         then:
@@ -3004,7 +2999,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         def result = future.get(1, TimeUnit.SECONDS)
 
         then:
@@ -3028,10 +3023,10 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future1 = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         // Small delay to let first item start batch
         Thread.sleep(10)
-        def future2 = batcher.submit("item-2")
+        batcher.submit("item-2", null)
         def result1 = future1.get(1, TimeUnit.SECONDS)
         def result2 = future2.get(1, TimeUnit.SECONDS)
 
@@ -3064,7 +3059,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         // Wait for processing
         Thread.sleep(150)
 
@@ -3132,7 +3127,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         def result = future.get(1, TimeUnit.SECONDS)
 
         then:
@@ -3159,7 +3154,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def futures = (1..3).collect { batcher.submit("item-$it") }
+        def futures = (1..3).collect { batcher.submit("item-$it", null) }
         futures.each { it.get(1, TimeUnit.SECONDS) }
 
         then:
@@ -3186,7 +3181,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         def result = future.get(1, TimeUnit.SECONDS)
 
         then:
@@ -3211,9 +3206,9 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future1 = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         Thread.sleep(9) // Wait until deadline is very close
-        def future2 = batcher.submit("item-2")
+        batcher.submit("item-2", null)
         def result1 = future1.get(1, TimeUnit.SECONDS)
         def result2 = future2.get(1, TimeUnit.SECONDS)
 
@@ -3239,7 +3234,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         Thread.sleep(80) // Wait for item to be processed
         batcher.close() // Queue should be empty by now
 
@@ -3266,7 +3261,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        batcher.submit("item-1")
+        batcher.submit("item-1", null)
         Thread.sleep(20)
         batcher.close() // Should timeout waiting for queue
 
@@ -3293,7 +3288,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         Thread.sleep(20)
         batcher.close() // Should process remaining items
 
@@ -3325,7 +3320,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        batcher.submit("item-1")
+        batcher.submit("item-1", null)
         Thread.sleep(20)
         batcher.close() // Should timeout and call shutdownNow
 
@@ -3353,9 +3348,9 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config, meterRegistry)
-        batcher.submit("item-1")
-        batcher.submit("item-2")
-        def future = batcher.submit("item-3")
+        batcher.submit("item-1", null)
+        batcher.submit("item-2", null)
+        batcher.submit("item-3", null)
         future.get(1, TimeUnit.SECONDS)
 
         then:
@@ -3384,7 +3379,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         def result = future.get(1, TimeUnit.SECONDS)
 
         then:
@@ -3410,7 +3405,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         def result = future.get(1, TimeUnit.SECONDS)
 
         then:
@@ -3440,7 +3435,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         Thread.sleep(30)
         def result = future.get(1, TimeUnit.SECONDS)
 
@@ -3477,7 +3472,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         def result = future.get(2, TimeUnit.SECONDS)
         def elapsed = System.currentTimeMillis() - startTime
 
@@ -3505,7 +3500,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         def result = future.get(1, TimeUnit.SECONDS)
 
         then:
@@ -3531,7 +3526,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         def result = future.get(1, TimeUnit.SECONDS)
 
         then:
@@ -3556,7 +3551,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         def result = future.get(1, TimeUnit.SECONDS)
 
         then:
@@ -3585,7 +3580,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         def result = future.get(1, TimeUnit.SECONDS)
 
         then:
@@ -3612,7 +3607,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         def result = future.get(1, TimeUnit.SECONDS)
 
         then:
@@ -3640,7 +3635,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         def result = future.get(1, TimeUnit.SECONDS)
 
         then:
@@ -3668,7 +3663,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         def result = future.get(1, TimeUnit.SECONDS)
 
         then:
@@ -3693,7 +3688,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit(null)
+        batcher.submit(null, null)
         def result = future.get(1, TimeUnit.SECONDS)
 
         then:
@@ -3728,7 +3723,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         def result = future.get(1, TimeUnit.SECONDS)
 
         then:
@@ -3753,7 +3748,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         // Interrupt the batch processor thread
         Thread.sleep(20)
         // Close batcher which will interrupt batch processor
@@ -3782,8 +3777,8 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        (1..5).each { batcher.submit("item-$it") }
-        def future = batcher.submit("item-6")
+        (1..5).each { batcher.submit("item-$it", null) }
+        batcher.submit("item-6", null)
         future.get(1, TimeUnit.SECONDS)
 
         then:
@@ -3812,7 +3807,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         Thread.sleep(30)
         def result = future.get(1, TimeUnit.SECONDS)
 
@@ -3843,7 +3838,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         Thread.sleep(30)
         def result = future.get(1, TimeUnit.SECONDS)
 
@@ -3869,7 +3864,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         def result = future.get(1, TimeUnit.SECONDS)
 
         then:
@@ -3908,9 +3903,9 @@ class MicroBatcherSpec extends Specification {
         when:
         def batcher = new MicroBatcher<>(backend, config)
         def futures = [
-            batcher.submit("success-1"),
-            batcher.submit("fail-1"),
-            batcher.submit("success-2")
+            batcher.submit("success-1", null),
+            batcher.submit("fail-1", null),
+            batcher.submit("success-2", null)
         ]
         // Wait for processing and replay
         def results = futures.collect { 
@@ -3948,8 +3943,8 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("success-1")
-        batcher.submit("fail-1")
+        batcher.submit("success-1", null)
+        batcher.submit("fail-1", null)
         Thread.sleep(20)
         batcher.close() // Close while replay might happen
         Thread.sleep(30)
@@ -3977,8 +3972,8 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future1 = batcher.submit("success-1")
-        def future2 = batcher.submit("fail-1")
+        batcher.submit("success-1", null)
+        batcher.submit("fail-1", null)
         Thread.sleep(20)
         batcher.close() // Close to cause IllegalStateException on replay
         Thread.sleep(30)
@@ -4004,7 +3999,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         def result = future.get(1, TimeUnit.SECONDS)
 
         then:
@@ -4028,7 +4023,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         def result = future.get(1, TimeUnit.SECONDS)
 
         then:
@@ -4053,7 +4048,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         def result = future.get(1, TimeUnit.SECONDS)
 
         then:
@@ -4083,7 +4078,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         Thread.sleep(30)
         def result = future.get(1, TimeUnit.SECONDS)
 
@@ -4121,8 +4116,8 @@ class MicroBatcherSpec extends Specification {
         when:
         def batcher = new MicroBatcher<>(backend, config)
         def futures = [
-            batcher.submit("success-1"),
-            batcher.submit("fail-1")
+            batcher.submit("success-1", null),
+            batcher.submit("fail-1", null)
         ]
         def results = futures.collect { 
             try {
@@ -4155,7 +4150,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         def result = future.get(1, TimeUnit.SECONDS)
 
         then:
@@ -4181,7 +4176,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         def result = future.get(1, TimeUnit.SECONDS)
 
         then:
@@ -4208,8 +4203,8 @@ class MicroBatcherSpec extends Specification {
         when:
         def batcher = new MicroBatcher<>(backend, config)
         def futures = [
-            batcher.submit("item-1"),
-            batcher.submit("item-2")
+            batcher.submit("item-1", null),
+            batcher.submit("item-2", null)
         ]
         def results = futures.collect { 
             try {
@@ -4243,8 +4238,8 @@ class MicroBatcherSpec extends Specification {
         when:
         def batcher = new MicroBatcher<>(backend, config)
         def futures = [
-            batcher.submit("item-1"),
-            batcher.submit("item-2")
+            batcher.submit("item-1", null),
+            batcher.submit("item-2", null)
         ]
         def results = futures.collect { it.get(1, TimeUnit.SECONDS) }
 
@@ -4272,9 +4267,9 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config, meterRegistry)
-        batcher.submit("item-1")
-        batcher.submit("item-2")
-        def future = batcher.submit("item-3")
+        batcher.submit("item-1", null)
+        batcher.submit("item-2", null)
+        batcher.submit("item-3", null)
         future.get(1, TimeUnit.SECONDS)
 
         then:
@@ -4300,9 +4295,9 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config, meterRegistry)
-        batcher.submit("item-1")
-        batcher.submit("item-2")
-        def future = batcher.submit("item-3")
+        batcher.submit("item-1", null)
+        batcher.submit("item-2", null)
+        batcher.submit("item-3", null)
         future.get(1, TimeUnit.SECONDS)
 
         then:
@@ -4414,7 +4409,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         def result = future.get(1, TimeUnit.SECONDS)
 
         then:
@@ -4438,7 +4433,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         def result = future.get(1, TimeUnit.SECONDS)
 
         then:
@@ -4463,8 +4458,8 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        (1..5).each { batcher.submit("item-$it") }
-        def future = batcher.submit("item-6")
+        (1..5).each { batcher.submit("item-$it", null) }
+        batcher.submit("item-6", null)
         future.get(1, TimeUnit.SECONDS)
 
         then:
@@ -4489,7 +4484,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         future.get(1, TimeUnit.SECONDS)
 
         then:
@@ -4514,7 +4509,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         future.get(1, TimeUnit.SECONDS)
 
         then:
@@ -4539,8 +4534,8 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        (1..3).each { batcher.submit("item-$it") }
-        def future = batcher.submit("item-4")
+        (1..3).each { batcher.submit("item-$it", null) }
+        batcher.submit("item-4", null)
         future.get(1, TimeUnit.SECONDS)
 
         then:
@@ -4565,8 +4560,8 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        (1..2).each { batcher.submit("item-$it") }
-        def future = batcher.submit("item-3")
+        (1..2).each { batcher.submit("item-$it", null) }
+        batcher.submit("item-3", null)
         future.get(1, TimeUnit.SECONDS)
 
         then:
@@ -4615,8 +4610,8 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        (1..2).each { batcher.submit("item-$it") }
-        def future = batcher.submit("item-3")
+        (1..2).each { batcher.submit("item-$it", null) }
+        batcher.submit("item-3", null)
         future.get(1, TimeUnit.SECONDS)
 
         then:
@@ -4641,8 +4636,8 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        (1..2).each { batcher.submit("item-$it") }
-        def future = batcher.submit("item-3")
+        (1..2).each { batcher.submit("item-$it", null) }
+        batcher.submit("item-3", null)
         future.get(1, TimeUnit.SECONDS)
 
         then:
@@ -4666,7 +4661,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         def result = future.get(1, TimeUnit.SECONDS)
 
         then:
@@ -4778,7 +4773,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         def result = future.get(1, TimeUnit.SECONDS)
 
         then:
@@ -4808,7 +4803,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         def result = future.get(1, TimeUnit.SECONDS)
 
         then:
@@ -4836,7 +4831,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def future = batcher.submit("item-1")
+        batcher.submit("item-1", null)
         def result = future.get(1, TimeUnit.SECONDS)
 
         then:
@@ -4862,7 +4857,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def result = batcher.submitSync("item-1")
+        def result = batcher.submit("item-1", null)
 
         then:
         result instanceof ItemResult.Success
@@ -4888,8 +4883,8 @@ class MicroBatcherSpec extends Specification {
         when:
         def batcher = new MicroBatcher<>(backend, config)
         // Fill queue completely - submit items that will stay in queue
-        batcher.submit("item-1")
-        batcher.submit("item-2")
+        batcher.submit("item-1", null)
+        batcher.submit("item-2", null)
         // Wait in a loop until queue is actually full
         def queueDepthBefore = 0
         for (int i = 0; i < 10; i++) {
@@ -4917,141 +4912,6 @@ class MicroBatcherSpec extends Specification {
         batcher?.close()
     }
 
-    def "should return failure when backpressure rejects via submitSync"() {
-        given:
-        Backend<String> backend = { batch ->
-            def successes = batch.collect { new SuccessEvent<>(it) }
-            new BatchResult<>(successes, List.of())
-        }
-        
-        BackpressureProvider provider = Mock()
-        provider.getBackpressureLevel() >> 0.9  // High backpressure
-        provider.getSourceName() >> "Test Provider"
-        
-        BackpressureStrategy<String> strategy = new com.vajrapulse.vortex.backpressure.RejectStrategy<>(0.7)
-        
-        def config = BatcherConfig.builder()
-            .batchSize(5)
-            .lingerTime(Duration.ofMillis(100))
-            .backpressureProvider(provider)
-            .backpressureStrategy(strategy)
-            .build()
-
-        SimpleMeterRegistry registry = new SimpleMeterRegistry()
-        when:
-        def batcher = new MicroBatcher<>(backend, config, registry)
-        def result = batcher.submitSync("item-1")
-
-        then:
-        result instanceof ItemResult.Failure
-        result.error != null
-        // Verify backpressure rejected metric is recorded
-        batcher.getMeterRegistry().counter("vortex.backpressure.rejected").count() == 1
-
-        cleanup:
-        batcher?.close()
-    }
-
-    def "should return success when backpressure drops via submitSync"() {
-        given:
-        Backend<String> backend = { batch ->
-            def successes = batch.collect { new SuccessEvent<>(it) }
-            new BatchResult<>(successes, List.of())
-        }
-        
-        BackpressureProvider provider = Mock()
-        provider.getBackpressureLevel() >> 0.9  // High backpressure
-        provider.getSourceName() >> "Test Provider"
-        
-        BackpressureStrategy<String> strategy = new com.vajrapulse.vortex.backpressure.DropStrategy<>(0.7)
-        
-        def config = BatcherConfig.builder()
-            .batchSize(5)
-            .lingerTime(Duration.ofMillis(100))
-            .backpressureProvider(provider)
-            .backpressureStrategy(strategy)
-            .build()
-
-        SimpleMeterRegistry registry = new SimpleMeterRegistry()
-        when:
-        def batcher = new MicroBatcher<>(backend, config, registry)
-        def result = batcher.submitSync("item-1")
-
-        then:
-        result instanceof ItemResult.Success
-        result.item == "item-1"
-
-        cleanup:
-        batcher?.close()
-    }
-
-    def "should record invalid backpressure level metric via submitSync"() {
-        given:
-        Backend<String> backend = { batch ->
-            def successes = batch.collect { new SuccessEvent<>(it) }
-            new BatchResult<>(successes, List.of())
-        }
-        
-        BackpressureProvider provider = Mock()
-        provider.getBackpressureLevel() >> 1.5  // Invalid backpressure (out of range)
-        provider.getSourceName() >> "Test Provider"
-        
-        BackpressureStrategy<String> strategy = new com.vajrapulse.vortex.backpressure.RejectStrategy<>(0.7)
-        
-        def config = BatcherConfig.builder()
-            .batchSize(5)
-            .lingerTime(Duration.ofMillis(100))
-            .backpressureProvider(provider)
-            .backpressureStrategy(strategy)
-            .build()
-
-        SimpleMeterRegistry registry = new SimpleMeterRegistry()
-        when:
-        def batcher = new MicroBatcher<>(backend, config, registry)
-        def result = batcher.submitSync("item-1")
-
-        then:
-        result instanceof ItemResult.Success // Invalid level defaults to 0.0, so item is accepted
-        // Verify invalid level metric is recorded
-        batcher.getMeterRegistry().counter("vortex.backpressure.invalid.levels").count() >= 1
-
-        cleanup:
-        batcher?.close()
-    }
-
-    def "should record backpressure check failure metric via submitSync"() {
-        given:
-        Backend<String> backend = { batch ->
-            def successes = batch.collect { new SuccessEvent<>(it) }
-            new BatchResult<>(successes, List.of())
-        }
-        
-        BackpressureProvider provider = Mock()
-        provider.getBackpressureLevel() >> { throw new RuntimeException("Provider error") }
-        provider.getSourceName() >> "Test Provider"
-        
-        BackpressureStrategy<String> strategy = new com.vajrapulse.vortex.backpressure.RejectStrategy<>(0.7)
-        
-        def config = BatcherConfig.builder()
-            .batchSize(5)
-            .lingerTime(Duration.ofMillis(100))
-            .backpressureProvider(provider)
-            .backpressureStrategy(strategy)
-            .build()
-
-        SimpleMeterRegistry registry = new SimpleMeterRegistry()
-        when:
-        def batcher = new MicroBatcher<>(backend, config, registry)
-        def result = batcher.submitSync("item-1")
-
-        then:
-        result instanceof ItemResult.Success // Exception is caught, item proceeds normally
-        // Verify backpressure check failure metric is recorded
-        batcher.getMeterRegistry().counter("vortex.backpressure.check.failures").count() >= 1
-
-        cleanup:
-        batcher?.close()
-    }
 
     def "should throw exception when batcher is closed via submitSync"() {
         given:
@@ -5067,7 +4927,7 @@ class MicroBatcherSpec extends Specification {
         when:
         def batcher = new MicroBatcher<>(backend, config)
         batcher.close()
-        batcher.submitSync("item-1")
+        batcher.submit("item-1", null)
 
         then:
         thrown(IllegalStateException)
@@ -5091,7 +4951,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def result = batcher.submitSync("item-1")
+        def result = batcher.submit("item-1", null)
         Thread.sleep(150) // Wait for batch processing
 
         then:
@@ -5116,8 +4976,8 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        batcher.submit("item-1")
-        batcher.submit("item-2")
+        batcher.submit("item-1", null)
+        batcher.submit("item-2", null)
         Thread.sleep(20) // Let items queue
         def depth = batcher.getQueueDepth()
 
@@ -5154,8 +5014,8 @@ class MicroBatcherSpec extends Specification {
         when:
         def batcher = new MicroBatcher<>(backend, config)
         // Fill queue - submit items that will stay in queue (backend is blocked)
-        batcher.submit("item-1")
-        batcher.submit("item-2")
+        batcher.submit("item-1", null)
+        batcher.submit("item-2", null)
         // Wait a very short time for items to be queued (before batch processor picks them up)
         Thread.sleep(10)
         
@@ -5240,7 +5100,7 @@ class MicroBatcherSpec extends Specification {
         SimpleMeterRegistry registry = new SimpleMeterRegistry()
         when:
         def batcher = new MicroBatcher<>(backend, config, registry)
-        def callbackFuture = batcher.submitWithCallback("item-1", { item, result ->
+        batcher.submit("item-1", { item, result ->
             callbackInvoked.incrementAndGet()
             if (result instanceof ItemResult.Failure) {
                 callbackResult.set(2)
@@ -5274,7 +5134,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def callbackFuture = batcher.submitWithCallback("item-1", { item, result ->
+        batcher.submit("item-1", { item, result ->
             callbackInvoked.incrementAndGet()
             if (result instanceof ItemResult.Success) {
                 callbackResult.set(1)
@@ -5282,7 +5142,7 @@ class MicroBatcherSpec extends Specification {
                 callbackResult.set(2)
             }
         })
-        callbackFuture.get(500, TimeUnit.MILLISECONDS) // Wait for batch processing
+        Thread.sleep(150) // Wait for batch processing
 
         then:
         callbackInvoked.get() == 1
@@ -5305,7 +5165,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def callbackFuture = batcher.submitWithCallback("item-1", { item, result ->
+        batcher.submit("item-1", { item, result ->
             throw new RuntimeException("Callback error")
         })
         callbackFuture.get(500, TimeUnit.MILLISECONDS)
@@ -5344,7 +5204,7 @@ class MicroBatcherSpec extends Specification {
         SimpleMeterRegistry registry = new SimpleMeterRegistry()
         when:
         def batcher = new MicroBatcher<>(backend, config, registry)
-        def callbackFuture = batcher.submitWithCallback("item-1", { item, result ->
+        batcher.submit("item-1", { item, result ->
             callbackInvoked.incrementAndGet()
             if (result instanceof ItemResult.Success) {
                 callbackResult.set(1)
@@ -5388,7 +5248,7 @@ class MicroBatcherSpec extends Specification {
         SimpleMeterRegistry registry = new SimpleMeterRegistry()
         when:
         def batcher = new MicroBatcher<>(backend, config, registry)
-        def callbackFuture = batcher.submitWithCallback("item-1", { item, result ->
+        batcher.submit("item-1", { item, result ->
             callbackInvoked.incrementAndGet()
             if (result instanceof ItemResult.Success) {
                 callbackResult.set(1)
@@ -5434,7 +5294,7 @@ class MicroBatcherSpec extends Specification {
         SimpleMeterRegistry registry = new SimpleMeterRegistry()
         when:
         def batcher = new MicroBatcher<>(backend, config, registry)
-        def callbackFuture = batcher.submitWithCallback("item-1", { item, result ->
+        batcher.submit("item-1", { item, result ->
             callbackInvoked.incrementAndGet()
             if (result instanceof ItemResult.Success) {
                 callbackResult.set(1)
@@ -5471,7 +5331,7 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def callbackFuture = batcher.submitWithCallback("item-1", { item, result ->
+        batcher.submit("item-1", { item, result ->
             callbackInvoked.incrementAndGet()
             if (result instanceof ItemResult.Success) {
                 callbackResult.set(1)
@@ -5506,13 +5366,12 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        // Use submitSync to check immediate rejection
-        def syncResult = batcher.submitSync("item-1")
-        // If accepted, use submitWithCallback to track eventual result
-        def callbackFuture = batcher.submitWithCallback("item-2", { item, result ->
+        // Use submit to check immediate rejection
+        def syncResult = batcher.submit("item-1", null)
+        // If accepted, use submit with callback to track eventual result
+        batcher.submit("item-2", { item, result ->
             // Track result
         })
-        callbackFuture.get(500, TimeUnit.MILLISECONDS)
         Thread.sleep(150) // Wait for processing
 
         then:

@@ -1,7 +1,5 @@
 package com.vajrapulse.vortex
 
-import com.vajrapulse.vortex.backpressure.BackpressureProvider
-import com.vajrapulse.vortex.backpressure.BackpressureStrategy
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import spock.lang.Specification
 
