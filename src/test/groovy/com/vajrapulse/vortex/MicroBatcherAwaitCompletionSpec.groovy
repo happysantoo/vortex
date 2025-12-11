@@ -34,7 +34,7 @@ class MicroBatcherAwaitCompletionSpec extends Specification {
         
         when:
         // Submit items
-        def futures = (1..3).collect { batcher.submit("item-$it") }
+        def results = (1..3).collect { batcher.submit("item-$it") }
         
         // Wait for batch to start processing
         batchLatch.await(1, TimeUnit.SECONDS)

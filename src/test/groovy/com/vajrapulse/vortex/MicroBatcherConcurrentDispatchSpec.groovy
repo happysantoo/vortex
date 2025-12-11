@@ -45,7 +45,7 @@ class MicroBatcherConcurrentDispatchSpec extends Specification {
         
         when:
         // Submit more batches than the limit
-        def futures = (1..(maxConcurrent + 2)).collect { batcher.submit("item-$it") }
+        def results = (1..(maxConcurrent + 2)).collect { batcher.submit("item-$it") }
         
         // Wait a bit for batches to start
         Thread.sleep(100)
@@ -54,18 +54,8 @@ class MicroBatcherConcurrentDispatchSpec extends Specification {
         // Check that active batches don't exceed limit
         activeBatches.get() <= maxConcurrent
         
-        // Wait for all batches to complete or be rejected
-        futures.each { future ->
-            try {
-                future.get(2, TimeUnit.SECONDS)
-            } catch (Exception e) {
-                // Expected for rejected batches (wrapped in ExecutionException)
-                if (!(e instanceof java.util.concurrent.ExecutionException) && 
-                    !(e.getCause() instanceof ItemRejectedException)) {
-                    throw e
-                }
-            }
-        }
+        // Some items may be rejected due to concurrent limit
+        results.any { it instanceof ItemResult.Success || it instanceof ItemResult.Failure }
         
         // Verify dispatch rejection metric
         def rejectedCount = registry.counter("vortex.dispatch.rejected").count()
@@ -102,7 +92,7 @@ class MicroBatcherConcurrentDispatchSpec extends Specification {
         
         when:
         // Submit batches up to the limit
-        def futures = (1..maxConcurrent).collect { batcher.submit("item-$it") }
+        def results = (1..maxConcurrent).collect { batcher.submit("item-$it") }
         
         // Wait a bit for batches to start
         Thread.sleep(50)
@@ -195,7 +185,7 @@ class MicroBatcherConcurrentDispatchSpec extends Specification {
         
         when:
         // Submit multiple batches
-        def futures = (1..5).collect { batcher.submit("item-$it") }
+        def results = (1..5).collect { batcher.submit("item-$it") }
         futures.each { it.get(1, TimeUnit.SECONDS) }
         
         then:

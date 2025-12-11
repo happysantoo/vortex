@@ -190,7 +190,7 @@ class MetricsProviderSpec extends Specification {
         def metrics = batcher.getMetricsProvider()
 
         // Submit a few items, some will be retried and some may be rejected
-        def futures = []
+        def results = []
         5.times {
             futures << batcher.submit("item-$it")
         }
