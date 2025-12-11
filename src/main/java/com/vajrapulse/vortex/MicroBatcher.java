@@ -436,16 +436,27 @@ public class MicroBatcher<T> implements AutoCloseable {
             }
         }
         
-        // Check queue capacity immediately (atomic operation)
+        // Check queue capacity against rejection threshold
+        int currentSize = queue.size();
+        int maxSize = config.getMaxQueueSize();
+        double threshold = config.getQueueRejectionThreshold();
+        int rejectionThreshold = (int) Math.ceil(maxSize * threshold);
+        
+        if (currentSize >= rejectionThreshold) {
+            // Queue has reached rejection threshold - reject immediately
+            metrics.recordRequestRejected();
+            return ItemResult.failure(item, BackpressureException.queueFull(currentSize, maxSize));
+        }
+        
+        // Queue is below threshold - proceed with submission
         CompletableFuture<BatchResult<T>> future = new CompletableFuture<>();
         PendingRequest<T> request = new PendingRequest<>(item, future);
         
+        // Try to offer to queue (should succeed since we checked threshold, but handle race condition)
         if (!queue.offer(request)) {
-            // Queue is full - reject immediately
-            int currentSize = queue.size();
-            int maxSize = config.getMaxQueueSize();
+            // Queue filled between threshold check and offer (race condition) - reject
             metrics.recordRequestRejected();
-            return ItemResult.failure(item, BackpressureException.queueFull(currentSize, maxSize));
+            return ItemResult.failure(item, BackpressureException.queueFull(queue.size(), maxSize));
         }
         
         // Item accepted - queue it for batch processing

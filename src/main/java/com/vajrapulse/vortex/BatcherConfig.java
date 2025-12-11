@@ -17,6 +17,7 @@ public class BatcherConfig {
     private final Duration retryDelay;
     private final Predicate<Throwable> retryableErrorPredicate;
     private final int maxQueueSize;
+    private final double queueRejectionThreshold;
     private final BatchTracingHook tracingHook;
     private final int maxConcurrentBatches;
     
@@ -37,6 +38,10 @@ public class BatcherConfig {
         this.retryableErrorPredicate = builder.retryableErrorPredicate;
         // Default to 2x batch size if not explicitly set
         this.maxQueueSize = builder.maxQueueSize != null ? builder.maxQueueSize : builder.batchSize * 2;
+        // Default to 1.0 (100% full) if not explicitly set
+        this.queueRejectionThreshold = builder.queueRejectionThreshold != null 
+            ? builder.queueRejectionThreshold 
+            : 1.0;
         this.tracingHook = builder.tracingHook;
         // Default to 0 (unlimited) if not explicitly set
         this.maxConcurrentBatches = builder.maxConcurrentBatches != null 
@@ -135,6 +140,27 @@ public class BatcherConfig {
     }
     
     /**
+     * Gets the queue rejection threshold as a fraction (0.0 to 1.0).
+     * 
+     * <p>Items will be rejected when the queue depth reaches this threshold
+     * of the maximum queue size. For example:
+     * <ul>
+     *   <li>1.0 (default): Reject when queue is 100% full</li>
+     *   <li>0.8: Reject when queue is 80% full</li>
+     *   <li>0.5: Reject when queue is 50% full</li>
+     * </ul>
+     * 
+     * <p>This provides proactive backpressure by rejecting items before the queue
+     * is completely full, giving the system time to process existing items.
+     * 
+     * @return the queue rejection threshold (0.0 to 1.0, default: 1.0)
+     * @since 0.0.9
+     */
+    public double getQueueRejectionThreshold() {
+        return queueRejectionThreshold;
+    }
+    
+    /**
      * Gets the optional tracing hook.
      *
      * <p>When configured, the tracing hook receives notifications about key
@@ -199,6 +225,7 @@ public class BatcherConfig {
         private Duration retryDelay = Duration.ZERO;
         private Predicate<Throwable> retryableErrorPredicate = t -> false;
         private Integer maxQueueSize = null; // null means use default (2x batchSize)
+        private Double queueRejectionThreshold = null; // null means use default (1.0 = 100% full)
         private BatchTracingHook tracingHook = null;
         private Integer maxConcurrentBatches = null; // null means use default (0 = unlimited)
         
@@ -334,8 +361,8 @@ public class BatcherConfig {
         
         /**
          * Sets the maximum queue size for pending requests.
-         * When the queue is full, new submissions will be rejected with RejectedExecutionException
-         * after waiting up to 100ms.
+         * When the queue reaches the rejection threshold (see {@link #queueRejectionThreshold(double)}),
+         * new submissions will be rejected immediately.
          * 
          * <p>If not set, defaults to 2x the batch size to allow buffering of at least 2 batches.
          * 
@@ -352,6 +379,45 @@ public class BatcherConfig {
                     "Max queue size (" + maxQueueSize + ") must be at least equal to batch size (" + batchSize + ")");
             }
             this.maxQueueSize = maxQueueSize;
+            return this;
+        }
+        
+        /**
+         * Sets the queue rejection threshold as a fraction (0.0 to 1.0).
+         * 
+         * <p>Items will be rejected when the queue depth reaches this threshold of the maximum
+         * queue size. For example:
+         * <ul>
+         *   <li>1.0 (default): Reject when queue is 100% full</li>
+         *   <li>0.8: Reject when queue is 80% full</li>
+         *   <li>0.5: Reject when queue is 50% full</li>
+         * </ul>
+         * 
+         * <p>This provides proactive backpressure by rejecting items before the queue is
+         * completely full, giving the system time to process existing items. This is
+         * particularly useful in high-throughput scenarios where you want to start rejecting
+         * items early to prevent the queue from becoming completely saturated.
+         * 
+         * <p>Example:
+         * <pre>{@code
+         * // Reject items when queue is 80% full
+         * config.queueRejectionThreshold(0.8);
+         * 
+         * // With maxQueueSize of 100, items will be rejected when queue depth >= 80
+         * }</pre>
+         * 
+         * @param threshold the rejection threshold (0.0 to 1.0, where 1.0 = 100% full)
+         * @return this builder instance
+         * @throws IllegalArgumentException if threshold is not between 0.0 and 1.0
+         * @since 0.0.9
+         */
+        public Builder queueRejectionThreshold(double threshold) {
+            if (threshold < 0.0 || threshold > 1.0) {
+                throw new IllegalArgumentException(
+                    "Queue rejection threshold must be between 0.0 and 1.0, got: " + threshold
+                );
+            }
+            this.queueRejectionThreshold = threshold;
             return this;
         }
         

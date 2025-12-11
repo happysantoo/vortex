@@ -4867,6 +4867,84 @@ class MicroBatcherSpec extends Specification {
         batcher?.close()
     }
 
+    def "should reject items when queue reaches rejection threshold"() {
+        given:
+        Backend<String> backend = { batch ->
+            Thread.sleep(1000) // Very slow processing to keep items in queue
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(100))
+            .maxQueueSize(10)
+            .queueRejectionThreshold(0.8) // Reject when queue is 80% full (8 items)
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def results = []
+        
+        // Fill queue to 80% (8 items) - these should all be accepted
+        (1..8).each { i ->
+            def result = batcher.submit("item-$i", null)
+            results.add(result)
+        }
+        
+        // 9th item should be rejected (queue is at 80% threshold)
+        def result9 = batcher.submit("item-9", null)
+        results.add(result9)
+
+        then:
+        // First 8 items should be accepted
+        results[0..7].every { it instanceof ItemResult.Success }
+        // 9th item should be rejected
+        result9 instanceof ItemResult.Failure
+        result9.error instanceof BackpressureException
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should reject items at 100% when threshold is 1.0 (default)"() {
+        given:
+        Backend<String> backend = { batch ->
+            Thread.sleep(1000) // Very slow processing to keep items in queue
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(100))
+            .maxQueueSize(10)
+            // queueRejectionThreshold defaults to 1.0 (100% full)
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def results = []
+        
+        // Fill queue to 100% (10 items) - these should all be accepted
+        (1..10).each { i ->
+            def result = batcher.submit("item-$i", null)
+            results.add(result)
+        }
+        
+        // 11th item should be rejected (queue is 100% full)
+        def result11 = batcher.submit("item-11", null)
+        results.add(result11)
+
+        then:
+        // First 10 items should be accepted
+        results[0..9].every { it instanceof ItemResult.Success }
+        // 11th item should be rejected
+        result11 instanceof ItemResult.Failure
+        result11.error instanceof BackpressureException
+
+        cleanup:
+        batcher?.close()
+    }
+
     def "should return failure when queue is full via submitSync"() {
         given:
         Backend<String> backend = { batch ->
