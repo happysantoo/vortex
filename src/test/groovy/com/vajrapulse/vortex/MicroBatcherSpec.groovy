@@ -132,11 +132,11 @@ class MicroBatcherSpec extends Specification {
         then:
         submitResult instanceof ItemResult.Success
         batchResults.size() >= 1
-        def result = batchResults[0]
-        result.isAllSuccess()
-        result.successes.size() == 1
-        result.failures.isEmpty()
-        result.successes[0].data == "test-item"
+        def batchResult = batchResults[0]
+        batchResult.isAllSuccess()
+        batchResult.successes.size() == 1
+        batchResult.failures.isEmpty()
+        batchResult.successes[0].data == "test-item"
 
         cleanup:
         batcher?.close()
