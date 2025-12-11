@@ -2,8 +2,9 @@ package com.vajrapulse.vortex
 
 import com.vajrapulse.vortex.health.BatcherHealth
 import com.vajrapulse.vortex.health.HealthStatus
+import com.vajrapulse.vortex.health.HealthInfo
 import com.vajrapulse.vortex.results.BatchResult
-import new SuccessEvent
+import com.vajrapulse.vortex.results.SuccessEvent
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import spock.lang.Specification
 
@@ -16,7 +17,7 @@ class BatcherHealthSpec extends Specification {
         given:
         Backend<String> backend = { batch ->
             def successes = batch.collect { new new SuccessEvent<>(it) }
-            new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
+            new BatchResult<>(successes, List.of())
         }
         
         BatcherConfig config = BatcherConfig.builder()
@@ -40,7 +41,7 @@ class BatcherHealthSpec extends Specification {
     def "should return DOWN for closed batcher"() {
         given:
         Backend<String> backend = { batch ->
-            new com.vajrapulse.vortex.results.BatchResult<>(List.of(), List.of())
+            new BatchResult<>(List.of(), List.of())
         }
         
         BatcherConfig config = BatcherConfig.builder()
@@ -61,7 +62,7 @@ class BatcherHealthSpec extends Specification {
         given:
         Backend<String> backend = { batch ->
             def failures = batch.collect { new new FailureEvent<>(it, new RuntimeException("Fail")) }
-            new com.vajrapulse.vortex.results.BatchResult<>(List.of(), failures)
+            new BatchResult<>(List.of(), failures)
         }
         
         BatcherConfig config = BatcherConfig.builder()
@@ -94,7 +95,7 @@ class BatcherHealthSpec extends Specification {
         given:
         Backend<String> backend = { batch ->
             def failures = batch.collect { new new FailureEvent<>(it, new RuntimeException("Fail")) }
-            new com.vajrapulse.vortex.results.BatchResult<>(List.of(), failures)
+            new BatchResult<>(List.of(), failures)
         }
         
         BatcherConfig config = BatcherConfig.builder()
@@ -128,7 +129,7 @@ class BatcherHealthSpec extends Specification {
         given:
         Backend<String> backend = { batch ->
             def successes = batch.collect { new new SuccessEvent<>(it) }
-            new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
+            new BatchResult<>(successes, List.of())
         }
         
         BatcherConfig config = BatcherConfig.builder()
@@ -154,7 +155,7 @@ class BatcherHealthSpec extends Specification {
     
     def "should reject invalid thresholds"() {
         given:
-        Backend<String> backend = { batch -> new com.vajrapulse.vortex.results.BatchResult<>(List.of(), List.of()) }
+        Backend<String> backend = { batch -> new BatchResult<>(List.of(), List.of()) }
         BatcherConfig config = BatcherConfig.builder().batchSize(10).build()
         MicroBatcher<String> batcher = new MicroBatcher<>(backend, config, new SimpleMeterRegistry())
         
@@ -178,7 +179,7 @@ class BatcherHealthSpec extends Specification {
         given:
         Backend<String> backend = { batch ->
             def successes = batch.collect { new new SuccessEvent<>(it) }
-            new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
+            new BatchResult<>(successes, List.of())
         }
         
         BatcherConfig config = BatcherConfig.builder()
@@ -275,7 +276,7 @@ class BatcherHealthSpec extends Specification {
         given:
         Backend<String> backend = { batch ->
             def successes = batch.collect { new new SuccessEvent<>(it) }
-            new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
+            new BatchResult<>(successes, List.of())
         }
         
         BatcherConfig config = BatcherConfig.builder()
