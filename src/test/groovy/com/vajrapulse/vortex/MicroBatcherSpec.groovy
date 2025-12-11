@@ -1647,7 +1647,7 @@ class MicroBatcherSpec extends Specification {
              when:
         def batcher = new MicroBatcher<>(backendWithCapture, config)
         def results = [
-            def submitResult = batcher.submit("item-1"),
+            batcher.submit("item-1"),
             batcher.submit("item-2"),
             batcher.submit("item-3")
         ]
