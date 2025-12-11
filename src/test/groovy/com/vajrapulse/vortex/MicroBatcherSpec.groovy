@@ -431,11 +431,8 @@ class MicroBatcherSpec extends Specification {
         
         // Wait for all futures to complete - this is the proper synchronization
         def completedFutures = 0
-        Thread.sleep(200)  // Wait for batch processing 
-            catch (Exception e) { 
-                // Ignore exceptions - items should still be processed
-            }
-        }
+        Thread.sleep(200)  // Wait for batch processing
+        def completedItems = results.count { it instanceof ItemResult.Success || it instanceof ItemResult.Failure }
 
         then:
         // Items should be processed (either by batch processor or by close)
