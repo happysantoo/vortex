@@ -46,8 +46,8 @@ class MicroBatcherAwaitCompletionSpec extends Specification {
         completed == true
         batcher.getQueueDepth() == 0
         
-        // All futures should complete
-        futures.each { it.get(1, TimeUnit.SECONDS) }
+        // All items should be accepted (not rejected)  
+        results.each { assert it instanceof ItemResult.Success }
         
         cleanup:
         batcher?.close()
@@ -222,9 +222,8 @@ class MicroBatcherAwaitCompletionSpec extends Specification {
         MicroBatcher<String> batcher = new MicroBatcher<>(backend, config, registry)
         
         when:
-        // Submit and wait for completion
-        def future = batcher.submit("item-1")
-        future.get(1, TimeUnit.SECONDS)
+        // Submit item
+        def result = batcher.submit("item-1", null)
         
         // Wait a bit for batch to complete
         Thread.sleep(100)
