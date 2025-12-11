@@ -25,13 +25,13 @@ public class AdaptiveBatchingExample {
             
             for (String item : batch) {
                 if (item.startsWith("fail")) {
-                    failures.add(new FailureEvent<>(item, new RuntimeException("Simulated failure")));
+                    failures.add(new com.vajrapulse.vortex.results.FailureEvent<>(item, new RuntimeException("Simulated failure")));
                 } else {
-                    successes.add(new SuccessEvent<>(item));
+                    successes.add(new com.vajrapulse.vortex.results.SuccessEvent<>(item));
                 }
             }
             
-            return new BatchResult<>(successes, failures);
+            return new com.vajrapulse.vortex.results.BatchResult<>(successes, failures);
         };
         
         SimpleMeterRegistry registry = new SimpleMeterRegistry();

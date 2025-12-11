@@ -27,8 +27,8 @@ class MicroBatcherConcurrentDispatchSpec extends Specification {
                 activeBatches.decrementAndGet()
                 batchLatch.countDown()
             }
-            def successes = batch.collect { new SuccessEvent<>(it) }
-            new BatchResult<>(successes, List.of())
+            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         
         def config = BatcherConfig.builder()
@@ -84,8 +84,8 @@ class MicroBatcherConcurrentDispatchSpec extends Specification {
             } finally {
                 batchLatch.countDown()
             }
-            def successes = batch.collect { new SuccessEvent<>(it) }
-            new BatchResult<>(successes, List.of())
+            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         
         def config = BatcherConfig.builder()
@@ -128,8 +128,8 @@ class MicroBatcherConcurrentDispatchSpec extends Specification {
             } finally {
                 batchLatch.countDown()
             }
-            def successes = batch.collect { new SuccessEvent<>(it) }
-            new BatchResult<>(successes, List.of())
+            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         
         def config = BatcherConfig.builder()
@@ -177,8 +177,8 @@ class MicroBatcherConcurrentDispatchSpec extends Specification {
         
         Backend<String> backend = { batch ->
             batchCount.incrementAndGet()
-            def successes = batch.collect { new SuccessEvent<>(it) }
-            new BatchResult<>(successes, List.of())
+            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         
         def config = BatcherConfig.builder()
@@ -220,8 +220,8 @@ class MicroBatcherConcurrentDispatchSpec extends Specification {
             } finally {
                 batchLatch.countDown()
             }
-            def successes = batch.collect { new SuccessEvent<>(it) }
-            new BatchResult<>(successes, List.of())
+            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         
         def config = BatcherConfig.builder()
@@ -261,8 +261,8 @@ class MicroBatcherConcurrentDispatchSpec extends Specification {
         def maxConcurrent = 1
         
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new SuccessEvent<>(it) }
-            new BatchResult<>(successes, List.of())
+            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         
         def config = BatcherConfig.builder()

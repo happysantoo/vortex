@@ -53,9 +53,9 @@ public class BackpressureExample {
             Thread.sleep(100); // Simulate slow processing
             List<SuccessEvent<String>> successes = new ArrayList<>();
             for (String item : batch) {
-                successes.add(new SuccessEvent<>(item));
+                successes.add(new com.vajrapulse.vortex.results.SuccessEvent<>(item));
             }
-            return new BatchResult<>(successes, new ArrayList<>());
+            return new com.vajrapulse.vortex.results.BatchResult<>(successes, new ArrayList<>());
         };
         
         // Configure with small queue size to trigger backpressure quickly
@@ -111,9 +111,9 @@ public class BackpressureExample {
         Backend<String> backend = batch -> {
             List<SuccessEvent<String>> successes = new ArrayList<>();
             for (String item : batch) {
-                successes.add(new SuccessEvent<>(item));
+                successes.add(new com.vajrapulse.vortex.results.SuccessEvent<>(item));
             }
-            return new BatchResult<>(successes, new ArrayList<>());
+            return new com.vajrapulse.vortex.results.BatchResult<>(successes, new ArrayList<>());
         };
         
         BatcherConfig config = BatcherConfig.builder()
@@ -174,9 +174,9 @@ public class BackpressureExample {
             Thread.sleep(200); // Slow processing
             List<SuccessEvent<String>> successes = new ArrayList<>();
             for (String item : batch) {
-                successes.add(new SuccessEvent<>(item));
+                successes.add(new com.vajrapulse.vortex.results.SuccessEvent<>(item));
             }
-            return new BatchResult<>(successes, new ArrayList<>());
+            return new com.vajrapulse.vortex.results.BatchResult<>(successes, new ArrayList<>());
         };
         
         BatcherConfig config = BatcherConfig.builder()
@@ -254,9 +254,9 @@ public class BackpressureExample {
         Backend<String> backend = batch -> {
             List<SuccessEvent<String>> successes = new ArrayList<>();
             for (String item : batch) {
-                successes.add(new SuccessEvent<>(item));
+                successes.add(new com.vajrapulse.vortex.results.SuccessEvent<>(item));
             }
-            return new BatchResult<>(successes, new ArrayList<>());
+            return new com.vajrapulse.vortex.results.BatchResult<>(successes, new ArrayList<>());
         };
         
         BatcherConfig config = BatcherConfig.builder()
@@ -310,9 +310,9 @@ public class BackpressureExample {
         Backend<String> backend = batch -> {
             List<SuccessEvent<String>> successes = new ArrayList<>();
             for (String item : batch) {
-                successes.add(new SuccessEvent<>(item));
+                successes.add(new com.vajrapulse.vortex.results.SuccessEvent<>(item));
             }
-            return new BatchResult<>(successes, new ArrayList<>());
+            return new com.vajrapulse.vortex.results.BatchResult<>(successes, new ArrayList<>());
         };
         
         BatcherConfig config = BatcherConfig.builder()

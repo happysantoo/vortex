@@ -96,15 +96,15 @@ public class KafkaConsumerBackpressureExample {
                 try {
                     // APPLICATION RESPONSIBILITY: Business logic for processing each item
                     processItem(item);
-                    successes.add(new SuccessEvent<>(item));
+                    successes.add(new com.vajrapulse.vortex.results.SuccessEvent<>(item));
                     processedCount.incrementAndGet();
                 } catch (Exception e) {
                     logger.error("Failed to process item: {}", item, e);
-                    failures.add(new FailureEvent<>(item, e));
+                    failures.add(new com.vajrapulse.vortex.results.FailureEvent<>(item, e));
                 }
             }
             
-            return new BatchResult<>(successes, failures);
+            return new com.vajrapulse.vortex.results.BatchResult<>(successes, failures);
         };
         
         // Configuration

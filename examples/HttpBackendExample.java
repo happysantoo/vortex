@@ -43,17 +43,17 @@ public class HttpBackendExample {
                         HttpResponse.BodyHandlers.ofString());
                     
                     if (response.statusCode() == 200) {
-                        successes.add(new SuccessEvent<>(item));
+                        successes.add(new com.vajrapulse.vortex.results.SuccessEvent<>(item));
                     } else {
-                        failures.add(new FailureEvent<>(item, 
+                        failures.add(new com.vajrapulse.vortex.results.FailureEvent<>(item, 
                             new RuntimeException("HTTP " + response.statusCode())));
                     }
                 } catch (IOException | InterruptedException e) {
-                    failures.add(new FailureEvent<>(item, e));
+                    failures.add(new com.vajrapulse.vortex.results.FailureEvent<>(item, e));
                 }
             }
             
-            return new BatchResult<>(successes, failures);
+            return new com.vajrapulse.vortex.results.BatchResult<>(successes, failures);
         };
         
         BatcherConfig config = BatcherConfig.builder()

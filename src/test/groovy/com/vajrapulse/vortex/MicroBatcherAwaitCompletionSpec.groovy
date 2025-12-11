@@ -17,8 +17,8 @@ class MicroBatcherAwaitCompletionSpec extends Specification {
         
         Backend<String> backend = { batch ->
             batchLatch.countDown()  // Signal batch started
-            def successes = batch.collect { new SuccessEvent<>(it) }
-            new BatchResult<>(successes, List.of())
+            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         
         def config = BatcherConfig.builder()
@@ -64,8 +64,8 @@ class MicroBatcherAwaitCompletionSpec extends Specification {
             } finally {
                 batchLatch.countDown()
             }
-            def successes = batch.collect { new SuccessEvent<>(it) }
-            new BatchResult<>(successes, List.of())
+            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         
         def config = BatcherConfig.builder()
@@ -109,8 +109,8 @@ class MicroBatcherAwaitCompletionSpec extends Specification {
             } finally {
                 batchLatch.countDown()
             }
-            def successes = batch.collect { new SuccessEvent<>(it) }
-            new BatchResult<>(successes, List.of())
+            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         
         def config = BatcherConfig.builder()
@@ -142,8 +142,8 @@ class MicroBatcherAwaitCompletionSpec extends Specification {
         Backend<String> backend = { batch ->
             // Simulate slow processing
             Thread.sleep(500)
-            def successes = batch.collect { new SuccessEvent<>(it) }
-            new BatchResult<>(successes, List.of())
+            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         
         def config = BatcherConfig.builder()
@@ -176,8 +176,8 @@ class MicroBatcherAwaitCompletionSpec extends Specification {
     def "should work when batcher is already closed"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new SuccessEvent<>(it) }
-            new BatchResult<>(successes, List.of())
+            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         
         def config = BatcherConfig.builder()
@@ -206,8 +206,8 @@ class MicroBatcherAwaitCompletionSpec extends Specification {
     def "should return true immediately when queue is empty and no in-flight batches"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new SuccessEvent<>(it) }
-            new BatchResult<>(successes, List.of())
+            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         
         def config = BatcherConfig.builder()
@@ -240,8 +240,8 @@ class MicroBatcherAwaitCompletionSpec extends Specification {
         given:
         Backend<String> backend = { batch ->
             Thread.sleep(100)  // Simulate processing
-            def successes = batch.collect { new SuccessEvent<>(it) }
-            new BatchResult<>(successes, List.of())
+            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         
         def config = BatcherConfig.builder()
@@ -280,8 +280,8 @@ class MicroBatcherAwaitCompletionSpec extends Specification {
             } finally {
                 batchLatch.countDown()
             }
-            def successes = batch.collect { new SuccessEvent<>(it) }
-            new BatchResult<>(successes, List.of())
+            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         
         def config = BatcherConfig.builder()
@@ -318,8 +318,8 @@ class MicroBatcherAwaitCompletionSpec extends Specification {
             while (backendBlocked.get()) {
                 Thread.sleep(10)
             }
-            def successes = batch.collect { new SuccessEvent<>(it) }
-            new BatchResult<>(successes, List.of())
+            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         
         def config = BatcherConfig.builder()
@@ -363,8 +363,8 @@ class MicroBatcherAwaitCompletionSpec extends Specification {
         given:
         Backend<String> backend = { batch ->
             Thread.sleep(100)  // Simulate processing
-            def successes = batch.collect { new SuccessEvent<>(it) }
-            new BatchResult<>(successes, List.of())
+            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         
         def config = BatcherConfig.builder()
@@ -400,8 +400,8 @@ class MicroBatcherAwaitCompletionSpec extends Specification {
             while (backendBlocked.get()) {
                 Thread.sleep(10)
             }
-            def successes = batch.collect { new SuccessEvent<>(it) }
-            new BatchResult<>(successes, List.of())
+            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         
         def config = BatcherConfig.builder()
@@ -452,8 +452,8 @@ class MicroBatcherAwaitCompletionSpec extends Specification {
         given:
         Backend<String> backend = { batch ->
             Thread.sleep(500)  // Slow processing
-            def successes = batch.collect { new SuccessEvent<>(it) }
-            new BatchResult<>(successes, List.of())
+            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         
         def config = BatcherConfig.builder()

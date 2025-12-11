@@ -1,5 +1,7 @@
 package com.vajrapulse.vortex;
 
+import com.vajrapulse.vortex.results.BatchResult;
+import com.vajrapulse.vortex.results.SuccessEvent;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -19,9 +21,9 @@ public class TestBackend<T> implements Backend<T> {
         this.batchProcessor = batch -> {
             List<SuccessEvent<T>> successes = new ArrayList<>();
             for (T item : batch) {
-                successes.add(new SuccessEvent<>(item));
+                successes.add(new com.vajrapulse.vortex.results.SuccessEvent<>(item));
             }
-            return new BatchResult<>(successes, List.of());
+            return new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of());
         };
     }
     

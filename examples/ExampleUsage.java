@@ -33,13 +33,13 @@ public class ExampleUsage {
             
             for (String item : batch) {
                 if (item.contains("error")) {
-                    failures.add(new FailureEvent<>(item, new RuntimeException("Simulated error")));
+                    failures.add(new com.vajrapulse.vortex.results.FailureEvent<>(item, new RuntimeException("Simulated error")));
                 } else {
-                    successes.add(new SuccessEvent<>(item));
+                    successes.add(new com.vajrapulse.vortex.results.SuccessEvent<>(item));
                 }
             }
             
-            return new BatchResult<>(successes, failures);
+            return new com.vajrapulse.vortex.results.BatchResult<>(successes, failures);
         };
         
         // Configure the batcher

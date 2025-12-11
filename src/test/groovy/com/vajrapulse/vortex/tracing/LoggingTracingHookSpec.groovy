@@ -1,8 +1,8 @@
 package com.vajrapulse.vortex.tracing
 
-import com.vajrapulse.vortex.BatchResult
-import com.vajrapulse.vortex.FailureEvent
-import com.vajrapulse.vortex.SuccessEvent
+import com.vajrapulse.vortex.results.BatchResult
+import com.vajrapulse.vortex.results.FailureEvent
+import com.vajrapulse.vortex.results.SuccessEvent
 import org.slf4j.Logger
 import spock.lang.Specification
 
@@ -107,9 +107,9 @@ class LoggingTracingHookSpec extends Specification {
         def logger = Mock(Logger)
         logger.isDebugEnabled() >> true
         def hook = new LoggingTracingHook(logger)
-        def batchResult = new BatchResult<>(
-            [new SuccessEvent<>("item-1"), new SuccessEvent<>("item-2")],
-            [new FailureEvent<>("item-3", new RuntimeException("error"))]
+        def batchResult = new com.vajrapulse.vortex.results.BatchResult<>(
+            [new com.vajrapulse.vortex.results.SuccessEvent<>("item-1"), new com.vajrapulse.vortex.results.SuccessEvent<>("item-2")],
+            [new com.vajrapulse.vortex.results.FailureEvent<>("item-3", new RuntimeException("error"))]
         )
 
         when:
@@ -123,7 +123,7 @@ class LoggingTracingHookSpec extends Specification {
         given:
         def logger = Mock(Logger)
         def hook = new LoggingTracingHook(logger)
-        def batchResult = new BatchResult<>([new SuccessEvent<>("item-1")], [])
+        def batchResult = new com.vajrapulse.vortex.results.BatchResult<>([new com.vajrapulse.vortex.results.SuccessEvent<>("item-1")], [])
 
         when:
         hook.onBatchDispatchSuccess(null, batchResult)
@@ -219,7 +219,7 @@ class LoggingTracingHookSpec extends Specification {
         when:
         hook.onSubmit("item")
         hook.onBatchDispatchStart(["item"])
-        hook.onBatchDispatchSuccess(["item"], new BatchResult<>([new SuccessEvent<>("item")], []))
+        hook.onBatchDispatchSuccess(["item"], new com.vajrapulse.vortex.results.BatchResult<>([new com.vajrapulse.vortex.results.SuccessEvent<>("item")], []))
 
         then:
         0 * logger.debug(_, _)

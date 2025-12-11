@@ -20,13 +20,13 @@ public class AutoReplayExample {
             
             for (String item : batch) {
                 if (item.contains("fail")) {
-                    failures.add(new FailureEvent<>(item, new RuntimeException("Failed")));
+                    failures.add(new com.vajrapulse.vortex.results.FailureEvent<>(item, new RuntimeException("Failed")));
                 } else {
-                    successes.add(new SuccessEvent<>(item));
+                    successes.add(new com.vajrapulse.vortex.results.SuccessEvent<>(item));
                 }
             }
             
-            return new BatchResult<>(successes, failures);
+            return new com.vajrapulse.vortex.results.BatchResult<>(successes, failures);
         };
         
         BatcherConfig config = BatcherConfig.builder()

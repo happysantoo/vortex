@@ -18,9 +18,9 @@ public class ExampleUsageSimplified {
             System.out.println("Processing batch of " + batch.size() + " items");
             List<SuccessEvent<String>> successes = new ArrayList<>();
             for (String item : batch) {
-                successes.add(new SuccessEvent<>(item));
+                successes.add(new com.vajrapulse.vortex.results.SuccessEvent<>(item));
             }
-            return new BatchResult<>(successes, List.of());
+            return new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of());
         };
         
         BatcherConfig config = BatcherConfig.builder()
