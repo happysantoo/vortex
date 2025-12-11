@@ -82,7 +82,7 @@ class MicroBatcherAwaitCompletionSpec extends Specification {
         
         when:
         // Submit batches
-        def futures = (1..maxConcurrent).collect { batcher.submit("item-$it") }
+        def results = (1..maxConcurrent).collect { batcher.submit("item-$it", null) }
         
         // Wait for processing to start
         Thread.sleep(50)
@@ -94,8 +94,8 @@ class MicroBatcherAwaitCompletionSpec extends Specification {
         completed == true
         processingStarted.get() == true
         
-        // All futures should complete
-        futures.each { it.get(1, TimeUnit.SECONDS) }
+        // All items should be accepted (not rejected)
+        results.each { assert it instanceof ItemResult.Success }
         
         cleanup:
         batcher?.close()
