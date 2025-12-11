@@ -1148,8 +1148,6 @@ class MicroBatcherSpec extends Specification {
             batcher.submit("success-3")
         ]
         Thread.sleep(200)  // Wait for batch processing
-            catch (Exception e) { null }
-        }
 
         then:
         originalBackendCall.get() >= 1
@@ -1181,8 +1179,6 @@ class MicroBatcherSpec extends Specification {
             batcher.submit("success-2")
         ]
         Thread.sleep(200)  // Wait for batch processing
-            catch (Exception e) { null }
-        }
 
         then:
         // No replays should occur
@@ -3504,9 +3500,6 @@ class MicroBatcherSpec extends Specification {
         // Wait for future to complete (either by batch processor or close)
         try {
             Thread.sleep(200)  // Wait for batch processing
-        } catch (Exception e) {
-            // Ignore - item may have been processed by batch processor
-        }
         noExceptionThrown()
 
         cleanup:
@@ -5107,9 +5100,6 @@ class MicroBatcherSpec extends Specification {
                 throw new RuntimeException("Callback error")
             }
             Thread.sleep(150) // Wait for batch processing
-        } catch (Exception e) {
-            exceptionCaught.incrementAndGet()
-        }
 
         then:
         // Callback exceptions are handled internally, so no exception should propagate
