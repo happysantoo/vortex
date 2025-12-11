@@ -21,9 +21,9 @@ public class TestBackend<T> implements Backend<T> {
         this.batchProcessor = batch -> {
             List<SuccessEvent<T>> successes = new ArrayList<>();
             for (T item : batch) {
-                successes.add(new com.vajrapulse.vortex.results.SuccessEvent<>(item));
+                successes.add(new SuccessEvent<>(item));
             }
-            return new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of());
+            return new BatchResult<>(successes, List.of());
         };
     }
     
