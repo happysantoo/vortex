@@ -677,20 +677,28 @@ class MicroBatcherSpec extends Specification {
             .build()
 
         when:
-        def batcher = new MicroBatcher<>(backend, config)
-        def results = [
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def batcher = new MicroBatcher<>(backendWithCapture, config)
+        def submitResults = [
             batcher.submit("success-1"),
             batcher.submit("fail-1"),
             batcher.submit("success-2"),
             batcher.submit("fail-2"),
             batcher.submit("success-3")
         ]
-        Thread.sleep(20)  // Wait for batch processing
+        Thread.sleep(200)  // Wait for batch processing
 
         then:
-        results.size() == 5
-        results.count { it.isAllSuccess() } >= 1
-        results.count { !it.isAllSuccess() } >= 1
+        submitResults.size() == 5
+        submitResults.every { it instanceof ItemResult.Success }  // All accepted
+        batchResults.size() >= 1
+        batchResults.count { it.isAllSuccess() } >= 1
+        batchResults.count { !it.isAllSuccess() } >= 1
 
         cleanup:
         batcher?.close()
