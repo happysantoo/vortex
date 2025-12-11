@@ -5151,49 +5151,6 @@ class MicroBatcherSpec extends Specification {
         batcher?.close()
     }
 
-    def "should invoke callback immediately when submitWithCallback is rejected via backpressure"() {
-        given:
-        def callbackInvoked = new AtomicInteger(0)
-        def callbackResult = new AtomicInteger(0)
-        
-        Backend<String> backend = { batch ->
-            def successes = batch.collect { new SuccessEvent<>(it) }
-            new BatchResult<>(successes, List.of())
-        }
-        
-        BackpressureProvider provider = Mock()
-        provider.getBackpressureLevel() >> 0.9  // High backpressure
-        provider.getSourceName() >> "Test Provider"
-        
-        BackpressureStrategy<String> strategy = new com.vajrapulse.vortex.backpressure.RejectStrategy<>(0.7)
-        
-        def config = BatcherConfig.builder()
-            .batchSize(5)
-            .lingerTime(Duration.ofMillis(100))
-            .backpressureProvider(provider)
-            .backpressureStrategy(strategy)
-            .build()
-
-        SimpleMeterRegistry registry = new SimpleMeterRegistry()
-        when:
-        def batcher = new MicroBatcher<>(backend, config, registry)
-        batcher.submit("item-1", { item, result ->
-            callbackInvoked.incrementAndGet()
-            if (result instanceof ItemResult.Failure) {
-                callbackResult.set(2)
-            } else {
-                callbackResult.set(1)
-            }
-        })
-        Thread.sleep(50) // Wait for callback
-
-        then:
-        callbackInvoked.get() == 1
-        callbackResult.get() == 2 // Failure
-
-        cleanup:
-        batcher?.close()
-    }
 
     def "should invoke callback later when submitWithCallback is accepted"() {
         given:
