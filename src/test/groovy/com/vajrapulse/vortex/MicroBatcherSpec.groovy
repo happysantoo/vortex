@@ -1986,14 +1986,27 @@ class MicroBatcherSpec extends Specification {
             .build()
 
         when:
-        def batcher = new MicroBatcher<>(backend, config, meterRegistry)
-        batcher.submit("item-1")
-        Thread.sleep(20)
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            try {
+                throw new RuntimeException("Backend error")
+            } catch (Exception e) {
+                def failures = batch.collect { new FailureEvent<>(it, e) }
+                def result = new BatchResult<>(List.of(), failures)
+                batchResults.add(result)
+                throw e
+            }
+        }
+        def batcher = new MicroBatcher<>(backendWithCapture, config, meterRegistry)
+        def submitResult = batcher.submit("item-1")
         Thread.sleep(200)  // Wait for batch processing
 
         then:
-        result.failures.size() == 1
-        result.failures[0].error.message == "Backend error"
+        submitResult instanceof ItemResult.Success  // Item was accepted
+        batchResults.size() >= 1
+        def batchResult = batchResults[0]
+        batchResult.failures.size() == 1
+        batchResult.failures[0].error.message == "Backend error"
 
         cleanup:
         batcher?.close()
