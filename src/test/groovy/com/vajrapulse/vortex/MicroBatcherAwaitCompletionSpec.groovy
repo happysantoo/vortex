@@ -1,6 +1,8 @@
 package com.vajrapulse.vortex
-import com.vajrapulse.vortex.results.ItemResult
 
+import com.vajrapulse.vortex.results.BatchResult
+import com.vajrapulse.vortex.results.ItemResult
+import com.vajrapulse.vortex.results.SuccessEvent
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import spock.lang.Specification
 
