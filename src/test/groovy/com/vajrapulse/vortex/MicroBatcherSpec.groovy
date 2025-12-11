@@ -1156,7 +1156,7 @@ class MicroBatcherSpec extends Specification {
         ]
         Thread.sleep(80) // Wait for initial batch
         Thread.sleep(80) // Wait for replay batch
-        def results = results.collect { 
+        Thread.sleep(200)  // Wait for batch processing { 
             try { it.get(1, TimeUnit.SECONDS) } 
             catch (Exception e) { null }
         }
@@ -1191,7 +1191,7 @@ class MicroBatcherSpec extends Specification {
             batcher.submit("success-2")
         ]
         Thread.sleep(150)
-        def results = results.collect { 
+        Thread.sleep(200)  // Wait for batch processing { 
             try { it.get(1, TimeUnit.SECONDS) } 
             catch (Exception e) { null }
         }
@@ -4232,7 +4232,7 @@ class MicroBatcherSpec extends Specification {
             batcher.submit("success-2")
         ]
         // Wait for processing and replay
-        def results = results.collect { 
+        Thread.sleep(200)  // Wait for batch processing { 
             try {
                 it.get(2, TimeUnit.SECONDS)
             } catch (Exception e) {
@@ -4471,7 +4471,7 @@ class MicroBatcherSpec extends Specification {
             batcher.submit("success-1"),
             batcher.submit("fail-1")
         ]
-        def results = results.collect { 
+        Thread.sleep(200)  // Wait for batch processing { 
             try {
                 it.get(2, TimeUnit.SECONDS)
             } catch (Exception e) {
