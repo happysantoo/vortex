@@ -2211,15 +2211,23 @@ class MicroBatcherSpec extends Specification {
             .build()
 
         when:
-        def batcher = new MicroBatcher<>(backend, config)
-        batcher.submit("item-1")
-        Thread.sleep(30) // Wait for retry
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def batcher = new MicroBatcher<>(backendWithCapture, config)
+        def submitResult = batcher.submit("item-1")
         Thread.sleep(200)  // Wait for batch processing
 
         then:
+        submitResult instanceof ItemResult.Success
         attemptCount.get() >= 2
-        result.successes.size() == 1
-        result.isAllSuccess()
+        batchResults.size() >= 1
+        def batchResult = batchResults[0]
+        batchResult.successes.size() == 1
+        batchResult.isAllSuccess()
 
         cleanup:
         batcher?.close()
@@ -2249,7 +2257,7 @@ class MicroBatcherSpec extends Specification {
 
         then:
         attemptCount.get() == 1 // Only one attempt, no retry
-        result.failures.size() == 1
+        batchResults[0].failures.size() == 1
 
         cleanup:
         batcher?.close()
@@ -2279,7 +2287,7 @@ class MicroBatcherSpec extends Specification {
 
         then:
         attemptCount.get() == 3 // Initial + 2 retries
-        result.failures.size() == 1
+        batchResults[0].failures.size() == 1
 
         cleanup:
         batcher?.close()
@@ -2341,7 +2349,7 @@ class MicroBatcherSpec extends Specification {
 
         then:
         attemptCount.get() == 1 // Only one attempt
-        result.failures.size() == 1
+        batchResults[0].failures.size() == 1
 
         cleanup:
         batcher?.close()
@@ -2376,7 +2384,7 @@ class MicroBatcherSpec extends Specification {
 
         then:
         attemptCount.get() >= 2
-        result.successes.size() == 1
+        batchResults[0].successes.size() == 1
 
         cleanup:
         batcher?.close()
@@ -2410,7 +2418,7 @@ class MicroBatcherSpec extends Specification {
         Thread.sleep(200)  // Wait for batch processing
 
         then:
-        result.successes.size() == 1
+        batchResults[0].successes.size() == 1
         // Retry count should be cleaned up after success
 
         cleanup:
@@ -2444,7 +2452,7 @@ class MicroBatcherSpec extends Specification {
 
         then:
         attemptCount.get() >= 2
-        result.successes.size() == 1
+        batchResults[0].successes.size() == 1
 
         cleanup:
         batcher?.close()
@@ -2890,7 +2898,7 @@ class MicroBatcherSpec extends Specification {
         // Should retry 2 times, then stop (total 3 attempts: 1 initial + 2 retries)
         attemptCount.get() == 3
         // Final result should be failure (max retries exceeded)
-        result.failures.size() == 1
+        batchResults[0].failures.size() == 1
 
         cleanup:
         batcher?.close()
@@ -2955,7 +2963,7 @@ class MicroBatcherSpec extends Specification {
         // Should retry 2 times, then stop (total 3 attempts: 1 initial + 2 retries)
         attemptCount.get() == 3
         // Final result should be failure (max retries exceeded)
-        result.failures.size() == 1
+        batchResults[0].failures.size() == 1
 
         cleanup:
         batcher?.close()
@@ -3024,8 +3032,8 @@ class MicroBatcherSpec extends Specification {
 
         then:
         attemptCount.get() == 2
-        result.successes.size() == 1
-        result.failures.isEmpty()
+        batchResults[0].successes.size() == 1
+        batchResults[0].failures.isEmpty()
 
         cleanup:
         batcher?.close()
@@ -3074,7 +3082,7 @@ class MicroBatcherSpec extends Specification {
 
         then:
         // Should work with default SimpleMeterRegistry
-        result.successes.size() == 1
+        batchResults[0].successes.size() == 1
         batcher.getMeterRegistry() != null
 
         cleanup:
@@ -3099,7 +3107,7 @@ class MicroBatcherSpec extends Specification {
 
         then:
         // Should handle very short linger time
-        result.successes.size() == 1
+        batchResults[0].successes.size() == 1
 
         cleanup:
         batcher?.close()
@@ -3227,7 +3235,7 @@ class MicroBatcherSpec extends Specification {
 
         then:
         // Should work with default SimpleMeterRegistry from two-arg constructor
-        result.successes.size() == 1
+        batchResults[0].successes.size() == 1
         batcher.getMeterRegistry() != null
 
         cleanup:
@@ -3281,7 +3289,7 @@ class MicroBatcherSpec extends Specification {
 
         then:
         // Should dispatch when linger time is reached
-        result.successes.size() == 1
+        batchResults[0].successes.size() == 1
         batchSizes.size() >= 1
 
         cleanup:
@@ -3480,7 +3488,7 @@ class MicroBatcherSpec extends Specification {
         then:
         // Should handle null data gracefully (fallback should assign success)
         result != null
-        result.successes.size() == 1
+        batchResults[0].successes.size() == 1
 
         cleanup:
         batcher?.close()
@@ -3506,7 +3514,7 @@ class MicroBatcherSpec extends Specification {
         then:
         // Should handle null data gracefully (fallback should assign failure)
         result != null
-        result.failures.size() == 1
+        batchResults[0].failures.size() == 1
 
         cleanup:
         batcher?.close()
@@ -3537,7 +3545,7 @@ class MicroBatcherSpec extends Specification {
         then:
         // Should retry up to maxRetries, then return failure
         attemptCount.get() == 3 // Initial + 2 retries
-        result.failures.size() == 1
+        batchResults[0].failures.size() == 1
 
         cleanup:
         batcher?.close()
@@ -3573,7 +3581,7 @@ class MicroBatcherSpec extends Specification {
 
         then:
         attemptCount.get() == 2
-        result.successes.size() == 1
+        batchResults[0].successes.size() == 1
         // Should have waited for retry delay
         elapsed >= 50
 
@@ -3600,8 +3608,8 @@ class MicroBatcherSpec extends Specification {
 
         then:
         // Fallback should assign success
-        result.successes.size() == 1
-        result.successes[0].data == "item-1"
+        batchResults[0].successes.size() == 1
+        batchResults[0].successes[0].data == "item-1"
 
         cleanup:
         batcher?.close()
@@ -3626,8 +3634,8 @@ class MicroBatcherSpec extends Specification {
 
         then:
         // Fallback should assign failure
-        result.failures.size() == 1
-        result.failures[0].data == "item-1"
+        batchResults[0].failures.size() == 1
+        batchResults[0].failures[0].data == "item-1"
 
         cleanup:
         batcher?.close()
@@ -3651,9 +3659,9 @@ class MicroBatcherSpec extends Specification {
 
         then:
         // Fallback should create a failure when no results available
-        result.failures.size() == 1
-        result.failures[0].data == "item-1"
-        result.failures[0].error.message.contains("Request failed in batch")
+        batchResults[0].failures.size() == 1
+        batchResults[0].failures[0].data == "item-1"
+        batchResults[0].failures[0].error.message.contains("Request failed in batch")
 
         cleanup:
         batcher?.close()
@@ -3680,8 +3688,8 @@ class MicroBatcherSpec extends Specification {
 
         then:
         // Should not retry because error doesn't match predicate
-        result.failures.size() == 1
-        result.failures[0].error instanceof IllegalArgumentException
+        batchResults[0].failures.size() == 1
+        batchResults[0].failures[0].error instanceof IllegalArgumentException
 
         cleanup:
         batcher?.close()
@@ -3707,7 +3715,7 @@ class MicroBatcherSpec extends Specification {
 
         then:
         // Should not retry because maxRetries is 0
-        result.failures.size() == 1
+        batchResults[0].failures.size() == 1
 
         cleanup:
         batcher?.close()
@@ -3763,8 +3771,8 @@ class MicroBatcherSpec extends Specification {
 
         then:
         // Fallback should return failure without retry
-        result.failures.size() == 1
-        result.failures[0].error instanceof IllegalArgumentException
+        batchResults[0].failures.size() == 1
+        batchResults[0].failures[0].error instanceof IllegalArgumentException
 
         cleanup:
         batcher?.close()
@@ -3788,8 +3796,8 @@ class MicroBatcherSpec extends Specification {
 
         then:
         // Should handle null items gracefully
-        result.successes.size() == 1
-        result.successes[0].data == null
+        batchResults[0].successes.size() == 1
+        batchResults[0].successes[0].data == null
 
         cleanup:
         batcher?.close()
@@ -3823,7 +3831,7 @@ class MicroBatcherSpec extends Specification {
 
         then:
         // Retry count should be cleared after success
-        result.successes.size() == 1
+        batchResults[0].successes.size() == 1
         attemptCount.get() == 2
 
         cleanup:
@@ -3909,7 +3917,7 @@ class MicroBatcherSpec extends Specification {
         then:
         // Should retry multiple times (initial + retries up to maxRetries)
         attemptCount.get() == 4 // Initial + 3 retries
-        result.failures.size() == 1
+        batchResults[0].failures.size() == 1
 
         cleanup:
         batcher?.close()
@@ -3940,7 +3948,7 @@ class MicroBatcherSpec extends Specification {
         then:
         // Should retry once, then stop
         attemptCount.get() == 2 // Initial + 1 retry
-        result.failures.size() == 1
+        batchResults[0].failures.size() == 1
 
         cleanup:
         batcher?.close()
@@ -3966,8 +3974,8 @@ class MicroBatcherSpec extends Specification {
         // Should handle empty batch result via fallback
         result != null
         // Fallback should create a failure when no results
-        result.failures.size() == 1
-        result.failures[0].data == "item-1"
+        batchResults[0].failures.size() == 1
+        batchResults[0].failures[0].data == "item-1"
 
         cleanup:
         batcher?.close()
@@ -4099,7 +4107,7 @@ class MicroBatcherSpec extends Specification {
 
         then:
         // Should process single item when queue becomes empty
-        result.successes.size() == 1
+        batchResults[0].successes.size() == 1
 
         cleanup:
         batcher?.close()
@@ -4123,7 +4131,7 @@ class MicroBatcherSpec extends Specification {
 
         then:
         // Should dispatch when linger time expires, even if batch not full
-        result.successes.size() == 1
+        batchResults[0].successes.size() == 1
 
         cleanup:
         batcher?.close()
@@ -4149,7 +4157,7 @@ class MicroBatcherSpec extends Specification {
         then:
         // Should handle any exceptions in batch processor gracefully
         noExceptionThrown()
-        result.successes.size() == 1
+        batchResults[0].successes.size() == 1
 
         cleanup:
         batcher?.close()
@@ -4180,7 +4188,7 @@ class MicroBatcherSpec extends Specification {
         then:
         // Should retry exactly maxRetries times
         attemptCount.get() == 3 // Initial + 2 retries
-        result.failures.size() == 1
+        batchResults[0].failures.size() == 1
 
         cleanup:
         batcher?.close()
@@ -4251,7 +4259,7 @@ class MicroBatcherSpec extends Specification {
         then:
         // Should handle null data in matching (falls back)
         result != null
-        result.successes.size() == 1
+        batchResults[0].successes.size() == 1
 
         cleanup:
         batcher?.close()
@@ -4277,7 +4285,7 @@ class MicroBatcherSpec extends Specification {
         then:
         // Should handle null data in matching (falls back)
         result != null
-        result.failures.size() == 1
+        batchResults[0].failures.size() == 1
 
         cleanup:
         batcher?.close()
@@ -4509,7 +4517,7 @@ class MicroBatcherSpec extends Specification {
 
         then:
         // Should handle timeout in processBatch gracefully
-        result.successes.size() == 1
+        batchResults[0].successes.size() == 1
 
         cleanup:
         batcher?.close()
@@ -4533,7 +4541,7 @@ class MicroBatcherSpec extends Specification {
 
         then:
         // Should handle zero remaining time in processBatch
-        result.successes.size() == 1
+        batchResults[0].successes.size() == 1
 
         cleanup:
         batcher?.close()
@@ -4762,7 +4770,7 @@ class MicroBatcherSpec extends Specification {
         then:
         // Debug mode should log backend failure without errors
         noExceptionThrown()
-        result.failures.size() == 1
+        batchResults[0].failures.size() == 1
 
         cleanup:
         batcher?.close()
@@ -4875,7 +4883,7 @@ class MicroBatcherSpec extends Specification {
 
         then:
         // Should handle tracing hook exception gracefully
-        result.successes.size() == 1
+        batchResults[0].successes.size() == 1
         noExceptionThrown()
 
         cleanup:
@@ -4905,7 +4913,7 @@ class MicroBatcherSpec extends Specification {
 
         then:
         // Should handle tracing hook exception gracefully (no debug logging)
-        result.successes.size() == 1
+        batchResults[0].successes.size() == 1
         noExceptionThrown()
 
         cleanup:
@@ -4933,7 +4941,7 @@ class MicroBatcherSpec extends Specification {
 
         then:
         1 * tracingHook.onSubmit("item-1")
-        result.successes.size() == 1
+        batchResults[0].successes.size() == 1
 
         cleanup:
         batcher?.close()
