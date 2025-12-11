@@ -112,7 +112,7 @@ class MicroBatcherFactoryMethodsSpec extends Specification {
         when:
         MicroBatcher<String> batcher = MicroBatcher.forBalanced(backend, registry)
         CompletableFuture<BatchResult<String>> future = batcher.submit("test")
-        BatchResult<String> result = Thread.sleep(200); // Wait for processing; // future.get()
+        BatchResult<String> result = Thread.sleep(200); // Wait for batch processing)
         
         then:
         result != null

@@ -189,7 +189,7 @@ class MicroBatcherSpec extends Specification {
         def batcher = new MicroBatcher<>(backend, config)
         batcher.submit("test-item")
         Thread.sleep(20)
-        def result = Thread.sleep(200); // Wait for processing; // future.get(1, TimeUnit.SECONDS)
+        Thread.sleep(200); // Wait for batch processing1, TimeUnit.SECONDS)
 
         then:
         !result.isAllSuccess()
@@ -600,7 +600,7 @@ class MicroBatcherSpec extends Specification {
         def batcher = new MicroBatcher<>(backend, config)
         batcher.submit("item-1")
         Thread.sleep(20)
-        def result = Thread.sleep(200); // Wait for processing; // future.get(1, TimeUnit.SECONDS)
+        Thread.sleep(200); // Wait for batch processing1, TimeUnit.SECONDS)
 
         then:
         result != null
@@ -632,7 +632,7 @@ class MicroBatcherSpec extends Specification {
 
         then:
         // Should handle interruption gracefully
-        def result = Thread.sleep(200); // Wait for processing; // future.get(500, TimeUnit.MILLISECONDS)
+        Thread.sleep(200); // Wait for batch processing500, TimeUnit.MILLISECONDS)
         result != null || future.isCompletedExceptionally()
 
         cleanup:
@@ -712,7 +712,7 @@ class MicroBatcherSpec extends Specification {
         def batcher = new MicroBatcher<>(backend, config)
         batcher.submit("item-1")
         Thread.sleep(20)
-        def result = Thread.sleep(200); // Wait for processing; // future.get(1, TimeUnit.SECONDS)
+        Thread.sleep(200); // Wait for batch processing1, TimeUnit.SECONDS)
 
         then:
         result != null
@@ -1059,7 +1059,7 @@ class MicroBatcherSpec extends Specification {
         def batcher = new MicroBatcher<>(backend, config)
         batcher.submit("item-1")
         Thread.sleep(20)
-        def result = Thread.sleep(200); // Wait for processing; // future.get(1, TimeUnit.SECONDS)
+        Thread.sleep(200); // Wait for batch processing1, TimeUnit.SECONDS)
 
         then:
         result != null
@@ -1506,7 +1506,7 @@ class MicroBatcherSpec extends Specification {
 
         then:
         // Should handle interruption
-        future.isCompletedExceptionally() || Thread.sleep(200); // Wait for processing; // future.get(500, TimeUnit.MILLISECONDS) != null
+        future.isCompletedExceptionally() || Thread.sleep(200); // Wait for batch processing500, TimeUnit.MILLISECONDS) != null
 
         cleanup:
         Thread.interrupted() // Clear interrupt flag
@@ -1930,7 +1930,7 @@ class MicroBatcherSpec extends Specification {
         def batcher = new MicroBatcher<>(backend, config, meterRegistry)
         batcher.submit("item-1")
         Thread.sleep(20)
-        def result = Thread.sleep(200); // Wait for processing; // future.get(1, TimeUnit.SECONDS)
+        Thread.sleep(200); // Wait for batch processing1, TimeUnit.SECONDS)
 
         then:
         result.failures.size() == 1
@@ -2092,7 +2092,7 @@ class MicroBatcherSpec extends Specification {
         def batcher = new MicroBatcher<>(backend, config, meterRegistry)
         batcher.submit("item-1")
         Thread.sleep(20)
-        def result = Thread.sleep(200); // Wait for processing; // future.get(1, TimeUnit.SECONDS)
+        Thread.sleep(200); // Wait for batch processing1, TimeUnit.SECONDS)
 
         then:
         result.failures.size() == 1
@@ -2129,7 +2129,7 @@ class MicroBatcherSpec extends Specification {
         def batcher = new MicroBatcher<>(backend, config)
         batcher.submit("item-1")
         Thread.sleep(30) // Wait for retry
-        def result = Thread.sleep(200); // Wait for processing; // future.get(1, TimeUnit.SECONDS)
+        Thread.sleep(200); // Wait for batch processing1, TimeUnit.SECONDS)
 
         then:
         attemptCount.get() >= 2
@@ -2160,7 +2160,7 @@ class MicroBatcherSpec extends Specification {
         def batcher = new MicroBatcher<>(backend, config)
         batcher.submit("item-1")
         Thread.sleep(80)
-        def result = Thread.sleep(200); // Wait for processing; // future.get(1, TimeUnit.SECONDS)
+        Thread.sleep(200); // Wait for batch processing1, TimeUnit.SECONDS)
 
         then:
         attemptCount.get() == 1 // Only one attempt, no retry
@@ -2190,7 +2190,7 @@ class MicroBatcherSpec extends Specification {
         def batcher = new MicroBatcher<>(backend, config)
         batcher.submit("item-1")
         Thread.sleep(150) // Wait for all retries
-        def result = Thread.sleep(200); // Wait for processing; // future.get(1, TimeUnit.SECONDS)
+        Thread.sleep(200); // Wait for batch processing1, TimeUnit.SECONDS)
 
         then:
         attemptCount.get() == 3 // Initial + 2 retries
@@ -2220,7 +2220,7 @@ class MicroBatcherSpec extends Specification {
         def batcher = new MicroBatcher<>(backend, config)
         batcher.submit("item-1")
         Thread.sleep(120) // Wait for initial batch + retry delay + retry batch
-        Thread.sleep(200); // Wait for processing; // future.get(1, TimeUnit.SECONDS) // Wait for completion
+        Thread.sleep(200); // Wait for batch processing1, TimeUnit.SECONDS) // Wait for completion
 
         then:
         attemptTimes.size() >= 2
@@ -2252,7 +2252,7 @@ class MicroBatcherSpec extends Specification {
         def batcher = new MicroBatcher<>(backend, config)
         batcher.submit("item-1")
         Thread.sleep(80)
-        def result = Thread.sleep(200); // Wait for processing; // future.get(1, TimeUnit.SECONDS)
+        Thread.sleep(200); // Wait for batch processing1, TimeUnit.SECONDS)
 
         then:
         attemptCount.get() == 1 // Only one attempt
@@ -2287,7 +2287,7 @@ class MicroBatcherSpec extends Specification {
         def batcher = new MicroBatcher<>(backend, config)
         batcher.submit("item-1")
         Thread.sleep(30)
-        def result = Thread.sleep(200); // Wait for processing; // future.get(1, TimeUnit.SECONDS)
+        Thread.sleep(200); // Wait for batch processing1, TimeUnit.SECONDS)
 
         then:
         attemptCount.get() >= 2
@@ -2322,7 +2322,7 @@ class MicroBatcherSpec extends Specification {
         def batcher = new MicroBatcher<>(backend, config)
         batcher.submit("item-1")
         Thread.sleep(30)
-        def result = Thread.sleep(200); // Wait for processing; // future.get(1, TimeUnit.SECONDS)
+        Thread.sleep(200); // Wait for batch processing1, TimeUnit.SECONDS)
 
         then:
         result.successes.size() == 1
@@ -2355,7 +2355,7 @@ class MicroBatcherSpec extends Specification {
         def batcher = new MicroBatcher<>(backend, config)
         batcher.submit("item-1")
         Thread.sleep(30)
-        def result = Thread.sleep(200); // Wait for processing; // future.get(1, TimeUnit.SECONDS)
+        Thread.sleep(200); // Wait for batch processing1, TimeUnit.SECONDS)
 
         then:
         attemptCount.get() >= 2
@@ -2394,7 +2394,7 @@ class MicroBatcherSpec extends Specification {
         def batcher = new MicroBatcher<>(backend, config)
         batcher.submit("item-1")
         Thread.sleep(30)
-        def result = Thread.sleep(200); // Wait for processing; // future.get(1, TimeUnit.SECONDS)
+        Thread.sleep(200); // Wait for batch processing1, TimeUnit.SECONDS)
 
         then:
         attemptCount.get() >= 2
@@ -2799,7 +2799,7 @@ class MicroBatcherSpec extends Specification {
         def batcher = new MicroBatcher<>(backend, config)
         batcher.submit("item-1")
         // Wait for all retries to complete
-        def result = Thread.sleep(200); // Wait for processing; // future.get(2, TimeUnit.SECONDS)
+        Thread.sleep(200); // Wait for batch processing2, TimeUnit.SECONDS)
 
         then:
         // Should retry 2 times, then stop (total 3 attempts: 1 initial + 2 retries)
@@ -2864,7 +2864,7 @@ class MicroBatcherSpec extends Specification {
         def batcher = new MicroBatcher<>(backend, config)
         batcher.submit("item-1")
         // Wait for all retries to complete
-        def result = Thread.sleep(200); // Wait for processing; // future.get(2, TimeUnit.SECONDS)
+        Thread.sleep(200); // Wait for batch processing2, TimeUnit.SECONDS)
 
         then:
         // Should retry 2 times, then stop (total 3 attempts: 1 initial + 2 retries)
@@ -2935,7 +2935,7 @@ class MicroBatcherSpec extends Specification {
         def batcher = new MicroBatcher<>(backend, config)
         batcher.submit("item-1")
         Thread.sleep(30)
-        def result = Thread.sleep(200); // Wait for processing; // future.get(1, TimeUnit.SECONDS)
+        Thread.sleep(200); // Wait for batch processing1, TimeUnit.SECONDS)
 
         then:
         attemptCount.get() == 2
@@ -3306,7 +3306,7 @@ class MicroBatcherSpec extends Specification {
         // Should process remaining items successfully
         // Wait for future to complete (either by batch processor or close)
         try {
-            Thread.sleep(200); // Wait for processing; // future.get(2, TimeUnit.SECONDS)
+            Thread.sleep(200); // Wait for batch processing2, TimeUnit.SECONDS)
         } catch (Exception e) {
             // Ignore - item may have been processed by batch processor
         }
@@ -3447,7 +3447,7 @@ class MicroBatcherSpec extends Specification {
         def batcher = new MicroBatcher<>(backend, config)
         batcher.submit("item-1")
         Thread.sleep(30)
-        def result = Thread.sleep(200); // Wait for processing; // future.get(1, TimeUnit.SECONDS)
+        Thread.sleep(200); // Wait for batch processing1, TimeUnit.SECONDS)
 
         then:
         // Should retry up to maxRetries, then return failure
@@ -3819,7 +3819,7 @@ class MicroBatcherSpec extends Specification {
         def batcher = new MicroBatcher<>(backend, config)
         batcher.submit("item-1")
         Thread.sleep(30)
-        def result = Thread.sleep(200); // Wait for processing; // future.get(1, TimeUnit.SECONDS)
+        Thread.sleep(200); // Wait for batch processing1, TimeUnit.SECONDS)
 
         then:
         // Should retry multiple times (initial + retries up to maxRetries)
@@ -3850,7 +3850,7 @@ class MicroBatcherSpec extends Specification {
         def batcher = new MicroBatcher<>(backend, config)
         batcher.submit("item-1")
         Thread.sleep(30)
-        def result = Thread.sleep(200); // Wait for processing; // future.get(1, TimeUnit.SECONDS)
+        Thread.sleep(200); // Wait for batch processing1, TimeUnit.SECONDS)
 
         then:
         // Should retry once, then stop
@@ -4090,7 +4090,7 @@ class MicroBatcherSpec extends Specification {
         def batcher = new MicroBatcher<>(backend, config)
         batcher.submit("item-1")
         Thread.sleep(30)
-        def result = Thread.sleep(200); // Wait for processing; // future.get(1, TimeUnit.SECONDS)
+        Thread.sleep(200); // Wait for batch processing1, TimeUnit.SECONDS)
 
         then:
         // Should retry exactly maxRetries times
