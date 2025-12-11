@@ -2148,13 +2148,6 @@ class MicroBatcherSpec extends Specification {
             .build()
 
         when:
-        def batcher = new MicroBatcher<>(backend, config, meterRegistry)
-        batcher.submit("item-1")
-        Thread.sleep(20)
-        Thread.sleep(200)  // Wait for batch processing
-
-        then:
-        // Item was accepted, but backend threw error - check batch results
         def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
         Backend<String> backendWithCapture = { batch ->
             try {
@@ -2166,9 +2159,12 @@ class MicroBatcherSpec extends Specification {
                 throw e
             }
         }
-        def batcher2 = new MicroBatcher<>(backendWithCapture, config, meterRegistry)
-        def submitResult = batcher2.submit("item-1")
+        def batcher = new MicroBatcher<>(backendWithCapture, config, meterRegistry)
+        def submitResult = batcher.submit("item-1")
         Thread.sleep(200)  // Wait for batch processing
+
+        then:
+        submitResult instanceof ItemResult.Success  // Item was accepted
         batchResults.size() >= 1
         def batchResult = batchResults[0]
         batchResult.failures.size() == 1
