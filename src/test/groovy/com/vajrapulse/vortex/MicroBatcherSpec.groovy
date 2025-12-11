@@ -1150,10 +1150,7 @@ class MicroBatcherSpec extends Specification {
             batcher.submit("fail-2"),
             batcher.submit("success-3")
         ]
-        Thread.sleep(80) // Wait for initial batch
-        Thread.sleep(80) // Wait for replay batch
-        Thread.sleep(200)  // Wait for batch processing 
-            try { it.get(1, TimeUnit.SECONDS) } 
+        Thread.sleep(200)  // Wait for batch processing
             catch (Exception e) { null }
         }
 
@@ -1186,9 +1183,7 @@ class MicroBatcherSpec extends Specification {
             batcher.submit("fail-1"),
             batcher.submit("success-2")
         ]
-        Thread.sleep(150)
-        Thread.sleep(200)  // Wait for batch processing 
-            try { it.get(1, TimeUnit.SECONDS) } 
+        Thread.sleep(200)  // Wait for batch processing
             catch (Exception e) { null }
         }
 
@@ -4228,10 +4223,7 @@ class MicroBatcherSpec extends Specification {
             batcher.submit("success-2")
         ]
         // Wait for processing and replay
-        Thread.sleep(200)  // Wait for batch processing 
-            try {
-                it.get(2, TimeUnit.SECONDS)
-            } catch (Exception e) {
+        Thread.sleep(200)  // Wait for batch processing
                 null
             }
         }
@@ -4467,10 +4459,7 @@ class MicroBatcherSpec extends Specification {
             batcher.submit("success-1"),
             batcher.submit("fail-1")
         ]
-        Thread.sleep(200)  // Wait for batch processing 
-            try {
-                it.get(2, TimeUnit.SECONDS)
-            } catch (Exception e) {
+        Thread.sleep(200)  // Wait for batch processing
                 null
             }
         }
