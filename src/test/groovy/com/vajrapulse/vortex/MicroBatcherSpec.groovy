@@ -22,7 +22,7 @@ import java.util.concurrent.atomic.AtomicInteger
 
 class MicroBatcherSpec extends Specification {
 
-    def "should reject null backend"() {
+    
         given:
         def config = BatcherConfig.builder().build()
 
@@ -2280,13 +2280,20 @@ class MicroBatcherSpec extends Specification {
             .build()
 
         when:
-        def batcher = new MicroBatcher<>(backend, config)
-        batcher.submit("item-1")
-        Thread.sleep(150) // Wait for all retries
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
+        Backend<String> backendWithCapture = { batch ->
+            def result = backend.dispatch(batch)
+            batchResults.add(result)
+            result
+        }
+        def batcher = new MicroBatcher<>(backendWithCapture, config)
+        def submitResult = batcher.submit("item-1")
         Thread.sleep(200)  // Wait for batch processing
 
         then:
+        submitResult instanceof ItemResult.Success
         attemptCount.get() == 3 // Initial + 2 retries
+        batchResults.size() >= 1
         batchResults[0].failures.size() == 1
 
         cleanup:
