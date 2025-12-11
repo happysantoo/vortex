@@ -187,7 +187,7 @@ class MicroBatcherConcurrentDispatchSpec extends Specification {
         when:
         // Submit multiple batches
         def results = (1..5).collect { batcher.submit("item-$it") }
-        results.each { // Wait for batch processing; // it.get(1, TimeUnit.SECONDS) }
+        Thread.sleep(200)  // Wait for batch processing
         
         then:
         // All batches should succeed
