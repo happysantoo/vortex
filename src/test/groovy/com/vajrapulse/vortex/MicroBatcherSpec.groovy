@@ -1477,8 +1477,10 @@ class MicroBatcherSpec extends Specification {
         Thread.sleep(20)  // Wait for batch processing
 
         then:
-        results.size() == 3
-        results.every { !it.isAllSuccess() }
+        submitResults.size() == 3
+        submitResults.every { it instanceof ItemResult.Success }  // All accepted
+        batchResults.size() >= 1
+        batchResults.every { !it.isAllSuccess() }
 
         cleanup:
         batcher?.close()
