@@ -4972,7 +4972,7 @@ class MicroBatcherSpec extends Specification {
                 break
             }
         }
-        def result = batcher.submitSync("item-3") // Should be rejected
+        def result = batcher.submit("item-3", null) // Should be rejected
 
         then:
         // If queue was full, we should get rejection. If queue wasn't full, that's also OK (race condition)
