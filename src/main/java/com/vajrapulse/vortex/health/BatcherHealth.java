@@ -1,5 +1,7 @@
-package com.vajrapulse.vortex;
+package com.vajrapulse.vortex.health;
 
+import com.vajrapulse.vortex.MicroBatcher;
+import com.vajrapulse.vortex.metrics.MetricsProvider;
 import java.util.Objects;
 
 /**

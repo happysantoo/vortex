@@ -1,5 +1,7 @@
 package com.vajrapulse.vortex;
 
+import com.vajrapulse.vortex.results.ItemResult;
+
 /**
  * Callback interface for handling individual item processing results.
  * 

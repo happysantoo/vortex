@@ -1,5 +1,10 @@
-package com.vajrapulse.vortex;
+package com.vajrapulse.vortex.internal;
 
+import com.vajrapulse.vortex.BatcherConfig;
+import com.vajrapulse.vortex.results.BatchResult;
+import com.vajrapulse.vortex.results.FailureEvent;
+import com.vajrapulse.vortex.results.SuccessEvent;
+import com.vajrapulse.vortex.metrics.MetricsManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -19,7 +24,7 @@ import java.util.function.Function;
  * <p>This class tracks retry counts for items and schedules retries with configurable delays.
  * To prevent memory leaks, the retry counts map has a size limit and periodic cleanup of stale entries.
  */
-class RetryManager<T> {
+public class RetryManager<T> {
     private static final Logger logger = LoggerFactory.getLogger(RetryManager.class);
     
     // Maximum number of retry count entries to prevent unbounded growth

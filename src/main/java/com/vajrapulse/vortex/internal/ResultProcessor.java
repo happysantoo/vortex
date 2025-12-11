@@ -1,5 +1,11 @@
-package com.vajrapulse.vortex;
+package com.vajrapulse.vortex.internal;
 
+import com.vajrapulse.vortex.Backend;
+import com.vajrapulse.vortex.BatcherConfig;
+import com.vajrapulse.vortex.results.BatchResult;
+import com.vajrapulse.vortex.results.FailureEvent;
+import com.vajrapulse.vortex.results.SuccessEvent;
+import com.vajrapulse.vortex.metrics.MetricsManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -12,7 +18,7 @@ import java.util.concurrent.CompletableFuture;
 /**
  * Processes batch results and maps them back to individual requests.
  */
-class ResultProcessor<T> {
+public class ResultProcessor<T> {
     private static final Logger logger = LoggerFactory.getLogger(ResultProcessor.class);
     
     private final BatcherConfig config;

@@ -1,4 +1,4 @@
-package com.vajrapulse.vortex;
+package com.vajrapulse.vortex.metrics;
 
 /**
  * Provides real-time metrics from a MicroBatcher instance.

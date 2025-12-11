@@ -1,5 +1,6 @@
-package com.vajrapulse.vortex;
+package com.vajrapulse.vortex.internal;
 
+import com.vajrapulse.vortex.results.BatchResult;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -10,7 +11,7 @@ import java.util.concurrent.CompletableFuture;
  * @param future the CompletableFuture that will be completed with the batch result
  * @param timestamp the timestamp when the request was created (nanoseconds)
  */
-record PendingRequest<T>(
+public record PendingRequest<T>(
     T data,
     CompletableFuture<BatchResult<T>> future,
     long timestamp

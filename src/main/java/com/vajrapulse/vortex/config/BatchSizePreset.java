@@ -1,5 +1,6 @@
-package com.vajrapulse.vortex;
+package com.vajrapulse.vortex.config;
 
+import com.vajrapulse.vortex.BatcherConfig;
 import java.time.Duration;
 
 /**

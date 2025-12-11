@@ -1,4 +1,4 @@
-package com.vajrapulse.vortex;
+package com.vajrapulse.vortex.results;
 
 /**
  * A sealed interface representing the result of processing a single item in a batch.

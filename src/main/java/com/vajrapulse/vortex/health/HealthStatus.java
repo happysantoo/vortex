@@ -1,4 +1,4 @@
-package com.vajrapulse.vortex;
+package com.vajrapulse.vortex.health;
 
 /**
  * Health status values for MicroBatcher instances.

@@ -1,5 +1,6 @@
-package com.vajrapulse.vortex;
+package com.vajrapulse.vortex.metrics;
 
+import com.vajrapulse.vortex.BatcherConfig;
 import io.micrometer.core.instrument.*;
 
 import java.util.concurrent.BlockingQueue;
@@ -9,7 +10,7 @@ import java.util.concurrent.TimeUnit;
  * Manages all metrics for the MicroBatcher.
  * Centralizes metric creation and recording logic.
  */
-class MetricsManager {
+public class MetricsManager {
     private final MeterRegistry meterRegistry;
     private final BatcherConfig config;
     private final BlockingQueue<?> queue;

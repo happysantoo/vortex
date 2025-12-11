@@ -1,4 +1,4 @@
-package com.vajrapulse.vortex;
+package com.vajrapulse.vortex.results;
 
 /**
  * Represents a failed request event.

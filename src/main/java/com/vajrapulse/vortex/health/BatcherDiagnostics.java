@@ -1,5 +1,6 @@
-package com.vajrapulse.vortex;
+package com.vajrapulse.vortex.health;
 
+import com.vajrapulse.vortex.MicroBatcher;
 import java.time.Duration;
 
 /**

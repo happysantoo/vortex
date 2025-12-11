@@ -1,6 +1,16 @@
 package com.vajrapulse.vortex;
 
 import com.vajrapulse.vortex.ItemRejectedException;
+import com.vajrapulse.vortex.results.BatchResult;
+import com.vajrapulse.vortex.results.ItemResult;
+import com.vajrapulse.vortex.results.SuccessEvent;
+import com.vajrapulse.vortex.results.FailureEvent;
+import com.vajrapulse.vortex.internal.PendingRequest;
+import com.vajrapulse.vortex.internal.RetryManager;
+import com.vajrapulse.vortex.internal.ResultProcessor;
+import com.vajrapulse.vortex.metrics.MetricsManager;
+import com.vajrapulse.vortex.metrics.MetricsProvider;
+import com.vajrapulse.vortex.health.BatcherDiagnostics;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.Gauge;
