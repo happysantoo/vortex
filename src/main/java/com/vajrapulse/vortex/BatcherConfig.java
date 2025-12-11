@@ -1,8 +1,5 @@
 package com.vajrapulse.vortex;
 
-import com.vajrapulse.vortex.backpressure.BackpressureProvider;
-import com.vajrapulse.vortex.backpressure.BackpressureStrategy;
-
 import java.time.Duration;
 import java.util.function.Predicate;
 
@@ -21,10 +18,6 @@ public class BatcherConfig {
     private final Predicate<Throwable> retryableErrorPredicate;
     private final int maxQueueSize;
     private final BatchTracingHook tracingHook;
-    private final BackpressureProvider backpressureProvider;
-    private final BackpressureStrategy<?> backpressureStrategy;
-    private final Duration backpressureMonitorInterval;
-    private final Duration backpressureCacheTtl;
     private final int maxConcurrentBatches;
     
     /**
@@ -45,16 +38,6 @@ public class BatcherConfig {
         // Default to 2x batch size if not explicitly set
         this.maxQueueSize = builder.maxQueueSize != null ? builder.maxQueueSize : builder.batchSize * 2;
         this.tracingHook = builder.tracingHook;
-        this.backpressureProvider = builder.backpressureProvider;
-        this.backpressureStrategy = builder.backpressureStrategy;
-        // Default to 100ms if not explicitly set
-        this.backpressureMonitorInterval = builder.backpressureMonitorInterval != null 
-            ? builder.backpressureMonitorInterval 
-            : Duration.ofMillis(100);
-        // Default to 50ms if not explicitly set (cache for 50ms to reduce provider calls)
-        this.backpressureCacheTtl = builder.backpressureCacheTtl != null 
-            ? builder.backpressureCacheTtl 
-            : Duration.ofMillis(50);
         // Default to 0 (unlimited) if not explicitly set
         this.maxConcurrentBatches = builder.maxConcurrentBatches != null 
             ? builder.maxConcurrentBatches 
@@ -167,69 +150,6 @@ public class BatcherConfig {
     }
     
     /**
-     * Gets the optional backpressure provider.
-     *
-     * <p>When configured along with a backpressure strategy, the MicroBatcher
-     * will check backpressure before accepting items. This allows the system
-     * to respond to pressure from various sources (queue depth, connection pools, etc.).
-     *
-     * @return the backpressure provider, or {@code null} if not configured
-     * @since 0.0.4
-     */
-    public BackpressureProvider getBackpressureProvider() {
-        return backpressureProvider;
-    }
-    
-    /**
-     * Gets the optional backpressure strategy.
-     *
-     * <p>When configured along with a backpressure provider, the MicroBatcher
-     * will use this strategy to handle items when backpressure is detected.
-     * Strategies can accept, reject, or drop items based on backpressure level.
-     *
-     * @param <T> the type of items being processed
-     * @return the backpressure strategy, or {@code null} if not configured
-     * @since 0.0.4
-     */
-    @SuppressWarnings("unchecked")
-    public <T> BackpressureStrategy<T> getBackpressureStrategy() {
-        return (BackpressureStrategy<T>) backpressureStrategy;
-    }
-    
-    /**
-     * Gets the backpressure monitoring interval.
-     *
-     * <p>This method is deprecated and no longer used. Backpressure monitoring
-     * for lifecycle-aware strategies has been removed. Applications should handle
-     * backpressure lifecycle events themselves.
-     *
-     * @return the monitoring interval duration (default: 100ms)
-     * @deprecated No longer used. Will be removed in a future version.
-     * @since 0.0.4
-     */
-    @Deprecated
-    public Duration getBackpressureMonitorInterval() {
-        return backpressureMonitorInterval;
-    }
-    
-    /**
-     * Gets the backpressure level cache TTL.
-     *
-     * <p>This is the time-to-live for cached backpressure levels. When a backpressure
-     * level is fetched from the provider, it is cached for this duration to reduce
-     * the overhead of calling the provider on every submission.
-     *
-     * <p>The default is 50ms, which provides a good balance between reducing provider
-     * calls and maintaining responsiveness to backpressure changes.
-     *
-     * @return the cache TTL duration
-     * @since 0.0.5
-     */
-    public Duration getBackpressureCacheTtl() {
-        return backpressureCacheTtl;
-    }
-    
-    /**
      * Gets the maximum number of batches that can be dispatched concurrently.
      *
      * <p>This prevents overwhelming the connection pool by limiting concurrent
@@ -280,10 +200,6 @@ public class BatcherConfig {
         private Predicate<Throwable> retryableErrorPredicate = t -> false;
         private Integer maxQueueSize = null; // null means use default (2x batchSize)
         private BatchTracingHook tracingHook = null;
-        private BackpressureProvider backpressureProvider = null;
-        private BackpressureStrategy<?> backpressureStrategy = null;
-        private Duration backpressureMonitorInterval = null; // null means use default (100ms)
-        private Duration backpressureCacheTtl = null; // null means use default (50ms)
         private Integer maxConcurrentBatches = null; // null means use default (0 = unlimited)
         
         /**
@@ -462,132 +378,6 @@ public class BatcherConfig {
         }
         
         /**
-         * Sets an optional backpressure provider.
-         *
-         * <p>When configured along with a backpressure strategy, the MicroBatcher
-         * will check backpressure before accepting items. The provider reports
-         * backpressure level (0.0 to 1.0) from various sources such as:
-         * <ul>
-         *   <li>Queue depth</li>
-         *   <li>Connection pool utilization</li>
-         *   <li>Memory pressure</li>
-         *   <li>CPU utilization</li>
-         * </ul>
-         *
-         * <p>Example:
-         * <pre>{@code
-         * BackpressureProvider provider = new QueueDepthBackpressureProvider(
-         *     () -> batcher.diagnostics().getQueueDepth(),
-         *     1000
-         * );
-         * config.backpressureProvider(provider);
-         * }</pre>
-         *
-         * @param backpressureProvider the backpressure provider (may be null)
-         * @return this builder instance
-         * @since 0.0.4
-         */
-        public Builder backpressureProvider(BackpressureProvider backpressureProvider) {
-            this.backpressureProvider = backpressureProvider;
-            return this;
-        }
-        
-        /**
-         * Sets an optional backpressure strategy.
-         *
-         * <p>When configured along with a backpressure provider, the MicroBatcher
-         * will use this strategy to handle items when backpressure is detected.
-         * Strategies can:
-         * <ul>
-         *   <li>Accept items (proceed normally)</li>
-         *   <li>Reject items (return failure callback)</li>
-         *   <li>Drop items (silently ignore)</li>
-         * </ul>
-         * 
-         * <p>Note: Overflow handling (storing items for later replay) is no longer
-         * supported in the library. Applications should implement overflow handling
-         * themselves when needed.
-         *
-         * <p>Example:
-         * <pre>{@code
-         * BackpressureStrategy<String> strategy = new RejectStrategy<>(0.7);
-         * config.backpressureStrategy(strategy);
-         * }</pre>
-         *
-         * @param <T> the type of items being processed
-         * @param backpressureStrategy the backpressure strategy (may be null)
-         * @return this builder instance
-         * @since 0.0.4
-         */
-        public <T> Builder backpressureStrategy(BackpressureStrategy<T> backpressureStrategy) {
-            @SuppressWarnings("unchecked")
-            BackpressureStrategy<?> cast = (BackpressureStrategy<?>) backpressureStrategy;
-            this.backpressureStrategy = cast;
-            return this;
-        }
-        
-        /**
-         * Sets the backpressure monitoring interval.
-         *
-         * <p>This method is deprecated and no longer used. Backpressure monitoring
-         * for lifecycle-aware strategies has been removed. Applications should handle
-         * backpressure lifecycle events themselves.
-         *
-         * @param interval the monitoring interval (must be positive)
-         * @return this builder instance
-         * @throws IllegalArgumentException if interval is null, zero, or negative
-         * @deprecated No longer used. Will be removed in a future version.
-         * @since 0.0.4
-         */
-        @Deprecated
-        public Builder backpressureMonitorInterval(Duration interval) {
-            if (interval == null || interval.isZero() || interval.isNegative()) {
-                throw new IllegalArgumentException(
-                    "Backpressure monitor interval must be positive, got: " + interval
-                );
-            }
-            this.backpressureMonitorInterval = interval;
-            return this;
-        }
-        
-        /**
-         * Sets the backpressure level cache TTL.
-         *
-         * <p>This is the time-to-live for cached backpressure levels. When a backpressure
-         * level is fetched from the provider, it is cached for this duration to reduce
-         * the overhead of calling the provider on every submission.
-         *
-         * <p>The default is 50ms, which provides a good balance between reducing provider
-         * calls and maintaining responsiveness to backpressure changes.
-         *
-         * <p>Recommended values:
-         * <ul>
-         *   <li>10-50ms: For high-throughput systems with fast-changing backpressure</li>
-         *   <li>50-100ms: Default, suitable for most use cases</li>
-         *   <li>100-200ms: For low-throughput systems or when provider calls are expensive</li>
-         * </ul>
-         *
-         * <p>Example:
-         * <pre>{@code
-         * config.backpressureCacheTtl(Duration.ofMillis(100));
-         * }</pre>
-         *
-         * @param ttl the cache TTL (must be positive)
-         * @return this builder instance
-         * @throws IllegalArgumentException if ttl is null, zero, or negative
-         * @since 0.0.5
-         */
-        public Builder backpressureCacheTtl(Duration ttl) {
-            if (ttl == null || ttl.isZero() || ttl.isNegative()) {
-                throw new IllegalArgumentException(
-                    "Backpressure cache TTL must be positive, got: " + ttl
-                );
-            }
-            this.backpressureCacheTtl = ttl;
-            return this;
-        }
-        
-        /**
          * Sets the maximum number of batches that can be dispatched concurrently.
          *
          * <p>This prevents overwhelming the connection pool by limiting concurrent
@@ -600,8 +390,8 @@ public class BatcherConfig {
          *
          * <p>When a batch cannot be dispatched due to the limit, it will be rejected
          * and the items in the batch will be notified via their callbacks (if using
-         * {@link com.vajrapulse.vortex.MicroBatcher#submitWithCallback(Object, java.util.function.BiConsumer)})
-         * or their futures will complete exceptionally.
+         * {@link com.vajrapulse.vortex.MicroBatcher#submit(Object, ItemCallback)})
+         * with a failure result.
          *
          * <p>Example:
          * <pre>{@code

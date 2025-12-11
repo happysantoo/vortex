@@ -1,12 +1,6 @@
 package com.vajrapulse.vortex;
 
-import com.vajrapulse.vortex.backpressure.BackpressureProvider;
-import com.vajrapulse.vortex.backpressure.BackpressureStrategy;
-import com.vajrapulse.vortex.backpressure.BackpressureContext;
-import com.vajrapulse.vortex.backpressure.BackpressureResult;
-import com.vajrapulse.vortex.backpressure.BackpressureAction;
 import com.vajrapulse.vortex.backpressure.BackpressureException;
-import com.vajrapulse.vortex.backpressure.BackpressureLevelCache;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.Gauge;
@@ -43,11 +37,6 @@ public class MicroBatcher<T> implements AutoCloseable {
     private final BlockingQueue<PendingRequest<T>> queue;
     private final ExecutorService executor;
     
-    // Backpressure support (optional)
-    private final BackpressureProvider backpressureProvider;
-    private final BackpressureStrategy<T> backpressureStrategy;
-    private final BackpressureLevelCache backpressureCache;
-    
     // Concurrent dispatch limiting (optional)
     private final Semaphore dispatchSemaphore;
     private final int maxConcurrentBatches;
@@ -82,23 +71,18 @@ public class MicroBatcher<T> implements AutoCloseable {
     /**
      * Creates a new MicroBatcher with the specified MeterRegistry.
      * 
-     * <p>Backpressure is configured via {@link BatcherConfig.Builder#backpressureProvider(BackpressureProvider)}
-     * and {@link BatcherConfig.Builder#backpressureStrategy(BackpressureStrategy)}.
-     * 
      * <p>Example:
      * <pre>{@code
      * BatcherConfig config = BatcherConfig.builder()
      *     .batchSize(10)
      *     .lingerTime(Duration.ofMillis(100))
-     *     .backpressureProvider(provider)
-     *     .backpressureStrategy(strategy)
      *     .build();
      * 
      * MicroBatcher<String> batcher = new MicroBatcher<>(backend, config, meterRegistry);
      * }</pre>
      * 
      * @param backend the backend implementation
-     * @param config the batcher configuration (may contain backpressure provider and strategy)
+     * @param config the batcher configuration
      * @param meterRegistry the meter registry for metrics (must not be null)
      * @throws IllegalArgumentException if backend or config is null
      */
@@ -116,13 +100,6 @@ public class MicroBatcher<T> implements AutoCloseable {
         this.backend = backend;
         this.config = config;
         this.meterRegistry = meterRegistry;
-        this.backpressureProvider = config.getBackpressureProvider();
-        this.backpressureStrategy = config.getBackpressureStrategy();
-        
-        // Initialize backpressure cache if provider is configured
-        this.backpressureCache = (backpressureProvider != null) 
-            ? new BackpressureLevelCache(backpressureProvider, config.getBackpressureCacheTtl())
-            : null;
         
         // Initialize concurrent dispatch limiting
         this.maxConcurrentBatches = config.getMaxConcurrentBatches();
@@ -163,8 +140,10 @@ public class MicroBatcher<T> implements AutoCloseable {
                 .register(meterRegistry);
         }
         
-        this.retryManager = new RetryManager<>(config, executor, this::submit, () -> closed, metrics, debugMode);
-        this.resultProcessor = new ResultProcessor<>(config, backend, metrics, retryManager, this::submit, debugMode);
+        // RetryManager and ResultProcessor need CompletableFuture<BatchResult<T>> for retries/replays
+        // Use internal method that provides this interface
+        this.retryManager = new RetryManager<>(config, executor, this::submitInternal, () -> closed, metrics, debugMode);
+        this.resultProcessor = new ResultProcessor<>(config, backend, metrics, retryManager, this::submitInternal, debugMode);
         
         // Start the batch processor
         startBatchProcessor();
@@ -359,23 +338,82 @@ public class MicroBatcher<T> implements AutoCloseable {
     }
     
     /**
-     * Submits a request to be batched and dispatched.
+     * Submits an item with immediate rejection feedback and optional callback for batch processing result.
      * 
-     * <p>This method is thread-safe and can be called from multiple threads concurrently.
-     * The request will be added to the batching queue and processed according to the
-     * configured batch size and linger time settings.
+     * <p>This method provides:
+     * <ul>
+     *   <li><strong>Immediate Rejection</strong>: Returns immediately with ItemResult indicating
+     *       acceptance or rejection. If queue is full, returns ItemResult.Failure immediately.</li>
+     *   <li><strong>Individual Item Callback</strong>: If item is accepted, the callback (if provided)
+     *       fires when this specific item is processed by the backend as part of a batch
+     *       (typically 10-50ms after submission, depending on batch size and linger time).
+     *       The callback receives the individual item's result, not the full batch result.</li>
+     * </ul>
      * 
-     * <p>If the batcher is closed, this method will throw {@link IllegalStateException}.
-     * If backpressure is detected, the strategy will determine how to handle the item
-     * (ACCEPT, REJECT, or DROP). If the item is rejected (backpressure, queue full, or
-     * concurrent limit), the returned future will complete exceptionally with
-     * {@link com.vajrapulse.vortex.backpressure.BackpressureException}.
+     * <p><strong>Behavior:</strong>
+     * <ul>
+     *   <li>If queue is full: Returns ItemResult.Failure immediately, callback is NOT invoked</li>
+     *   <li>If item is accepted: Returns ItemResult.Success immediately, callback fires later with this item's result</li>
+     *   <li>Items are queued and processed in batches according to BatcherConfig (batchSize, lingerTime)</li>
+     *   <li>Callback fires once per item with that item's individual result (success or failure)</li>
+     * </ul>
      * 
-     * @param data the request data
-     * @return a CompletableFuture that completes with the batch result
-     * @throws IllegalStateException if the batcher is closed
+     * <p><strong>Example Usage:</strong>
+     * <pre>{@code
+     * // With callback for individual item result
+     * ItemResult<MyItem> result = batcher.submit(item, new ItemCallback<MyItem>() {
+     *     @Override
+     *     public void onResult(MyItem item, ItemResult<MyItem> result) {
+     *         if (result instanceof ItemResult.Success<MyItem>) {
+     *             // This specific item processed successfully
+     *             successCounter.increment();
+     *         } else if (result instanceof ItemResult.Failure<MyItem> failure) {
+     *             // This specific item failed during batch processing
+     *             failureCounter.increment();
+     *             logger.error("Item failed: {}", failure.error().getMessage());
+     *         }
+     *     }
+     * });
+     * 
+     * // Or using lambda (since ItemCallback is a functional interface)
+     * ItemResult<MyItem> result = batcher.submit(item, (submittedItem, itemResult) -> {
+     *     if (itemResult instanceof ItemResult.Success<MyItem>) {
+     *         successCounter.increment();
+     *     } else if (itemResult instanceof ItemResult.Failure<MyItem> failure) {
+     *         failureCounter.increment();
+     *     }
+     * });
+     * 
+     * // Check immediate rejection
+     * if (result instanceof ItemResult.Failure<MyItem> failure) {
+     *     // Queue was full - item rejected immediately
+     *     rejectionCounter.increment();
+     *     handleRejection(failure.error());
+     * }
+     * }</pre>
+     * 
+     * <p><strong>Example Usage (No Callback - Fire and Forget):</strong>
+     * <pre>{@code
+     * // Just check immediate rejection, don't care about batch result
+     * ItemResult<MyItem> result = batcher.submit(item, null);
+     * 
+     * if (result instanceof ItemResult.Failure<MyItem> failure) {
+     *     // Queue was full - handle rejection
+     *     handleRejection(failure.error());
+     * }
+     * // Item accepted - will be processed in batch later
+     * }</pre>
+     * 
+     * @param item the item to submit
+     * @param callback optional callback that receives the item and its individual result when processing completes
+     *                 (only invoked if item is accepted). The callback fires once per item with that item's result.
+     *                 If null, no callback is invoked.
+     * @return ItemResult indicating immediate acceptance (SUCCESS) or rejection (FAILURE)
+     * @throws IllegalStateException if batcher is closed
+     * @throws NullPointerException if item is null
+     * @since 0.0.9
      */
-    public CompletableFuture<BatchResult<T>> submit(T data) {
+    public ItemResult<T> submit(T item, ItemCallback<T> callback) {
         if (closed) {
             throw new IllegalStateException(
                 String.format("MicroBatcher is closed. Queue depth: %d, Active batches: %d",
@@ -383,68 +421,71 @@ public class MicroBatcher<T> implements AutoCloseable {
             );
         }
         
-        // Check backpressure FIRST (before any other work)
-        if (backpressureProvider != null && backpressureStrategy != null) {
+        if (item == null) {
+            throw new NullPointerException("Item cannot be null");
+        }
+        
+        // Tracing hook
+        if (tracingHook != null) {
             try {
-                double backpressure = backpressureProvider.getBackpressureLevel();
-                
-                // Validate backpressure level
-                if (Double.isNaN(backpressure) || backpressure < 0.0 || backpressure > 1.0) {
-                    metrics.recordBackpressureInvalidLevel();
-                    if (debugMode) {
-                        logger.warn("Invalid backpressure level: {}, defaulting to 0.0", backpressure);
-                    }
-                    backpressure = 0.0;
-                }
-                
-                BackpressureContext<T> context = new BackpressureContext<>(
-                    data, backpressure, backpressureProvider
-                );
-                
-                BackpressureResult<T> result = backpressureStrategy.handle(context);
-                
-                return switch (result.action()) {
-                    case ACCEPT -> proceedWithSubmission(data);
-                    case REJECT -> {
-                        metrics.recordBackpressureRejected();
-                        CompletableFuture<BatchResult<T>> future = new CompletableFuture<>();
-                        future.completeExceptionally(result.reason());
-                        yield future;
-                    }
-                    case DROP -> {
-                        metrics.recordBackpressureDropped();
-                        // Return success but don't actually process
-                        CompletableFuture<BatchResult<T>> future = new CompletableFuture<>();
-                        future.complete(new BatchResult<>(
-                            List.of(new SuccessEvent<>(data)),
-                            List.of()
-                        ));
-                        yield future;
-                    }
-                };
+                tracingHook.onSubmit(item);
             } catch (Exception e) {
-                // Fail-safe: if backpressure check fails, proceed normally
                 if (debugMode) {
-                    logger.error("Backpressure check failed, proceeding with submission", e);
+                    logger.debug("Tracing hook onSubmit failed", e);
                 }
-                return proceedWithSubmission(data);
             }
         }
         
-        // No backpressure - normal flow
-        return proceedWithSubmission(data);
+        // Check queue capacity immediately (atomic operation)
+        CompletableFuture<BatchResult<T>> future = new CompletableFuture<>();
+        PendingRequest<T> request = new PendingRequest<>(item, future);
+        
+        if (!queue.offer(request)) {
+            // Queue is full - reject immediately
+            int currentSize = queue.size();
+            int maxSize = config.getMaxQueueSize();
+            metrics.recordRequestRejected();
+            return ItemResult.failure(item, BackpressureException.queueFull(currentSize, maxSize));
+        }
+        
+        // Item accepted - queue it for batch processing
+        metrics.recordRequestSubmitted();
+        
+        // If callback provided, attach it to the future (fires when batch is processed with this item's result)
+        if (callback != null) {
+            future.thenAccept(batchResult -> {
+                // Extract this specific item's result from the batch
+                ItemResult<T> itemResult = batchResult.findItemResult(item)
+                    .orElseThrow(() -> new IllegalStateException("Item result not found in batch"));
+                // Callback fires with individual item's result
+                callback.onResult(item, itemResult);
+            });
+        }
+        
+        return ItemResult.success(item);
     }
     
     /**
-     * Proceeds with normal submission flow (after backpressure check).
+     * Internal method for retries and replays that returns CompletableFuture<BatchResult<T>>.
+     * This is used by RetryManager and ResultProcessor which need the old interface.
      * 
-     * @param data the request data
+     * @param item the item to submit
      * @return a CompletableFuture that completes with the batch result
      */
-    private CompletableFuture<BatchResult<T>> proceedWithSubmission(T data) {
+    private CompletableFuture<BatchResult<T>> submitInternal(T item) {
+        if (closed) {
+            CompletableFuture<BatchResult<T>> future = new CompletableFuture<>();
+            future.completeExceptionally(new IllegalStateException(
+                String.format("MicroBatcher is closed. Queue depth: %d, Active batches: %d",
+                    queue.size(), activeBatchCount != null ? activeBatchCount.get() : 0)
+            ));
+            return future;
+        }
+        
+        // Tracing hook
         if (tracingHook != null) {
             try {
-                tracingHook.onSubmit(data);
+                tracingHook.onSubmit(item);
             } catch (Exception e) {
                 if (debugMode) {
                     logger.debug("Tracing hook onSubmit failed", e);
@@ -454,7 +495,7 @@ public class MicroBatcher<T> implements AutoCloseable {
         
         metrics.recordRequestSubmitted();
         CompletableFuture<BatchResult<T>> future = new CompletableFuture<>();
-        PendingRequest<T> request = new PendingRequest<>(data, future);
+        PendingRequest<T> request = new PendingRequest<>(item, future);
         
         try {
             if (!queue.offer(request, QUEUE_OFFER_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
@@ -478,7 +519,6 @@ public class MicroBatcher<T> implements AutoCloseable {
      * <p>This method is useful for:
      * <ul>
      *   <li>Monitoring queue depth for metrics/dashboards</li>
-     *   <li>Creating QueueDepthBackpressureProvider</li>
      *   <li>Debugging and troubleshooting</li>
      * </ul>
      * 
@@ -493,13 +533,6 @@ public class MicroBatcher<T> implements AutoCloseable {
      * if (queueDepth > 1000) {
      *     log.warn("Queue depth is high: {}", queueDepth);
      * }
-     * 
-     * // Use with QueueDepthBackpressureProvider
-     * Supplier<Integer> queueDepthSupplier = () -> batcher.getQueueDepth();
-     * BackpressureProvider provider = new QueueDepthBackpressureProvider(
-     *     queueDepthSupplier,
-     *     maxQueueSize
-     * );
      * }</pre>
      * 
      * @return current queue depth (number of items waiting)
@@ -507,317 +540,6 @@ public class MicroBatcher<T> implements AutoCloseable {
      */
     public int getQueueDepth() {
         return queue.size();
-    }
-    
-    /**
-     * Submits an item synchronously and returns immediately with the result.
-     * 
-     * <p>This method checks backpressure <strong>before</strong> queuing the item.
-     * The result indicates whether the item was accepted or rejected:
-     * <ul>
-     *   <li><strong>SUCCESS</strong>: Item was accepted and queued successfully.
-     *       The item will be processed in a batch later (via batch processing).</li>
-     *   <li><strong>REJECTED</strong>: Item was rejected due to backpressure
-     *       (e.g., queue is full). The item will NOT be processed.</li>
-     * </ul>
-     * 
-     * <p><strong>Important Notes:</strong>
-     * <ul>
-     *   <li>This method does <strong>NOT</strong> wait for batch processing.
-     *       It only checks if the item can be queued.</li>
-     *   <li>If you need to know the batch processing result (success/failure),
-     *       use {@link #submitWithCallback(Object, java.util.function.BiConsumer)} instead.</li>
-     *   <li>Rejections happen immediately based on backpressure threshold,
-     *       not based on batch processing capacity.</li>
-     * </ul>
-     * 
-     * <p><strong>Note on Queue Depth Check Race Condition:</strong>
-     * There is a small race condition window between the queue depth check
-     * ({@code getQueueDepth()}) and the actual queue offer operation ({@code queue.offer()}).
-     * If the queue fills between these operations (due to concurrent submissions),
-     * the offer will fail and the item will be rejected, even though the initial
-     * check indicated space was available. This is handled gracefully by checking
-     * the return value of {@code queue.offer()} and returning a rejection if it fails.
-     * This behavior is acceptable for most use cases, as it provides natural
-     * backpressure when the queue is near capacity.
-     * 
-     * <p><strong>Example Usage:</strong>
-     * <pre>{@code
-     * ItemResult<MyItem> result = batcher.submitSync(item);
-     * 
-     * if (result instanceof ItemResult.Success<MyItem>) {
-     *     // Item queued successfully - will be processed in batch later
-     *     // Use submitWithCallback() if you need batch processing result
-     * } else if (result instanceof ItemResult.Failure<MyItem> failure) {
-     *     // Item rejected due to backpressure
-     *     // Handle rejection (retry, log, etc.)
-     *     log.warn("Item rejected: {}", failure.error().getMessage());
-     * }
-     * }</pre>
-     * 
-     * <p><strong>Integration with Load Testing Frameworks:</strong>
-     * <pre>{@code
-     * // In load testing task
-     * ItemResult<Item> result = batcher.submitSync(item);
-     * 
-     * if (result instanceof ItemResult.Failure<Item>) {
-     *     // Return failure to load testing framework
-     *     // Framework will see this as a failure and adjust TPS
-     *     return TaskResult.failure(result.error());
-     * }
-     * 
-     * // Item accepted - return success
-     * // Use submitWithCallback() to track batch processing results separately
-     * return TaskResult.success();
-     * }</pre>
-     * 
-     * @param item the item to submit
-     * @return result indicating acceptance (SUCCESS) or rejection (FAILURE)
-     * @throws IllegalStateException if batcher is closed
-     * @throws NullPointerException if item is null
-     * @since 0.0.5
-     */
-    public ItemResult<T> submitSync(T item) {
-        if (closed) {
-            throw new IllegalStateException(
-                String.format("MicroBatcher is closed. Queue depth: %d, Active batches: %d",
-                    queue.size(), activeBatchCount != null ? activeBatchCount.get() : 0)
-            );
-        }
-        
-        // Check backpressure synchronously
-        if (backpressureProvider != null && backpressureStrategy != null) {
-            try {
-                double backpressure = backpressureCache.getBackpressureLevel();
-                
-                // Validate backpressure level
-                if (Double.isNaN(backpressure) || backpressure < 0.0 || backpressure > 1.0) {
-                    metrics.recordBackpressureInvalidLevel();
-                    if (debugMode) {
-                        logger.warn("Invalid backpressure level: {}, defaulting to 0.0", backpressure);
-                    }
-                    backpressure = 0.0;
-                }
-                
-                BackpressureContext<T> context = new BackpressureContext<>(
-                    item, backpressure, backpressureProvider
-                );
-                BackpressureResult<T> result = backpressureStrategy.handle(context);
-                
-                if (result.action() == BackpressureAction.REJECT) {
-                    // Reject immediately
-                    metrics.recordBackpressureRejected();
-                    return ItemResult.failure(item, result.reason());
-                } else if (result.action() == BackpressureAction.DROP) {
-                    // Drop silently - return success but don't actually queue
-                    metrics.recordBackpressureDropped();
-                    return ItemResult.success(item);
-                }
-                // ACCEPT - continue to queue capacity check
-            } catch (Exception e) {
-                // Fail-safe: if backpressure check fails, proceed normally
-                metrics.recordBackpressureCheckFailure();
-                if (debugMode) {
-                    logger.error("Backpressure check failed, proceeding with submission", e);
-                }
-                // Continue to queue capacity check
-            }
-        }
-        
-        // Accept and queue (non-blocking offer)
-        // Note: We rely on queue.offer() return value directly, which is atomic.
-        // This eliminates the race condition window from checking size separately.
-        PendingRequest<T> request = new PendingRequest<>(item, new CompletableFuture<>());
-        if (queue.offer(request)) {
-            metrics.recordRequestSubmitted();
-            return ItemResult.success(item);
-        } else {
-            // Queue is full - reject immediately
-            int currentQueueSize = queue.size();
-            int maxQueueSize = config.getMaxQueueSize();
-            metrics.recordRequestRejected();
-            return ItemResult.failure(item, BackpressureException.queueFull(currentQueueSize, maxQueueSize));
-        }
-    }
-    
-    /**
-     * Submits an item with a callback that fires when batch processing completes.
-     * 
-     * <p>This method accepts the item and queues it for batch processing.
-     * The callback will be invoked with the result when:
-     * <ul>
-     *   <li><strong>Immediate Rejection</strong>: If the item is rejected due to
-     *       capacity constraints (backpressure, queue full, or concurrent limit), the
-     *       callback fires immediately with a {@link ItemResult.Failure} containing a
-     *       {@link com.vajrapulse.vortex.backpressure.BackpressureException}.</li>
-     *   <li><strong>Batch Processing</strong>: If the item is accepted, the callback
-     *       fires when the batch containing this item is processed (typically 10-50ms
-     *       after submission, depending on batch size and linger time).</li>
-     * </ul>
-     * 
-     * <p><strong>Callback Timing:</strong>
-     * <ul>
-     *   <li><strong>Immediate</strong>: If item rejected (backpressure >= threshold)
-     *       - Callback fires synchronously or on submission thread</li>
-     *   <li><strong>After Batch Processing</strong>: If item accepted
-     *       - Callback fires asynchronously when batch completes (typically 10-50ms)</li>
-     * </ul>
-     * 
-     * <p><strong>Important Notes:</strong>
-     * <ul>
-     *   <li>The callback may fire on a different thread (batch processing thread).</li>
-     *   <li>If you need immediate rejection feedback, use {@link #submitSync(Object)}
-     *       first to check if item will be rejected.</li>
-     *   <li>For load testing frameworks, you may want to use `submitSync()` to get
-     *       immediate rejection feedback, then use `submitWithCallback()` for
-     *       tracking batch processing results.</li>
-     * </ul>
-     * 
-     * <p><strong>Example Usage:</strong>
-     * <pre>{@code
-     * batcher.submitWithCallback(item, (submittedItem, result) -> {
-     *     if (result instanceof ItemResult.Success<MyItem>) {
-     *         // Item processed successfully in batch
-     *         successCounter.increment();
-     *     } else if (result instanceof ItemResult.Failure<MyItem> failure) {
-     *         // Item failed (either rejected or batch processing failed)
-     *         if (failure.error() instanceof BackpressureException) {
-     *             // Immediate rejection due to capacity constraints
-     *             rejectionCounter.increment();
-     *         } else {
-     *             // Batch processing failure
-     *             failureCounter.increment();
-     *         }
-     *     }
-     * });
-     * }</pre>
-     * 
-     * <p><strong>Integration with Load Testing Frameworks:</strong>
-     * <pre>{@code
-     * // In load testing task
-     * // Use submitSync() for immediate rejection feedback
-     * ItemResult<Item> syncResult = batcher.submitSync(item);
-     * 
-     * if (syncResult instanceof ItemResult.Failure<Item>) {
-     *     // Immediate rejection - return failure to framework
-     *     return TaskResult.failure(syncResult.error());
-     * }
-     * 
-     * // Item accepted - use callback for batch processing results
-     * batcher.submitWithCallback(item, (submittedItem, batchResult) -> {
-     *     // Track batch processing results separately
-     *     // (for metrics, not for framework feedback)
-     *     if (batchResult instanceof ItemResult.Success<Item>) {
-     *         batchSuccessCounter.increment();
-     *     } else {
-     *         batchFailureCounter.increment();
-     *     }
-     * });
-     * 
-     * // Return success - item was accepted
-     * return TaskResult.success();
-     * }</pre>
-     * 
-     * @param item the item to submit
-     * @param callback callback that receives the item and result when processing completes
-     * @return CompletableFuture that completes when the callback finishes
-     * @throws IllegalStateException if the batcher is closed
-     * @throws NullPointerException if item or callback is null
-     * @since 0.0.5
-     */
-    public CompletableFuture<Void> submitWithCallback(T item, java.util.function.BiConsumer<T, ItemResult<T>> callback) {
-        if (callback == null) {
-            throw new NullPointerException("Callback cannot be null");
-        }
-        if (closed) {
-            throw new IllegalStateException(
-                String.format("MicroBatcher is closed. Queue depth: %d, Active batches: %d",
-                    queue.size(), activeBatchCount != null ? activeBatchCount.get() : 0)
-            );
-        }
-        
-        ItemResult<T> checkResult = checkRejection(item);
-        if (checkResult instanceof ItemResult.Failure<T> failure) {
-            // Immediate rejection - invoke callback immediately
-            try {
-                callback.accept(item, failure);
-                return CompletableFuture.completedFuture(null);
-            } catch (Exception e) {
-                CompletableFuture<Void> future = new CompletableFuture<>();
-                future.completeExceptionally(e);
-                return future;
-            }
-        }
-        
-        // Item would be accepted - now actually submit it
-        CompletableFuture<BatchResult<T>> future = submit(item);
-        return future.thenAccept(result -> {
-            ItemResult<T> itemResult = result.findItemResult(item)
-                .orElseThrow(() -> new IllegalStateException("Item result not found for submitted item"));
-            callback.accept(item, itemResult);
-        });
-    }
-    
-    /**
-     * Checks if an item would be rejected (without actually queuing it).
-     * Used internally by submitWithCallback() to check rejection before submitting.
-     * 
-     * <p><b>Note on Queue Depth Check Race Condition:</b>
-     * This method performs a non-atomic check of queue depth. There is a small
-     * race condition window between the queue depth check and the actual queue
-     * offer operation in {@link #submitSync(Object)}. This is acceptable for
-     * most use cases as it provides natural backpressure when the queue is near
-     * capacity. The actual offer operation in {@code submitSync()} handles
-     * failures gracefully.
-     * 
-     * @param item the item to check
-     * @return ItemResult indicating if item would be accepted or rejected
-     */
-    private ItemResult<T> checkRejection(T item) {
-        // Check backpressure synchronously
-        if (backpressureProvider != null && backpressureStrategy != null) {
-            try {
-                double backpressure = backpressureCache.getBackpressureLevel();
-                
-                // Validate backpressure level
-                if (Double.isNaN(backpressure) || backpressure < 0.0 || backpressure > 1.0) {
-                    metrics.recordBackpressureInvalidLevel();
-                    if (debugMode) {
-                        logger.warn("Invalid backpressure level: {}, defaulting to 0.0", backpressure);
-                    }
-                    backpressure = 0.0;
-                }
-                
-                BackpressureContext<T> context = new BackpressureContext<>(
-                    item, backpressure, backpressureProvider
-                );
-                BackpressureResult<T> result = backpressureStrategy.handle(context);
-                
-                if (result.action() == BackpressureAction.REJECT) {
-                    return ItemResult.failure(item, result.reason());
-                } else if (result.action() == BackpressureAction.DROP) {
-                    // DROP is treated as success for immediate check
-                    return ItemResult.success(item);
-                }
-                // ACCEPT - continue to queue capacity check
-            } catch (Exception e) {
-                // Fail-safe: if backpressure check fails, proceed normally
-                metrics.recordBackpressureCheckFailure();
-                if (debugMode) {
-                    logger.error("Backpressure check failed, proceeding with submission", e);
-                }
-                // Continue to queue capacity check
-            }
-        }
-        
-        // Note: We don't check queue capacity here since this is just a check method.
-        // The actual submission methods (submitSync, submit) will handle queue capacity
-        // by checking queue.offer() return value, which is atomic.
-        // This method is used by submitWithCallback to determine immediate rejection
-        // before actually submitting, so we skip the queue check here.
-        
-        // Would be accepted (queue capacity will be checked during actual submission)
-        return ItemResult.success(item);
     }
     
     private void startBatchProcessor() {
