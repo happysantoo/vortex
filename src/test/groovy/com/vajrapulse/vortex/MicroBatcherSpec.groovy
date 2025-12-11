@@ -431,7 +431,7 @@ class MicroBatcherSpec extends Specification {
         
         // Wait for all futures to complete - this is the proper synchronization
         def completedFutures = 0
-        futures.each { 
+        results.each { 
             try { 
                 it.get(2, TimeUnit.SECONDS)
                 completedFutures++
@@ -597,7 +597,7 @@ class MicroBatcherSpec extends Specification {
 
         cleanup:
         batcher?.close()
-        futures.each { it.join() }
+        results.each { it.join() }
     }
 
     def "should record wait latency metrics"() {
@@ -910,7 +910,7 @@ class MicroBatcherSpec extends Specification {
         Thread.sleep(20)
         batcher.close() // Processes remaining items synchronously
         // Wait for all futures to complete
-        futures.each { 
+        results.each { 
             try { it.get(2, TimeUnit.SECONDS) } 
             catch (Exception e) { /* ignore */ }
         }
@@ -1159,7 +1159,7 @@ class MicroBatcherSpec extends Specification {
         ]
         Thread.sleep(80) // Wait for initial batch
         Thread.sleep(80) // Wait for replay batch
-        def results = futures.collect { 
+        def results = results.collect { 
             try { it.get(1, TimeUnit.SECONDS) } 
             catch (Exception e) { null }
         }
@@ -1194,7 +1194,7 @@ class MicroBatcherSpec extends Specification {
             batcher.submit("success-2")
         ]
         Thread.sleep(150)
-        def results = futures.collect { 
+        def results = results.collect { 
             try { it.get(1, TimeUnit.SECONDS) } 
             catch (Exception e) { null }
         }
@@ -4235,7 +4235,7 @@ class MicroBatcherSpec extends Specification {
             batcher.submit("success-2")
         ]
         // Wait for processing and replay
-        def results = futures.collect { 
+        def results = results.collect { 
             try {
                 it.get(2, TimeUnit.SECONDS)
             } catch (Exception e) {
@@ -4474,7 +4474,7 @@ class MicroBatcherSpec extends Specification {
             batcher.submit("success-1"),
             batcher.submit("fail-1")
         ]
-        def results = futures.collect { 
+        def results = results.collect { 
             try {
                 it.get(2, TimeUnit.SECONDS)
             } catch (Exception e) {
@@ -4575,7 +4575,7 @@ class MicroBatcherSpec extends Specification {
             batcher.submit("item-1"),
             batcher.submit("item-2")
         ]
-        def results = futures.collect { 
+        def results = results.collect { 
             try {
                 it.get(1, TimeUnit.SECONDS)
             } catch (Exception e) {
