@@ -3497,9 +3497,7 @@ class MicroBatcherSpec extends Specification {
 
         then:
         // Should process remaining items successfully
-        // Wait for future to complete (either by batch processor or close)
-        try {
-            Thread.sleep(200)  // Wait for batch processing
+        Thread.sleep(200)  // Wait for batch processing
         noExceptionThrown()
 
         cleanup:
