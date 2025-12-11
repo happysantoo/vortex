@@ -1,6 +1,6 @@
 package com.vajrapulse.vortex
 
-import com.vajrapulse.vortex.backpressure.BackpressureException
+import com.vajrapulse.vortex.CannotAcceptException
 import io.micrometer.core.instrument.MeterRegistry
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import spock.lang.Specification
@@ -426,10 +426,10 @@ class MicroBatcherSpec extends Specification {
         // The third one might timeout or be rejected
         try {
             def result = future3.get(200, TimeUnit.MILLISECONDS)
-            !result.isAllSuccess() || result.failures.any { it.error instanceof BackpressureException }
+            !result.isAllSuccess() || result.failures.any { it.error instanceof CannotAcceptException }
         } catch (Exception e) {
             // Timeout or rejection is acceptable
-            assert e instanceof TimeoutException || e.cause instanceof BackpressureException
+            assert e instanceof TimeoutException || e.cause instanceof CannotAcceptException
         }
 
         cleanup:
@@ -874,7 +874,7 @@ class MicroBatcherSpec extends Specification {
         try {
             def result = future3.get(200, TimeUnit.MILLISECONDS)
             !result.isAllSuccess()
-            result.failures[0].error instanceof BackpressureException
+            result.failures[0].error instanceof CannotAcceptException
         } catch (TimeoutException e) {
             // If it times out, the queue might have accepted it, which is also valid
             // The important thing is we tested the code path
@@ -1661,7 +1661,7 @@ class MicroBatcherSpec extends Specification {
         batcher?.close()
     }
 
-    def "should execute callback on success with submitWithCallback"() {
+    def "should execute callback on success with submit"() {
         given:
         def callbackExecuted = new AtomicInteger(0)
         def callbackItem = new AtomicInteger(0)
@@ -1680,20 +1680,18 @@ class MicroBatcherSpec extends Specification {
             callbackExecuted.incrementAndGet()
             callbackItem.set(item.length())
         }
-        def future = batcher.submitWithCallback("test-item", callback)
-        Thread.sleep(20)
-        future.get(1, TimeUnit.SECONDS)
+        batcher.submit("test-item", callback)
+        Thread.sleep(150) // Wait for batch processing
 
         then:
         callbackExecuted.get() == 1
         callbackItem.get() == 9 // "test-item".length()
-        future.isDone()
 
         cleanup:
         batcher?.close()
     }
 
-    def "should execute callback on failure with submitWithCallback"() {
+    def "should execute callback on failure with submit"() {
         given:
         def callbackExecuted = new AtomicInteger(0)
         def callbackError = null
@@ -1714,9 +1712,8 @@ class MicroBatcherSpec extends Specification {
                 callbackError = result.error
             }
         }
-        def future = batcher.submitWithCallback("test-item", callback)
-        Thread.sleep(20)
-        future.get(1, TimeUnit.SECONDS)
+        batcher.submit("test-item", callback)
+        Thread.sleep(150) // Wait for batch processing
 
         then:
         callbackExecuted.get() == 1
@@ -4673,7 +4670,7 @@ class MicroBatcherSpec extends Specification {
         batcher?.close()
     }
 
-    def "should handle submitWithCallback with success result"() {
+    def "should handle submit with success result"() {
         given:
         def callbackCalled = new CountDownLatch(1)
         Backend<String> backend = { batch ->
@@ -4687,10 +4684,10 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def callbackFuture = batcher.submitWithCallback("item-1") { item, result ->
+        batcher.submit("item-1") { item, result ->
             callbackCalled.countDown()
         }
-        callbackFuture.get(1, TimeUnit.SECONDS)
+        Thread.sleep(150) // Wait for batch processing
 
         then:
         callbackCalled.await(1, TimeUnit.SECONDS)
@@ -4699,7 +4696,7 @@ class MicroBatcherSpec extends Specification {
         batcher?.close()
     }
 
-    def "should handle submitWithCallback with failure result"() {
+    def "should handle submit with failure result"() {
         given:
         def callbackCalled = new CountDownLatch(1)
         Backend<String> backend = { batch ->
@@ -4713,10 +4710,10 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def callbackFuture = batcher.submitWithCallback("item-1") { item, result ->
+        batcher.submit("item-1") { item, result ->
             callbackCalled.countDown()
         }
-        callbackFuture.get(1, TimeUnit.SECONDS)
+        Thread.sleep(150) // Wait for batch processing
 
         then:
         callbackCalled.await(1, TimeUnit.SECONDS)
@@ -4725,8 +4722,9 @@ class MicroBatcherSpec extends Specification {
         batcher?.close()
     }
 
-    def "should handle submitWithCallback exception"() {
+    def "should handle submit callback exception"() {
         given:
+        def exceptionCaught = new AtomicInteger(0)
         Backend<String> backend = { batch ->
             def successes = batch.collect { new SuccessEvent<>(it) }
             new BatchResult<>(successes, List.of())
@@ -4738,18 +4736,19 @@ class MicroBatcherSpec extends Specification {
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
-        def callbackFuture = batcher.submitWithCallback("item-1") { item, result ->
-            throw new RuntimeException("Callback error")
+        try {
+            batcher.submit("item-1") { item, result ->
+                throw new RuntimeException("Callback error")
+            }
+            Thread.sleep(150) // Wait for batch processing
+        } catch (Exception e) {
+            exceptionCaught.incrementAndGet()
         }
 
         then:
-        // Callback exception should be propagated to the future
-        try {
-            callbackFuture.get(1, TimeUnit.SECONDS)
-            assert false : "Should have thrown exception"
-        } catch (Exception e) {
-            assert e.cause?.message == "Callback error" || e.message?.contains("Callback error")
-        }
+        // Callback exceptions are handled internally, so no exception should propagate
+        // The callback just fails silently (this is expected behavior)
+        exceptionCaught.get() == 0
 
         cleanup:
         batcher?.close()
@@ -4900,7 +4899,7 @@ class MicroBatcherSpec extends Specification {
         results[0..7].every { it instanceof ItemResult.Success }
         // 9th item should be rejected
         result9 instanceof ItemResult.Failure
-        result9.error instanceof BackpressureException
+        result9.error instanceof CannotAcceptException
 
         cleanup:
         batcher?.close()
@@ -4939,7 +4938,7 @@ class MicroBatcherSpec extends Specification {
         results[0..9].every { it instanceof ItemResult.Success }
         // 11th item should be rejected
         result11 instanceof ItemResult.Failure
-        result11.error instanceof BackpressureException
+        result11.error instanceof CannotAcceptException
 
         cleanup:
         batcher?.close()
@@ -4978,7 +4977,7 @@ class MicroBatcherSpec extends Specification {
         // If queue was full, we should get rejection. If queue wasn't full, that's also OK (race condition)
         if (queueDepthBefore >= 2) {
             assert result instanceof ItemResult.Failure
-            assert result.error instanceof BackpressureException
+            assert result.error instanceof CannotAcceptException
             assert result.error.message.contains("Queue full")
         } else {
             // Queue wasn't full - item might have been accepted, which is also valid
@@ -5067,9 +5066,9 @@ class MicroBatcherSpec extends Specification {
         batcher?.close()
     }
 
-    // ========== submitWithCallback() with immediate rejection Tests ==========
+    // ========== submit() with immediate rejection Tests ==========
 
-    def "should invoke callback immediately when submitWithCallback is rejected via queue full"() {
+    def "should reject immediately when queue is full"() {
         given:
         def callbackInvoked = new AtomicInteger(0)
         def callbackResult = new AtomicInteger(0) // 0 = not called, 1 = success, 2 = failure

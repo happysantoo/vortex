@@ -1,6 +1,6 @@
 package com.vajrapulse.vortex;
 
-import com.vajrapulse.vortex.backpressure.BackpressureException;
+import com.vajrapulse.vortex.CannotAcceptException;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.Gauge;
@@ -445,7 +445,7 @@ public class MicroBatcher<T> implements AutoCloseable {
         if (currentSize >= rejectionThreshold) {
             // Queue has reached rejection threshold - reject immediately
             metrics.recordRequestRejected();
-            return ItemResult.failure(item, BackpressureException.queueFull(currentSize, maxSize));
+            return ItemResult.failure(item, CannotAcceptException.queueFull(currentSize, maxSize));
         }
         
         // Queue is below threshold - proceed with submission
@@ -456,7 +456,7 @@ public class MicroBatcher<T> implements AutoCloseable {
         if (!queue.offer(request)) {
             // Queue filled between threshold check and offer (race condition) - reject
             metrics.recordRequestRejected();
-            return ItemResult.failure(item, BackpressureException.queueFull(queue.size(), maxSize));
+            return ItemResult.failure(item, CannotAcceptException.queueFull(queue.size(), maxSize));
         }
         
         // Item accepted - queue it for batch processing
@@ -513,7 +513,7 @@ public class MicroBatcher<T> implements AutoCloseable {
                 metrics.recordRequestRejected();
                 int currentSize = queue.size();
                 int maxSize = config.getMaxQueueSize();
-                future.completeExceptionally(BackpressureException.queueFull(currentSize, maxSize));
+                future.completeExceptionally(CannotAcceptException.queueFull(currentSize, maxSize));
                 return future;
             }
         } catch (InterruptedException e) {
@@ -765,7 +765,7 @@ public class MicroBatcher<T> implements AutoCloseable {
      */
     private void handleDispatchRejection(List<PendingRequest<T>> batch) {
         int activeBatches = activeBatchCount != null ? activeBatchCount.get() : 0;
-        BackpressureException rejectionError = BackpressureException.concurrentLimitReached(
+        CannotAcceptException rejectionError = CannotAcceptException.concurrentLimitReached(
             activeBatches, maxConcurrentBatches);
         
         for (PendingRequest<T> request : batch) {

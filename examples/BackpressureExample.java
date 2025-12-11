@@ -7,7 +7,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
-import com.vajrapulse.vortex.backpressure.BackpressureException;
+import com.vajrapulse.vortex.backpressure.CannotAcceptException;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -15,11 +15,11 @@ import java.util.concurrent.atomic.AtomicInteger;
  * 
  * This example shows:
  * 1. How to configure maxQueueSize to control backpressure
- * 2. How to detect and handle BackpressureException when queue is full, concurrent limit reached, or backpressure threshold exceeded
+ * 2. How to detect and handle CannotAcceptException when queue is full, concurrent limit reached, or backpressure threshold exceeded
  * 3. Strategies for handling backpressure (retry, circuit breaker, rate limiting)
  * 4. Monitoring queue depth to prevent backpressure
  * 
- * Note: As of 0.0.8, all rejections throw BackpressureException for unified exception handling.
+ * Note: As of 0.0.8, all rejections throw CannotAcceptException for unified exception handling.
  */
 public class BackpressureExample {
     
@@ -77,7 +77,7 @@ public class BackpressureExample {
                 
                 future.whenComplete((result, throwable) -> {
                     if (throwable != null) {
-                        if (throwable instanceof BackpressureException) {
+                        if (throwable instanceof CannotAcceptException) {
                             rejectionCount.incrementAndGet();
                             System.out.println("  ❌ Item " + itemId + " rejected: Queue is full");
                         } else {
@@ -145,7 +145,7 @@ public class BackpressureExample {
                 
                 batcher.submit("item-" + requestIndex)
                     .whenComplete((result, throwable) -> {
-                        if (throwable instanceof BackpressureException) {
+                        if (throwable instanceof CannotAcceptException) {
                             System.out.println("  ❌ Rejection occurred despite monitoring!");
                         }
                     });
@@ -219,7 +219,7 @@ public class BackpressureExample {
         CompletableFuture<BatchResult<String>> future = batcher.submit(item);
         
         future.whenComplete((result, throwable) -> {
-            if (throwable instanceof BackpressureException && attempt < 3) {
+            if (throwable instanceof CannotAcceptException && attempt < 3) {
                 // Exponential backoff: 50ms, 100ms, 200ms
                 long backoffMs = 50L * (1L << attempt);
                 retryCount.incrementAndGet();
@@ -282,7 +282,7 @@ public class BackpressureExample {
                 CompletableFuture<BatchResult<String>> future = batcher.submit("item-" + requestIndex);
                 
                 future.whenComplete((result, throwable) -> {
-                    if (throwable instanceof BackpressureException) {
+                    if (throwable instanceof CannotAcceptException) {
                         circuitBreaker.recordFailure();
                     } else if (throwable == null) {
                         circuitBreaker.recordSuccess();
@@ -337,7 +337,7 @@ public class BackpressureExample {
                 if (rateLimiter.tryAcquire()) {
                     batcher.submit("item-" + submitted.getAndIncrement())
                         .whenComplete((result, throwable) -> {
-                            if (throwable instanceof BackpressureException) {
+                            if (throwable instanceof CannotAcceptException) {
                                 rejected.incrementAndGet();
                             }
                         });
