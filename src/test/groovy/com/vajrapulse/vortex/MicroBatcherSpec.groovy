@@ -22,7 +22,7 @@ import java.util.concurrent.atomic.AtomicInteger
 
 class MicroBatcherSpec extends Specification {
 
-    
+    def "should reject null backend"() {
         given:
         def config = BatcherConfig.builder().build()
 
