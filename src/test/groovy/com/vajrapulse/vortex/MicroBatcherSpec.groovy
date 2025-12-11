@@ -112,9 +112,12 @@ class MicroBatcherSpec extends Specification {
 
     def "should return success results"() {
         given:
+        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
         Backend<String> backend = { batch ->
             def successes = batch.collect { new SuccessEvent<>(it) }
-            new BatchResult<>(successes, List.of())
+            def result = new BatchResult<>(successes, List.of())
+            batchResults.add(result)
+            result
         }
         def config = BatcherConfig.builder()
             .batchSize(2)
@@ -122,13 +125,7 @@ class MicroBatcherSpec extends Specification {
             .build()
 
         when:
-        def batchResults = Collections.synchronizedList(new ArrayList<BatchResult<String>>())
-        Backend<String> backendWithCapture = { batch ->
-            def result = backend.dispatch(batch)
-            batchResults.add(result)
-            result
-        }
-        def batcher = new MicroBatcher<>(backendWithCapture, config)
+        def batcher = new MicroBatcher<>(backend, config)
         def submitResult = batcher.submit("test-item")
         Thread.sleep(200)  # Wait for batch processing
 
