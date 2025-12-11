@@ -1,5 +1,9 @@
 package com.vajrapulse.vortex
 
+import com.vajrapulse.vortex.health.BatcherHealth
+import com.vajrapulse.vortex.health.HealthStatus
+import com.vajrapulse.vortex.results.BatchResult
+import new SuccessEvent
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import spock.lang.Specification
 
@@ -11,7 +15,7 @@ class BatcherHealthSpec extends Specification {
     def "should return UP for healthy batcher"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         
@@ -24,7 +28,7 @@ class BatcherHealthSpec extends Specification {
         MicroBatcher<String> batcher = new MicroBatcher<>(backend, config, new SimpleMeterRegistry())
         
         when:
-        HealthStatus status = com.vajrapulse.vortex.health.BatcherHealth.check(batcher)
+        HealthStatus status = BatcherHealth.check(batcher)
         
         then:
         status == HealthStatus.UP
@@ -47,7 +51,7 @@ class BatcherHealthSpec extends Specification {
         batcher.close()
         
         when:
-        HealthStatus status = com.vajrapulse.vortex.health.BatcherHealth.check(batcher)
+        HealthStatus status = BatcherHealth.check(batcher)
         
         then:
         status == HealthStatus.DOWN
@@ -56,7 +60,7 @@ class BatcherHealthSpec extends Specification {
     def "should return DEGRADED for high failure rate"() {
         given:
         Backend<String> backend = { batch ->
-            def failures = batch.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new RuntimeException("Fail")) }
+            def failures = batch.collect { new new FailureEvent<>(it, new RuntimeException("Fail")) }
             new com.vajrapulse.vortex.results.BatchResult<>(List.of(), failures)
         }
         
@@ -77,7 +81,7 @@ class BatcherHealthSpec extends Specification {
         Thread.sleep(200)
         
         when:
-        HealthStatus status = com.vajrapulse.vortex.health.BatcherHealth.check(batcher)
+        HealthStatus status = BatcherHealth.check(batcher)
         
         then:
         status == HealthStatus.DEGRADED || status == HealthStatus.DOWN
@@ -89,7 +93,7 @@ class BatcherHealthSpec extends Specification {
     def "should return DOWN for very high failure rate"() {
         given:
         Backend<String> backend = { batch ->
-            def failures = batch.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new RuntimeException("Fail")) }
+            def failures = batch.collect { new new FailureEvent<>(it, new RuntimeException("Fail")) }
             new com.vajrapulse.vortex.results.BatchResult<>(List.of(), failures)
         }
         
@@ -110,7 +114,7 @@ class BatcherHealthSpec extends Specification {
         Thread.sleep(300)
         
         when:
-        HealthStatus status = com.vajrapulse.vortex.health.BatcherHealth.check(batcher)
+        HealthStatus status = BatcherHealth.check(batcher)
         
         then:
         // With 100% failure rate, should be DOWN
@@ -123,7 +127,7 @@ class BatcherHealthSpec extends Specification {
     def "should use custom thresholds"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         
@@ -135,7 +139,7 @@ class BatcherHealthSpec extends Specification {
         MicroBatcher<String> batcher = new MicroBatcher<>(backend, config, new SimpleMeterRegistry())
         
         when:
-        HealthStatus status = com.vajrapulse.vortex.health.BatcherHealth.checkWithThresholds(
+        HealthStatus status = BatcherHealth.checkWithThresholds(
             batcher,
             0.05,  // max failure rate: 5%
             0.9    // max queue utilization: 90%
@@ -155,13 +159,13 @@ class BatcherHealthSpec extends Specification {
         MicroBatcher<String> batcher = new MicroBatcher<>(backend, config, new SimpleMeterRegistry())
         
         when:
-        com.vajrapulse.vortex.health.BatcherHealth.checkWithThresholds(batcher, -0.1, 0.5)
+        BatcherHealth.checkWithThresholds(batcher, -0.1, 0.5)
         
         then:
         thrown(IllegalArgumentException)
         
         when:
-        com.vajrapulse.vortex.health.BatcherHealth.checkWithThresholds(batcher, 0.5, 1.1)
+        BatcherHealth.checkWithThresholds(batcher, 0.5, 1.1)
         
         then:
         thrown(IllegalArgumentException)
@@ -173,7 +177,7 @@ class BatcherHealthSpec extends Specification {
     def "should get detailed health info"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         
@@ -185,7 +189,7 @@ class BatcherHealthSpec extends Specification {
         MicroBatcher<String> batcher = new MicroBatcher<>(backend, config, new SimpleMeterRegistry())
         
         when:
-        HealthInfo info = com.vajrapulse.vortex.health.BatcherHealth.getHealthInfo(batcher)
+        HealthInfo info = BatcherHealth.getHealthInfo(batcher)
         
         then:
         info != null
@@ -203,7 +207,7 @@ class BatcherHealthSpec extends Specification {
     
     def "should handle null batcher"() {
         when:
-        com.vajrapulse.vortex.health.BatcherHealth.check(null)
+        BatcherHealth.check(null)
         
         then:
         thrown(NullPointerException)
@@ -270,7 +274,7 @@ class BatcherHealthSpec extends Specification {
     def "should get health info with all status types"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         
@@ -282,7 +286,7 @@ class BatcherHealthSpec extends Specification {
         MicroBatcher<String> batcher = new MicroBatcher<>(backend, config, new SimpleMeterRegistry())
         
         when:
-        HealthInfo info = com.vajrapulse.vortex.health.BatcherHealth.getHealthInfo(batcher)
+        HealthInfo info = BatcherHealth.getHealthInfo(batcher)
         
         then:
         info != null

@@ -6,7 +6,7 @@ class SuccessEventSpec extends Specification {
 
     def "should create success event with data"() {
         when:
-        def event = new com.vajrapulse.vortex.results.SuccessEvent<>("test-data")
+        def event = new new SuccessEvent<>("test-data")
 
         then:
         event.data == "test-data"
@@ -14,7 +14,7 @@ class SuccessEventSpec extends Specification {
 
     def "should handle null data"() {
         when:
-        def event = new com.vajrapulse.vortex.results.SuccessEvent<>(null)
+        def event = new new SuccessEvent<>(null)
 
         then:
         event.data == null
@@ -25,7 +25,7 @@ class SuccessEventSpec extends Specification {
         def complexData = [key: "value", count: 42]
 
         when:
-        def event = new com.vajrapulse.vortex.results.SuccessEvent<>(complexData)
+        def event = new new SuccessEvent<>(complexData)
 
         then:
         event.data == complexData

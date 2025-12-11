@@ -1,8 +1,8 @@
 package com.vajrapulse.vortex.tracing
 
 import com.vajrapulse.vortex.results.BatchResult
-import com.vajrapulse.vortex.results.FailureEvent
-import com.vajrapulse.vortex.results.SuccessEvent
+import new FailureEvent
+import new SuccessEvent
 import io.micrometer.tracing.Span
 import io.micrometer.tracing.Tracer
 import spock.lang.Specification
@@ -98,8 +98,8 @@ class MicrometerTracingHookSpec extends Specification {
         given:
         def hook = new MicrometerTracingHook(tracer)
         def batchResult = new com.vajrapulse.vortex.results.BatchResult<>(
-            [new com.vajrapulse.vortex.results.SuccessEvent<>("item-1")],
-            [new com.vajrapulse.vortex.results.FailureEvent<>("item-2", new RuntimeException("error"))]
+            [new new SuccessEvent<>("item-1")],
+            [new new FailureEvent<>("item-2", new RuntimeException("error"))]
         )
 
         when:
@@ -116,7 +116,7 @@ class MicrometerTracingHookSpec extends Specification {
         given:
         def hook = new MicrometerTracingHook(tracer)
         def batchResult = new com.vajrapulse.vortex.results.BatchResult<>(
-            [new com.vajrapulse.vortex.results.SuccessEvent<>("item-1")],
+            [new new SuccessEvent<>("item-1")],
             []
         )
 
@@ -240,7 +240,7 @@ class MicrometerTracingHookSpec extends Specification {
     def "should handle exceptions gracefully in onBatchDispatchSuccess"() {
         given:
         def hook = new MicrometerTracingHook(tracer)
-        def batchResult = new com.vajrapulse.vortex.results.BatchResult<>([new com.vajrapulse.vortex.results.SuccessEvent<>("item-1")], [])
+        def batchResult = new com.vajrapulse.vortex.results.BatchResult<>([new new SuccessEvent<>("item-1")], [])
 
         when:
         hook.onBatchDispatchSuccess(["item-1"], batchResult)

@@ -57,7 +57,7 @@ class MicroBatcherSpec extends Specification {
         def batchCount = new AtomicInteger(0)
         Backend<String> backend = { batch ->
             batchCount.incrementAndGet()
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -82,7 +82,7 @@ class MicroBatcherSpec extends Specification {
         def batchCount = new AtomicInteger(0)
         Backend<String> backend = { batch ->
             batchCount.incrementAndGet()
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -108,7 +108,7 @@ class MicroBatcherSpec extends Specification {
     def "should return success results"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -134,7 +134,7 @@ class MicroBatcherSpec extends Specification {
     def "should return failure results"() {
         given:
         Backend<String> backend = { batch ->
-            def failures = batch.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new RuntimeException("error")) }
+            def failures = batch.collect { new new FailureEvent<>(it, new RuntimeException("error")) }
             new com.vajrapulse.vortex.results.BatchResult<>(List.of(), failures)
         }
         def config = BatcherConfig.builder()
@@ -187,8 +187,8 @@ class MicroBatcherSpec extends Specification {
     def "should enforce atomic commit when enabled"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.findAll { !it.contains("fail") }.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
-            def failures = batch.findAll { it.contains("fail") }.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new RuntimeException("error")) }
+            def successes = batch.findAll { !it.contains("fail") }.collect { new new SuccessEvent<>(it) }
+            def failures = batch.findAll { it.contains("fail") }.collect { new new FailureEvent<>(it, new RuntimeException("error")) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, failures)
         }
         def config = BatcherConfig.builder()
@@ -222,8 +222,8 @@ class MicroBatcherSpec extends Specification {
     def "should not enforce atomic commit when disabled"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.findAll { !it.contains("fail") }.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
-            def failures = batch.findAll { it.contains("fail") }.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new RuntimeException("error")) }
+            def successes = batch.findAll { !it.contains("fail") }.collect { new new SuccessEvent<>(it) }
+            def failures = batch.findAll { it.contains("fail") }.collect { new new FailureEvent<>(it, new RuntimeException("error")) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, failures)
         }
         def config = BatcherConfig.builder()
@@ -254,7 +254,7 @@ class MicroBatcherSpec extends Specification {
     def "should track metrics"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def meterRegistry = new SimpleMeterRegistry()
@@ -282,7 +282,7 @@ class MicroBatcherSpec extends Specification {
     def "diagnostics should expose current state"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -339,7 +339,7 @@ class MicroBatcherSpec extends Specification {
                     itemsProcessedLatch.countDown() // Signal that this item was processed
                 }
             }
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -439,8 +439,8 @@ class MicroBatcherSpec extends Specification {
     def "should handle mixed success and failure results"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.findAll { it.startsWith("success") }.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
-            def failures = batch.findAll { it.startsWith("fail") }.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new RuntimeException("error")) }
+            def successes = batch.findAll { it.startsWith("success") }.collect { new new SuccessEvent<>(it) }
+            def failures = batch.findAll { it.startsWith("fail") }.collect { new new FailureEvent<>(it, new RuntimeException("error")) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, failures)
         }
         def config = BatcherConfig.builder()
@@ -515,7 +515,7 @@ class MicroBatcherSpec extends Specification {
         def batchCount = new AtomicInteger(0)
         Backend<String> backend = { batch ->
             batchCount.incrementAndGet()
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -542,7 +542,7 @@ class MicroBatcherSpec extends Specification {
         given:
         Backend<String> backend = { batch ->
             Thread.sleep(20) // Simulate processing time
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def meterRegistry = new SimpleMeterRegistry()
@@ -569,7 +569,7 @@ class MicroBatcherSpec extends Specification {
         given:
         Backend<String> backend = { batch ->
             // Return results in different order
-            def successes = batch.reverse().collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.reverse().collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -647,8 +647,8 @@ class MicroBatcherSpec extends Specification {
     def "should handle result mapping with partial successes and failures"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.findAll { it.contains("success") }.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
-            def failures = batch.findAll { it.contains("fail") }.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new RuntimeException("error")) }
+            def successes = batch.findAll { it.contains("success") }.collect { new new SuccessEvent<>(it) }
+            def failures = batch.findAll { it.contains("fail") }.collect { new new FailureEvent<>(it, new RuntimeException("error")) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, failures)
         }
         def config = BatcherConfig.builder()
@@ -682,7 +682,7 @@ class MicroBatcherSpec extends Specification {
         given:
         Backend<String> backend = { batch ->
             // Return results with different data (won't match)
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>("different-${it}") }
+            def successes = batch.collect { new new SuccessEvent<>("different-${it}") }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -762,7 +762,7 @@ class MicroBatcherSpec extends Specification {
             if (errorCount.incrementAndGet() == 1) {
                 throw new RuntimeException("Processing error")
             }
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -788,7 +788,7 @@ class MicroBatcherSpec extends Specification {
     def "should handle all success scenario in atomic commit mode"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -819,7 +819,7 @@ class MicroBatcherSpec extends Specification {
         def processedItems = new AtomicInteger(0)
         Backend<String> backend = { batch ->
             processedItems.addAndGet(batch.size())
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -972,7 +972,7 @@ class MicroBatcherSpec extends Specification {
             if (callCount.get() == 1) {
                 throw new RuntimeException("Backend error")
             }
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -998,8 +998,8 @@ class MicroBatcherSpec extends Specification {
     def "should handle result mapping with more failures than successes"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.findAll { it.contains("success") }.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
-            def failures = batch.findAll { it.contains("fail") }.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new RuntimeException("error")) }
+            def successes = batch.findAll { it.contains("success") }.collect { new new SuccessEvent<>(it) }
+            def failures = batch.findAll { it.contains("fail") }.collect { new new FailureEvent<>(it, new RuntimeException("error")) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, failures)
         }
         def config = BatcherConfig.builder()
@@ -1058,8 +1058,8 @@ class MicroBatcherSpec extends Specification {
         def originalBackendCall = new AtomicInteger(0)
         Backend<String> backend = { batch ->
             originalBackendCall.incrementAndGet()
-            def successes = batch.findAll { !it.contains("fail") }.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
-            def failures = batch.findAll { it.contains("fail") }.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new RuntimeException("error")) }
+            def successes = batch.findAll { !it.contains("fail") }.collect { new new SuccessEvent<>(it) }
+            def failures = batch.findAll { it.contains("fail") }.collect { new new FailureEvent<>(it, new RuntimeException("error")) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, failures)
         }
         def config = BatcherConfig.builder()
@@ -1096,8 +1096,8 @@ class MicroBatcherSpec extends Specification {
     def "should not replay when autoReplaySuccesses is disabled"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.findAll { !it.contains("fail") }.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
-            def failures = batch.findAll { it.contains("fail") }.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new RuntimeException("error")) }
+            def successes = batch.findAll { !it.contains("fail") }.collect { new new SuccessEvent<>(it) }
+            def failures = batch.findAll { it.contains("fail") }.collect { new new FailureEvent<>(it, new RuntimeException("error")) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, failures)
         }
         def config = BatcherConfig.builder()
@@ -1130,7 +1130,7 @@ class MicroBatcherSpec extends Specification {
     def "should not replay when all items succeed"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -1159,7 +1159,7 @@ class MicroBatcherSpec extends Specification {
     def "should not replay when all items fail"() {
         given:
         Backend<String> backend = { batch ->
-            def failures = batch.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new RuntimeException("error")) }
+            def failures = batch.collect { new new FailureEvent<>(it, new RuntimeException("error")) }
             new com.vajrapulse.vortex.results.BatchResult<>(List.of(), failures)
         }
         def config = BatcherConfig.builder()
@@ -1191,8 +1191,8 @@ class MicroBatcherSpec extends Specification {
         Backend<String> backend = new Backend<String>() {
             @Override
             BatchResult<String> dispatch(List<String> batch) throws Exception {
-                def successes = batch.findAll { !it.contains("fail") }.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
-                def failures = batch.findAll { it.contains("fail") }.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new RuntimeException("constraint violation")) }
+                def successes = batch.findAll { !it.contains("fail") }.collect { new new SuccessEvent<>(it) }
+                def failures = batch.findAll { it.contains("fail") }.collect { new new FailureEvent<>(it, new RuntimeException("constraint violation")) }
                 return new com.vajrapulse.vortex.results.BatchResult<>(successes, failures)
             }
             
@@ -1232,8 +1232,8 @@ class MicroBatcherSpec extends Specification {
         Backend<String> backend = new Backend<String>() {
             @Override
             BatchResult<String> dispatch(List<String> batch) throws Exception {
-                def successes = batch.findAll { !it.contains("fail") }.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
-                def failures = batch.findAll { it.contains("fail") }.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new RuntimeException("error")) }
+                def successes = batch.findAll { !it.contains("fail") }.collect { new new SuccessEvent<>(it) }
+                def failures = batch.findAll { it.contains("fail") }.collect { new new FailureEvent<>(it, new RuntimeException("error")) }
                 return new com.vajrapulse.vortex.results.BatchResult<>(successes, failures)
             }
             
@@ -1273,8 +1273,8 @@ class MicroBatcherSpec extends Specification {
         given:
         // Backend using default implementation (returns false)
         Backend<String> backend = { batch ->
-            def successes = batch.findAll { !it.contains("fail") }.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
-            def failures = batch.findAll { it.contains("fail") }.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new RuntimeException("error")) }
+            def successes = batch.findAll { !it.contains("fail") }.collect { new new SuccessEvent<>(it) }
+            def failures = batch.findAll { it.contains("fail") }.collect { new new FailureEvent<>(it, new RuntimeException("error")) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, failures)
         }
         def config = BatcherConfig.builder()
@@ -1304,8 +1304,8 @@ class MicroBatcherSpec extends Specification {
         given:
         def replayCount = new AtomicInteger(0)
         Backend<String> backend = { batch ->
-            def successes = batch.findAll { !it.contains("fail") }.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
-            def failures = batch.findAll { it.contains("fail") }.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new RuntimeException("error")) }
+            def successes = batch.findAll { !it.contains("fail") }.collect { new new SuccessEvent<>(it) }
+            def failures = batch.findAll { it.contains("fail") }.collect { new new FailureEvent<>(it, new RuntimeException("error")) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, failures)
         }
         def config = BatcherConfig.builder()
@@ -1336,8 +1336,8 @@ class MicroBatcherSpec extends Specification {
         Backend<String> backend = { batch ->
             callCount.incrementAndGet()
             if (callCount.get() == 1) {
-                def successes = batch.findAll { !it.contains("fail") }.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
-                def failures = batch.findAll { it.contains("fail") }.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new RuntimeException("error")) }
+                def successes = batch.findAll { !it.contains("fail") }.collect { new new SuccessEvent<>(it) }
+                def failures = batch.findAll { it.contains("fail") }.collect { new new FailureEvent<>(it, new RuntimeException("error")) }
                 return new com.vajrapulse.vortex.results.BatchResult<>(successes, failures)
             }
             // Second call (replay) throws exception
@@ -1367,7 +1367,7 @@ class MicroBatcherSpec extends Specification {
         given:
         Backend<String> backend = { batch ->
             Thread.sleep(150) // Slow processing to keep queue busy (reduced from 3000ms)
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -1390,7 +1390,7 @@ class MicroBatcherSpec extends Specification {
         given:
         Backend<String> backend = { batch ->
             Thread.sleep(300) // Long processing (reduced from 10000ms)
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -1413,7 +1413,7 @@ class MicroBatcherSpec extends Specification {
         given:
         Backend<String> backend = { batch ->
             // Return failures that don't match input data
-            def failures = batch.collect { new com.vajrapulse.vortex.results.FailureEvent<>("different-${it}", new RuntimeException("error")) }
+            def failures = batch.collect { new new FailureEvent<>("different-${it}", new RuntimeException("error")) }
             new com.vajrapulse.vortex.results.BatchResult<>(List.of(), failures)
         }
         def config = BatcherConfig.builder()
@@ -1443,7 +1443,7 @@ class MicroBatcherSpec extends Specification {
         given:
         Backend<String> backend = { batch ->
             // Return successes that don't match input data
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>("different-${it}") }
+            def successes = batch.collect { new new SuccessEvent<>("different-${it}") }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -1507,7 +1507,7 @@ class MicroBatcherSpec extends Specification {
             if (errorThrown.get() == 1) {
                 throw new RuntimeException("First error")
             }
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -1534,8 +1534,8 @@ class MicroBatcherSpec extends Specification {
         given:
         Backend<String> backend = { batch ->
             // Return results that partially match
-            def successes = [new com.vajrapulse.vortex.results.SuccessEvent<>("item-1")] // Only first matches
-            def failures = [new com.vajrapulse.vortex.results.FailureEvent<>("item-3", new RuntimeException("error"))] // Different item
+            def successes = [new new SuccessEvent<>("item-1")] // Only first matches
+            def failures = [new new FailureEvent<>("item-3", new RuntimeException("error"))] // Different item
             new com.vajrapulse.vortex.results.BatchResult<>(successes, failures)
         }
         def config = BatcherConfig.builder()
@@ -1594,7 +1594,7 @@ class MicroBatcherSpec extends Specification {
         given:
         Backend<String> backend = { batch ->
             Thread.sleep(100) // Slow processing to keep items in queue
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -1633,12 +1633,12 @@ class MicroBatcherSpec extends Specification {
             callCount.incrementAndGet()
             if (callCount.get() == 1) {
                 // First call: return mixed results to trigger replay
-                def successes = batch.findAll { !it.contains("fail") }.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
-                def failures = batch.findAll { it.contains("fail") }.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new RuntimeException("error")) }
+                def successes = batch.findAll { !it.contains("fail") }.collect { new new SuccessEvent<>(it) }
+                def failures = batch.findAll { it.contains("fail") }.collect { new new FailureEvent<>(it, new RuntimeException("error")) }
                 return new com.vajrapulse.vortex.results.BatchResult<>(successes, failures)
             }
             // Subsequent calls should succeed
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             return new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -1666,7 +1666,7 @@ class MicroBatcherSpec extends Specification {
         def callbackExecuted = new AtomicInteger(0)
         def callbackItem = new AtomicInteger(0)
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -1696,7 +1696,7 @@ class MicroBatcherSpec extends Specification {
         def callbackExecuted = new AtomicInteger(0)
         def callbackError = null
         Backend<String> backend = { batch ->
-            def failures = batch.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new RuntimeException("error")) }
+            def failures = batch.collect { new new FailureEvent<>(it, new RuntimeException("error")) }
             new com.vajrapulse.vortex.results.BatchResult<>(List.of(), failures)
         }
         def config = BatcherConfig.builder()
@@ -1727,7 +1727,7 @@ class MicroBatcherSpec extends Specification {
     def "should handle callback exception gracefully"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -1756,7 +1756,7 @@ class MicroBatcherSpec extends Specification {
         Backend<String> backend = { batch ->
             // Simulate backend processing delay
             Thread.sleep(50)
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -1798,7 +1798,7 @@ class MicroBatcherSpec extends Specification {
         given:
         def meterRegistry = new SimpleMeterRegistry()
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -1825,7 +1825,7 @@ class MicroBatcherSpec extends Specification {
         given:
         def meterRegistry = new SimpleMeterRegistry()
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -1853,7 +1853,7 @@ class MicroBatcherSpec extends Specification {
         def meterRegistry = new SimpleMeterRegistry()
         Backend<String> backend = { batch ->
             Thread.sleep(20) // Simulate processing time
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -1881,7 +1881,7 @@ class MicroBatcherSpec extends Specification {
         given:
         def meterRegistry = new SimpleMeterRegistry()
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -1931,7 +1931,7 @@ class MicroBatcherSpec extends Specification {
         given:
         def meterRegistry = new SimpleMeterRegistry()
         Backend<String> backend = { batch ->
-            def failures = batch.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new RuntimeException("error")) }
+            def failures = batch.collect { new new FailureEvent<>(it, new RuntimeException("error")) }
             new com.vajrapulse.vortex.results.BatchResult<>(List.of(), failures)
         }
         def config = BatcherConfig.builder()
@@ -1959,7 +1959,7 @@ class MicroBatcherSpec extends Specification {
         Backend<String> backend = { batch ->
             // In atomic commit mode, if any fails, all fail
             // So we return all successes to test the success path
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -1987,7 +1987,7 @@ class MicroBatcherSpec extends Specification {
         given:
         def meterRegistry = new SimpleMeterRegistry()
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -2014,7 +2014,7 @@ class MicroBatcherSpec extends Specification {
         given:
         def meterRegistry = new SimpleMeterRegistry()
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -2040,7 +2040,7 @@ class MicroBatcherSpec extends Specification {
         def meterRegistry = new SimpleMeterRegistry()
         Backend<String> backend = { batch ->
             Thread.sleep(80) // Slow backend to fill queue
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -2096,11 +2096,11 @@ class MicroBatcherSpec extends Specification {
             attemptCount.incrementAndGet()
             if (attemptCount.get() == 1) {
                 // First attempt fails
-                def failures = batch.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new RuntimeException("retryable")) }
+                def failures = batch.collect { new new FailureEvent<>(it, new RuntimeException("retryable")) }
                 new com.vajrapulse.vortex.results.BatchResult<>(List.of(), failures)
             } else {
                 // Second attempt succeeds
-                def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+                def successes = batch.collect { new new SuccessEvent<>(it) }
                 new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
             }
         }
@@ -2132,7 +2132,7 @@ class MicroBatcherSpec extends Specification {
         def attemptCount = new AtomicInteger(0)
         Backend<String> backend = { batch ->
             attemptCount.incrementAndGet()
-            def failures = batch.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new IllegalArgumentException("non-retryable")) }
+            def failures = batch.collect { new new FailureEvent<>(it, new IllegalArgumentException("non-retryable")) }
             new com.vajrapulse.vortex.results.BatchResult<>(List.of(), failures)
         }
         def config = BatcherConfig.builder()
@@ -2162,7 +2162,7 @@ class MicroBatcherSpec extends Specification {
         def attemptCount = new AtomicInteger(0)
         Backend<String> backend = { batch ->
             attemptCount.incrementAndGet()
-            def failures = batch.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new RuntimeException("retryable")) }
+            def failures = batch.collect { new new FailureEvent<>(it, new RuntimeException("retryable")) }
             new com.vajrapulse.vortex.results.BatchResult<>(List.of(), failures)
         }
         def config = BatcherConfig.builder()
@@ -2192,7 +2192,7 @@ class MicroBatcherSpec extends Specification {
         def attemptTimes = new ArrayList<Long>()
         Backend<String> backend = { batch ->
             attemptTimes.add(System.currentTimeMillis())
-            def failures = batch.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new RuntimeException("retryable")) }
+            def failures = batch.collect { new new FailureEvent<>(it, new RuntimeException("retryable")) }
             new com.vajrapulse.vortex.results.BatchResult<>(List.of(), failures)
         }
         def config = BatcherConfig.builder()
@@ -2225,7 +2225,7 @@ class MicroBatcherSpec extends Specification {
         def attemptCount = new AtomicInteger(0)
         Backend<String> backend = { batch ->
             attemptCount.incrementAndGet()
-            def failures = batch.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new RuntimeException("retryable")) }
+            def failures = batch.collect { new new FailureEvent<>(it, new RuntimeException("retryable")) }
             new com.vajrapulse.vortex.results.BatchResult<>(List.of(), failures)
         }
         def config = BatcherConfig.builder()
@@ -2255,10 +2255,10 @@ class MicroBatcherSpec extends Specification {
         Backend<String> backend = { batch ->
             attemptCount.incrementAndGet()
             if (attemptCount.get() == 1) {
-                def failures = batch.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new IllegalStateException("transient")) }
+                def failures = batch.collect { new new FailureEvent<>(it, new IllegalStateException("transient")) }
                 new com.vajrapulse.vortex.results.BatchResult<>(List.of(), failures)
             } else {
-                def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+                def successes = batch.collect { new new SuccessEvent<>(it) }
                 new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
             }
         }
@@ -2290,10 +2290,10 @@ class MicroBatcherSpec extends Specification {
         Backend<String> backend = { batch ->
             attemptCount.incrementAndGet()
             if (attemptCount.get() == 1) {
-                def failures = batch.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new RuntimeException("retryable")) }
+                def failures = batch.collect { new new FailureEvent<>(it, new RuntimeException("retryable")) }
                 new com.vajrapulse.vortex.results.BatchResult<>(List.of(), failures)
             } else {
-                def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+                def successes = batch.collect { new new SuccessEvent<>(it) }
                 new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
             }
         }
@@ -2327,7 +2327,7 @@ class MicroBatcherSpec extends Specification {
             if (attemptCount.get() == 1) {
                 throw new RuntimeException("retryable")
             }
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -2359,12 +2359,12 @@ class MicroBatcherSpec extends Specification {
             attemptCount.incrementAndGet()
             if (attemptCount.get() == 1) {
                 // First attempt: mixed results (triggers atomic commit failure)
-                def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
-                def failures = [new com.vajrapulse.vortex.results.FailureEvent<>("item-2", new RuntimeException("retryable"))]
+                def successes = batch.collect { new new SuccessEvent<>(it) }
+                def failures = [new new FailureEvent<>("item-2", new RuntimeException("retryable"))]
                 new com.vajrapulse.vortex.results.BatchResult<>(successes, failures)
             } else {
                 // Retry: all succeed
-                def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+                def successes = batch.collect { new new SuccessEvent<>(it) }
                 new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
             }
         }
@@ -2400,7 +2400,7 @@ class MicroBatcherSpec extends Specification {
         Backend<String> backend = { batch ->
             batchSizes.add(batch.size())
             batchCount.incrementAndGet()
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -2441,7 +2441,7 @@ class MicroBatcherSpec extends Specification {
         Backend<String> backend = { batch ->
             batchCount.incrementAndGet()
             batchLatch.countDown()
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -2520,7 +2520,7 @@ class MicroBatcherSpec extends Specification {
         def batchSizes = new ArrayList<Integer>()
         Backend<String> backend = { batch ->
             batchSizes.add(batch.size())
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -2554,14 +2554,14 @@ class MicroBatcherSpec extends Specification {
             attemptCount.incrementAndGet()
             if (attemptCount.get() == 1) {
                 // First attempt fails
-                def failures = batch.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new RuntimeException("retryable")) }
+                def failures = batch.collect { new new FailureEvent<>(it, new RuntimeException("retryable")) }
                 new com.vajrapulse.vortex.results.BatchResult<>(List.of(), failures)
             } else if (attemptCount.get() == 2) {
                 // Retry attempt throws exception (simulating submit failure)
                 throw new IllegalStateException("Submit failed")
             } else {
                 // Should not reach here
-                def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+                def successes = batch.collect { new new SuccessEvent<>(it) }
                 new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
             }
         }
@@ -2595,10 +2595,10 @@ class MicroBatcherSpec extends Specification {
         Backend<String> backend = { batch ->
             attemptCount.incrementAndGet()
             if (attemptCount.get() == 1) {
-                def failures = batch.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new RuntimeException("retryable")) }
+                def failures = batch.collect { new new FailureEvent<>(it, new RuntimeException("retryable")) }
                 new com.vajrapulse.vortex.results.BatchResult<>(List.of(), failures)
             } else {
-                def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+                def successes = batch.collect { new new SuccessEvent<>(it) }
                 new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
             }
         }
@@ -2632,10 +2632,10 @@ class MicroBatcherSpec extends Specification {
         Backend<String> backend = { batch ->
             attemptCount.incrementAndGet()
             if (attemptCount.get() == 1) {
-                def failures = batch.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new RuntimeException("retryable")) }
+                def failures = batch.collect { new new FailureEvent<>(it, new RuntimeException("retryable")) }
                 new com.vajrapulse.vortex.results.BatchResult<>(List.of(), failures)
             } else {
-                def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+                def successes = batch.collect { new new SuccessEvent<>(it) }
                 new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
             }
         }
@@ -2667,7 +2667,7 @@ class MicroBatcherSpec extends Specification {
         given:
         Backend<String> backend = { batch ->
             Thread.sleep(200) // Long processing
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -2700,10 +2700,10 @@ class MicroBatcherSpec extends Specification {
         Backend<String> backend = { batch ->
             attemptCount.incrementAndGet()
             if (attemptCount.get() == 1) {
-                def failures = batch.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new RuntimeException("retryable")) }
+                def failures = batch.collect { new new FailureEvent<>(it, new RuntimeException("retryable")) }
                 new com.vajrapulse.vortex.results.BatchResult<>(List.of(), failures)
             } else {
-                def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+                def successes = batch.collect { new new SuccessEvent<>(it) }
                 new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
             }
         }
@@ -2739,7 +2739,7 @@ class MicroBatcherSpec extends Specification {
             callCount.incrementAndGet()
             if (callCount.get() == 1) {
                 // First call succeeds (for items in queue)
-                def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+                def successes = batch.collect { new new SuccessEvent<>(it) }
                 new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
             } else {
                 // Second call (from close) throws exception
@@ -2771,7 +2771,7 @@ class MicroBatcherSpec extends Specification {
         def attemptCount = new AtomicInteger(0)
         Backend<String> backend = { batch ->
             attemptCount.incrementAndGet()
-            def failures = batch.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new RuntimeException("retryable")) }
+            def failures = batch.collect { new new FailureEvent<>(it, new RuntimeException("retryable")) }
             new com.vajrapulse.vortex.results.BatchResult<>(List.of(), failures)
         }
         def config = BatcherConfig.builder()
@@ -2803,7 +2803,7 @@ class MicroBatcherSpec extends Specification {
         def attemptCount = new AtomicInteger(0)
         Backend<String> backend = { batch ->
             attemptCount.incrementAndGet()
-            def failures = batch.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new RuntimeException("retryable")) }
+            def failures = batch.collect { new new FailureEvent<>(it, new RuntimeException("retryable")) }
             new com.vajrapulse.vortex.results.BatchResult<>(List.of(), failures)
         }
         def config = BatcherConfig.builder()
@@ -2836,7 +2836,7 @@ class MicroBatcherSpec extends Specification {
         def attemptCount = new AtomicInteger(0)
         Backend<String> backend = { batch ->
             attemptCount.incrementAndGet()
-            def failures = batch.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new RuntimeException("retryable")) }
+            def failures = batch.collect { new new FailureEvent<>(it, new RuntimeException("retryable")) }
             new com.vajrapulse.vortex.results.BatchResult<>(List.of(), failures)
         }
         def config = BatcherConfig.builder()
@@ -2868,7 +2868,7 @@ class MicroBatcherSpec extends Specification {
         def attemptCount = new AtomicInteger(0)
         Backend<String> backend = { batch ->
             attemptCount.incrementAndGet()
-            def failures = batch.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new RuntimeException("retryable")) }
+            def failures = batch.collect { new new FailureEvent<>(it, new RuntimeException("retryable")) }
             new com.vajrapulse.vortex.results.BatchResult<>(List.of(), failures)
         }
         def config = BatcherConfig.builder()
@@ -2902,11 +2902,11 @@ class MicroBatcherSpec extends Specification {
         Backend<String> backend = { batch ->
             attemptCount.incrementAndGet()
             if (attemptCount.get() == 1) {
-                def failures = batch.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new RuntimeException("retryable")) }
+                def failures = batch.collect { new new FailureEvent<>(it, new RuntimeException("retryable")) }
                 new com.vajrapulse.vortex.results.BatchResult<>(List.of(), failures)
             } else {
                 // Retry succeeds
-                def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+                def successes = batch.collect { new new SuccessEvent<>(it) }
                 new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
             }
         }
@@ -2936,7 +2936,7 @@ class MicroBatcherSpec extends Specification {
     def "should handle processBatch when queue is empty and timeout occurs"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -2961,7 +2961,7 @@ class MicroBatcherSpec extends Specification {
     def "should use SimpleMeterRegistry when created with two-arg constructor"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -2986,7 +2986,7 @@ class MicroBatcherSpec extends Specification {
     def "should handle processBatch when remaining time is exactly zero"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -3010,7 +3010,7 @@ class MicroBatcherSpec extends Specification {
     def "should handle processBatch when remaining time calculation results in zero or negative"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -3046,7 +3046,7 @@ class MicroBatcherSpec extends Specification {
                 // First call throws exception to trigger error handling
                 throw new RuntimeException("Backend error")
             }
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -3074,7 +3074,7 @@ class MicroBatcherSpec extends Specification {
         given:
         def meterRegistry = new SimpleMeterRegistry()
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder().build()
@@ -3092,7 +3092,7 @@ class MicroBatcherSpec extends Specification {
     def "should test getCurrentBatchSize and getCurrentLingerTime"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -3114,7 +3114,7 @@ class MicroBatcherSpec extends Specification {
     def "should use two-arg constructor with default SimpleMeterRegistry"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -3141,7 +3141,7 @@ class MicroBatcherSpec extends Specification {
         def batchSizes = Collections.synchronizedList(new ArrayList<Integer>())
         Backend<String> backend = { batch ->
             batchSizes.add(batch.size())
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -3168,7 +3168,7 @@ class MicroBatcherSpec extends Specification {
         def batchSizes = Collections.synchronizedList(new ArrayList<Integer>())
         Backend<String> backend = { batch ->
             batchSizes.add(batch.size())
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -3193,7 +3193,7 @@ class MicroBatcherSpec extends Specification {
     def "should handle processBatch when remaining time is exactly 1ms"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -3221,7 +3221,7 @@ class MicroBatcherSpec extends Specification {
     def "should handle close when queue becomes empty before deadline"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -3248,7 +3248,7 @@ class MicroBatcherSpec extends Specification {
         given:
         Backend<String> backend = { batch ->
             Thread.sleep(3000) // Long processing to keep queue busy
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -3275,7 +3275,7 @@ class MicroBatcherSpec extends Specification {
         def callCount = new AtomicInteger(0)
         Backend<String> backend = { batch ->
             callCount.incrementAndGet()
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -3307,7 +3307,7 @@ class MicroBatcherSpec extends Specification {
         given:
         Backend<String> backend = { batch ->
             Thread.sleep(6000) // Longer than EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS (5s)
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -3334,7 +3334,7 @@ class MicroBatcherSpec extends Specification {
         given:
         def meterRegistry = new SimpleMeterRegistry()
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -3366,7 +3366,7 @@ class MicroBatcherSpec extends Specification {
         given:
         Backend<String> backend = { batch ->
             // Return success with null data to test null handling
-            def successes = [new com.vajrapulse.vortex.results.SuccessEvent<>(null)]
+            def successes = [new new SuccessEvent<>(null)]
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -3392,7 +3392,7 @@ class MicroBatcherSpec extends Specification {
         given:
         Backend<String> backend = { batch ->
             // Return failure with null data to test null handling
-            def failures = [new com.vajrapulse.vortex.results.FailureEvent<>(null, new RuntimeException("error"))]
+            def failures = [new new FailureEvent<>(null, new RuntimeException("error"))]
             new com.vajrapulse.vortex.results.BatchResult<>(List.of(), failures)
         }
         def config = BatcherConfig.builder()
@@ -3419,7 +3419,7 @@ class MicroBatcherSpec extends Specification {
         def attemptCount = new AtomicInteger(0)
         Backend<String> backend = { batch ->
             attemptCount.incrementAndGet()
-            def failures = batch.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new RuntimeException("retryable")) }
+            def failures = batch.collect { new new FailureEvent<>(it, new RuntimeException("retryable")) }
             new com.vajrapulse.vortex.results.BatchResult<>(List.of(), failures)
         }
         def config = BatcherConfig.builder()
@@ -3452,10 +3452,10 @@ class MicroBatcherSpec extends Specification {
         Backend<String> backend = { batch ->
             attemptCount.incrementAndGet()
             if (attemptCount.get() == 1) {
-                def failures = batch.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new RuntimeException("retryable")) }
+                def failures = batch.collect { new new FailureEvent<>(it, new RuntimeException("retryable")) }
                 new com.vajrapulse.vortex.results.BatchResult<>(List.of(), failures)
             } else {
-                def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+                def successes = batch.collect { new new SuccessEvent<>(it) }
                 new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
             }
         }
@@ -3487,7 +3487,7 @@ class MicroBatcherSpec extends Specification {
         given:
         Backend<String> backend = { batch ->
             // Return success with different data to trigger fallback
-            def successes = [new com.vajrapulse.vortex.results.SuccessEvent<>("different-item")]
+            def successes = [new new SuccessEvent<>("different-item")]
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -3513,7 +3513,7 @@ class MicroBatcherSpec extends Specification {
         given:
         Backend<String> backend = { batch ->
             // Return failure with different data to trigger fallback
-            def failures = [new com.vajrapulse.vortex.results.FailureEvent<>("different-item", new RuntimeException("error"))]
+            def failures = [new new FailureEvent<>("different-item", new RuntimeException("error"))]
             new com.vajrapulse.vortex.results.BatchResult<>(List.of(), failures)
         }
         def config = BatcherConfig.builder()
@@ -3564,7 +3564,7 @@ class MicroBatcherSpec extends Specification {
     def "should handle retry when shouldRetry returns false due to predicate"() {
         given:
         Backend<String> backend = { batch ->
-            def failures = batch.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new IllegalArgumentException("non-retryable")) }
+            def failures = batch.collect { new new FailureEvent<>(it, new IllegalArgumentException("non-retryable")) }
             new com.vajrapulse.vortex.results.BatchResult<>(List.of(), failures)
         }
         def config = BatcherConfig.builder()
@@ -3592,7 +3592,7 @@ class MicroBatcherSpec extends Specification {
     def "should handle retry when shouldRetry returns false due to maxRetries 0"() {
         given:
         Backend<String> backend = { batch ->
-            def failures = batch.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new RuntimeException("retryable")) }
+            def failures = batch.collect { new new FailureEvent<>(it, new RuntimeException("retryable")) }
             new com.vajrapulse.vortex.results.BatchResult<>(List.of(), failures)
         }
         def config = BatcherConfig.builder()
@@ -3619,7 +3619,7 @@ class MicroBatcherSpec extends Specification {
         given:
         Backend<String> backend = { batch ->
             // Return failure that doesn't match, triggering fallback
-            def failures = [new com.vajrapulse.vortex.results.FailureEvent<>("different", new RuntimeException("retryable"))]
+            def failures = [new new FailureEvent<>("different", new RuntimeException("retryable"))]
             new com.vajrapulse.vortex.results.BatchResult<>(List.of(), failures)
         }
         def config = BatcherConfig.builder()
@@ -3647,7 +3647,7 @@ class MicroBatcherSpec extends Specification {
         given:
         Backend<String> backend = { batch ->
             // Return failure that doesn't match, triggering fallback
-            def failures = [new com.vajrapulse.vortex.results.FailureEvent<>("different", new IllegalArgumentException("non-retryable"))]
+            def failures = [new new FailureEvent<>("different", new IllegalArgumentException("non-retryable"))]
             new com.vajrapulse.vortex.results.BatchResult<>(List.of(), failures)
         }
         def config = BatcherConfig.builder()
@@ -3675,7 +3675,7 @@ class MicroBatcherSpec extends Specification {
     def "should handle result processor with null item in request"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -3703,10 +3703,10 @@ class MicroBatcherSpec extends Specification {
         Backend<String> backend = { batch ->
             attemptCount.incrementAndGet()
             if (attemptCount.get() == 1) {
-                def failures = batch.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new RuntimeException("retryable")) }
+                def failures = batch.collect { new new FailureEvent<>(it, new RuntimeException("retryable")) }
                 new com.vajrapulse.vortex.results.BatchResult<>(List.of(), failures)
             } else {
-                def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+                def successes = batch.collect { new new SuccessEvent<>(it) }
                 new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
             }
         }
@@ -3735,7 +3735,7 @@ class MicroBatcherSpec extends Specification {
     def "should handle InterruptedException in batch processor"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -3763,7 +3763,7 @@ class MicroBatcherSpec extends Specification {
     def "should handle debug mode logging in batch processor"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -3791,7 +3791,7 @@ class MicroBatcherSpec extends Specification {
         def attemptCount = new AtomicInteger(0)
         Backend<String> backend = { batch ->
             attemptCount.incrementAndGet()
-            def failures = batch.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new RuntimeException("retryable")) }
+            def failures = batch.collect { new new FailureEvent<>(it, new RuntimeException("retryable")) }
             new com.vajrapulse.vortex.results.BatchResult<>(List.of(), failures)
         }
         def config = BatcherConfig.builder()
@@ -3822,7 +3822,7 @@ class MicroBatcherSpec extends Specification {
         def attemptCount = new AtomicInteger(0)
         Backend<String> backend = { batch ->
             attemptCount.incrementAndGet()
-            def failures = batch.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new RuntimeException("retryable")) }
+            def failures = batch.collect { new new FailureEvent<>(it, new RuntimeException("retryable")) }
             new com.vajrapulse.vortex.results.BatchResult<>(List.of(), failures)
         }
         def config = BatcherConfig.builder()
@@ -3882,12 +3882,12 @@ class MicroBatcherSpec extends Specification {
             replayCount.incrementAndGet()
             if (replayCount.get() == 1) {
                 // First call: mixed results
-                def successes = batch.findAll { !it.contains("fail") }.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
-                def failures = batch.findAll { it.contains("fail") }.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new RuntimeException("error")) }
+                def successes = batch.findAll { !it.contains("fail") }.collect { new new SuccessEvent<>(it) }
+                def failures = batch.findAll { it.contains("fail") }.collect { new new FailureEvent<>(it, new RuntimeException("error")) }
                 new com.vajrapulse.vortex.results.BatchResult<>(successes, failures)
             } else {
                 // Replay: all succeed
-                def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+                def successes = batch.collect { new new SuccessEvent<>(it) }
                 new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
             }
         }
@@ -3928,8 +3928,8 @@ class MicroBatcherSpec extends Specification {
         def replayCount = new AtomicInteger(0)
         Backend<String> backend = { batch ->
             replayCount.incrementAndGet()
-            def successes = batch.findAll { !it.contains("fail") }.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
-            def failures = batch.findAll { it.contains("fail") }.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new RuntimeException("error")) }
+            def successes = batch.findAll { !it.contains("fail") }.collect { new new SuccessEvent<>(it) }
+            def failures = batch.findAll { it.contains("fail") }.collect { new new FailureEvent<>(it, new RuntimeException("error")) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, failures)
         }
         def config = BatcherConfig.builder()
@@ -3957,8 +3957,8 @@ class MicroBatcherSpec extends Specification {
     def "should handle result processor replay with submit exception"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.findAll { !it.contains("fail") }.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
-            def failures = batch.findAll { it.contains("fail") }.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new RuntimeException("error")) }
+            def successes = batch.findAll { !it.contains("fail") }.collect { new new SuccessEvent<>(it) }
+            def failures = batch.findAll { it.contains("fail") }.collect { new new FailureEvent<>(it, new RuntimeException("error")) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, failures)
         }
         def config = BatcherConfig.builder()
@@ -3986,7 +3986,7 @@ class MicroBatcherSpec extends Specification {
     def "should handle processBatch when queue is empty after first item"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -4010,7 +4010,7 @@ class MicroBatcherSpec extends Specification {
     def "should handle processBatch deadline expiration"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -4035,7 +4035,7 @@ class MicroBatcherSpec extends Specification {
         given:
         // Create a backend that might cause issues
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -4062,7 +4062,7 @@ class MicroBatcherSpec extends Specification {
         def attemptCount = new AtomicInteger(0)
         Backend<String> backend = { batch ->
             attemptCount.incrementAndGet()
-            def failures = batch.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new RuntimeException("retryable")) }
+            def failures = batch.collect { new new FailureEvent<>(it, new RuntimeException("retryable")) }
             new com.vajrapulse.vortex.results.BatchResult<>(List.of(), failures)
         }
         def config = BatcherConfig.builder()
@@ -4095,12 +4095,12 @@ class MicroBatcherSpec extends Specification {
             replayAttempts.incrementAndGet()
             if (replayAttempts.get() == 1) {
                 // First call: mixed results
-                def successes = batch.findAll { !it.contains("fail") }.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
-                def failures = batch.findAll { it.contains("fail") }.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new RuntimeException("error")) }
+                def successes = batch.findAll { !it.contains("fail") }.collect { new new SuccessEvent<>(it) }
+                def failures = batch.findAll { it.contains("fail") }.collect { new new FailureEvent<>(it, new RuntimeException("error")) }
                 new com.vajrapulse.vortex.results.BatchResult<>(successes, failures)
             } else {
                 // Replay: succeed
-                def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+                def successes = batch.collect { new new SuccessEvent<>(it) }
                 new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
             }
         }
@@ -4137,7 +4137,7 @@ class MicroBatcherSpec extends Specification {
         given:
         Backend<String> backend = { batch ->
             // Return success with null data
-            def successes = [new com.vajrapulse.vortex.results.SuccessEvent<>(null)]
+            def successes = [new new SuccessEvent<>(null)]
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -4163,7 +4163,7 @@ class MicroBatcherSpec extends Specification {
         given:
         Backend<String> backend = { batch ->
             // Return failure with null data
-            def failures = [new com.vajrapulse.vortex.results.FailureEvent<>(null, new RuntimeException("error"))]
+            def failures = [new new FailureEvent<>(null, new RuntimeException("error"))]
             new com.vajrapulse.vortex.results.BatchResult<>(List.of(), failures)
         }
         def config = BatcherConfig.builder()
@@ -4189,7 +4189,7 @@ class MicroBatcherSpec extends Specification {
         given:
         Backend<String> backend = { batch ->
             // Return one success that doesn't match - triggers fallback
-            def successes = [new com.vajrapulse.vortex.results.SuccessEvent<>("different")]
+            def successes = [new new SuccessEvent<>("different")]
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -4224,7 +4224,7 @@ class MicroBatcherSpec extends Specification {
         given:
         Backend<String> backend = { batch ->
             // Return one failure that doesn't match
-            def failures = [new com.vajrapulse.vortex.results.FailureEvent<>("different", new RuntimeException("error"))]
+            def failures = [new new FailureEvent<>("different", new RuntimeException("error"))]
             new com.vajrapulse.vortex.results.BatchResult<>(List.of(), failures)
         }
         def config = BatcherConfig.builder()
@@ -4253,7 +4253,7 @@ class MicroBatcherSpec extends Specification {
         given:
         def meterRegistry = new SimpleMeterRegistry()
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -4281,7 +4281,7 @@ class MicroBatcherSpec extends Specification {
         given:
         def meterRegistry = new SimpleMeterRegistry()
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -4396,7 +4396,7 @@ class MicroBatcherSpec extends Specification {
     def "should handle processBatch when queue poll returns null after deadline"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -4420,7 +4420,7 @@ class MicroBatcherSpec extends Specification {
     def "should handle processBatch when remaining time is zero"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -4444,7 +4444,7 @@ class MicroBatcherSpec extends Specification {
     def "should handle processBatch with debug mode logging for batch formation"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -4470,7 +4470,7 @@ class MicroBatcherSpec extends Specification {
     def "should handle processBatch with debug mode logging for linger time elapsed"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -4495,7 +4495,7 @@ class MicroBatcherSpec extends Specification {
     def "should handle processBatch with debug mode logging for timeout waiting"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -4520,7 +4520,7 @@ class MicroBatcherSpec extends Specification {
     def "should handle processBatch with debug mode logging for item added"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -4546,7 +4546,7 @@ class MicroBatcherSpec extends Specification {
     def "should handle dispatchBatch with debug mode logging"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -4572,7 +4572,7 @@ class MicroBatcherSpec extends Specification {
     def "should handle dispatchBatch with empty batch check"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -4596,7 +4596,7 @@ class MicroBatcherSpec extends Specification {
     def "should handle dispatchBatch debug logging for backend dispatch"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -4622,7 +4622,7 @@ class MicroBatcherSpec extends Specification {
     def "should handle dispatchBatch debug logging for backend completion"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -4674,7 +4674,7 @@ class MicroBatcherSpec extends Specification {
         given:
         def callbackCalled = new CountDownLatch(1)
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -4700,7 +4700,7 @@ class MicroBatcherSpec extends Specification {
         given:
         def callbackCalled = new CountDownLatch(1)
         Backend<String> backend = { batch ->
-            def failures = batch.collect { new com.vajrapulse.vortex.results.FailureEvent<>(it, new RuntimeException("error")) }
+            def failures = batch.collect { new new FailureEvent<>(it, new RuntimeException("error")) }
             new com.vajrapulse.vortex.results.BatchResult<>(List.of(), failures)
         }
         def config = BatcherConfig.builder()
@@ -4726,7 +4726,7 @@ class MicroBatcherSpec extends Specification {
         given:
         def exceptionCaught = new AtomicInteger(0)
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -4760,7 +4760,7 @@ class MicroBatcherSpec extends Specification {
         tracingHook.onSubmit(_) >> { throw new RuntimeException("Tracing hook error") }
         
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -4790,7 +4790,7 @@ class MicroBatcherSpec extends Specification {
         tracingHook.onSubmit(_) >> { throw new RuntimeException("Tracing hook error") }
         
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -4819,7 +4819,7 @@ class MicroBatcherSpec extends Specification {
         def tracingHook = Mock(BatchTracingHook)
         
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -4846,7 +4846,7 @@ class MicroBatcherSpec extends Specification {
     def "should return success when item is accepted via submitSync"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -4870,7 +4870,7 @@ class MicroBatcherSpec extends Specification {
         given:
         Backend<String> backend = { batch ->
             Thread.sleep(1000) // Very slow processing to keep items in queue
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -4909,7 +4909,7 @@ class MicroBatcherSpec extends Specification {
         given:
         Backend<String> backend = { batch ->
             Thread.sleep(1000) // Very slow processing to keep items in queue
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -4948,7 +4948,7 @@ class MicroBatcherSpec extends Specification {
         given:
         Backend<String> backend = { batch ->
             Thread.sleep(1000) // Very slow processing to keep items in queue
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -4993,7 +4993,7 @@ class MicroBatcherSpec extends Specification {
     def "should throw exception when batcher is closed via submitSync"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -5018,7 +5018,7 @@ class MicroBatcherSpec extends Specification {
         def processedItems = Collections.synchronizedList(new ArrayList<String>())
         Backend<String> backend = { batch ->
             processedItems.addAll(batch)
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -5043,7 +5043,7 @@ class MicroBatcherSpec extends Specification {
         given:
         Backend<String> backend = { batch ->
             Thread.sleep(100) // Slow processing
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -5079,7 +5079,7 @@ class MicroBatcherSpec extends Specification {
             while (backendBlocked.get()) {
                 Thread.sleep(10)
             }
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -5158,7 +5158,7 @@ class MicroBatcherSpec extends Specification {
         def callbackResult = new AtomicInteger(0)
         
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -5189,7 +5189,7 @@ class MicroBatcherSpec extends Specification {
     def "should handle callback exception in submitWithCallback"() {
         given:
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()
@@ -5219,7 +5219,7 @@ class MicroBatcherSpec extends Specification {
         def callbackResult = new AtomicInteger(0)
         
         Backend<String> backend = { batch ->
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         
@@ -5255,7 +5255,7 @@ class MicroBatcherSpec extends Specification {
         def processedItems = Collections.synchronizedList(new ArrayList<String>())
         Backend<String> backend = { batch ->
             processedItems.addAll(batch)
-            def successes = batch.collect { new com.vajrapulse.vortex.results.SuccessEvent<>(it) }
+            def successes = batch.collect { new new SuccessEvent<>(it) }
             new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of())
         }
         def config = BatcherConfig.builder()

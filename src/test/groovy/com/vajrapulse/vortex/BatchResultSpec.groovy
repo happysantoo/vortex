@@ -1,5 +1,8 @@
 package com.vajrapulse.vortex
 
+import com.vajrapulse.vortex.results.BatchResult
+import new SuccessEvent
+import new FailureEvent
 import spock.lang.Specification
 
 class BatchResultSpec extends Specification {
@@ -7,11 +10,11 @@ class BatchResultSpec extends Specification {
     def "should create batch result with successes and failures"() {
         given:
         def successes = [
-            new com.vajrapulse.vortex.results.SuccessEvent<>("item1"),
-            new com.vajrapulse.vortex.results.SuccessEvent<>("item2")
+            new new SuccessEvent<>("item1"),
+            new new SuccessEvent<>("item2")
         ]
         def failures = [
-            new com.vajrapulse.vortex.results.FailureEvent<>("item3", new RuntimeException("error"))
+            new new FailureEvent<>("item3", new RuntimeException("error"))
         ]
 
         when:
@@ -27,8 +30,8 @@ class BatchResultSpec extends Specification {
     def "should create batch result with only successes"() {
         given:
         def successes = [
-            new com.vajrapulse.vortex.results.SuccessEvent<>("item1"),
-            new com.vajrapulse.vortex.results.SuccessEvent<>("item2")
+            new new SuccessEvent<>("item1"),
+            new new SuccessEvent<>("item2")
         ]
 
         when:
@@ -44,8 +47,8 @@ class BatchResultSpec extends Specification {
     def "should create batch result with only failures"() {
         given:
         def failures = [
-            new com.vajrapulse.vortex.results.FailureEvent<>("item1", new RuntimeException("error1")),
-            new com.vajrapulse.vortex.results.FailureEvent<>("item2", new RuntimeException("error2"))
+            new new FailureEvent<>("item1", new RuntimeException("error1")),
+            new new FailureEvent<>("item2", new RuntimeException("error2"))
         ]
 
         when:
@@ -72,8 +75,8 @@ class BatchResultSpec extends Specification {
     def "should return unmodifiable lists"() {
         given:
         def result = new com.vajrapulse.vortex.results.BatchResult<>(
-            [new com.vajrapulse.vortex.results.SuccessEvent<>("item1")],
-            [new com.vajrapulse.vortex.results.FailureEvent<>("item2", new RuntimeException("error"))]
+            [new new SuccessEvent<>("item1")],
+            [new new FailureEvent<>("item2", new RuntimeException("error"))]
         )
 
         when:
@@ -91,8 +94,8 @@ class BatchResultSpec extends Specification {
 
     def "should handle large batch results"() {
         given:
-        def successes = (1..1000).collect { new com.vajrapulse.vortex.results.SuccessEvent<>("item$it") }
-        def failures = (1..500).collect { new com.vajrapulse.vortex.results.FailureEvent<>("fail$it", new RuntimeException("error$it")) }
+        def successes = (1..1000).collect { new new SuccessEvent<>("item$it") }
+        def failures = (1..500).collect { new new FailureEvent<>("fail$it", new RuntimeException("error$it")) }
 
         when:
         def result = new com.vajrapulse.vortex.results.BatchResult<>(successes, failures)
@@ -106,7 +109,7 @@ class BatchResultSpec extends Specification {
     def "should find item result in successes"() {
         given:
         def result = new com.vajrapulse.vortex.results.BatchResult<>(
-            [new com.vajrapulse.vortex.results.SuccessEvent<>("item1"), new com.vajrapulse.vortex.results.SuccessEvent<>("item2")],
+            [new new SuccessEvent<>("item1"), new new SuccessEvent<>("item2")],
             []
         )
 
@@ -124,7 +127,7 @@ class BatchResultSpec extends Specification {
         def error = new RuntimeException("error")
         def result = new com.vajrapulse.vortex.results.BatchResult<>(
             [],
-            [new com.vajrapulse.vortex.results.FailureEvent<>("item1", error), new com.vajrapulse.vortex.results.FailureEvent<>("item2", error)]
+            [new new FailureEvent<>("item1", error), new new FailureEvent<>("item2", error)]
         )
 
         when:
@@ -140,8 +143,8 @@ class BatchResultSpec extends Specification {
     def "should return empty when item not found"() {
         given:
         def result = new com.vajrapulse.vortex.results.BatchResult<>(
-            [new com.vajrapulse.vortex.results.SuccessEvent<>("item1")],
-            [new com.vajrapulse.vortex.results.FailureEvent<>("item2", new RuntimeException("error"))]
+            [new new SuccessEvent<>("item1")],
+            [new new FailureEvent<>("item2", new RuntimeException("error"))]
         )
 
         when:
@@ -154,7 +157,7 @@ class BatchResultSpec extends Specification {
     def "should find item result with custom comparator"() {
         given:
         def result = new com.vajrapulse.vortex.results.BatchResult<>(
-            [new com.vajrapulse.vortex.results.SuccessEvent<>("ITEM1"), new com.vajrapulse.vortex.results.SuccessEvent<>("ITEM2")],
+            [new new SuccessEvent<>("ITEM1"), new new SuccessEvent<>("ITEM2")],
             []
         )
 
@@ -171,12 +174,12 @@ class BatchResultSpec extends Specification {
     def "should check complete success"() {
         given:
         def successResult = new com.vajrapulse.vortex.results.BatchResult<>(
-            [new com.vajrapulse.vortex.results.SuccessEvent<>("item1")],
+            [new new SuccessEvent<>("item1")],
             []
         )
         def mixedResult = new com.vajrapulse.vortex.results.BatchResult<>(
-            [new com.vajrapulse.vortex.results.SuccessEvent<>("item1")],
-            [new com.vajrapulse.vortex.results.FailureEvent<>("item2", new RuntimeException("error"))]
+            [new new SuccessEvent<>("item1")],
+            [new new FailureEvent<>("item2", new RuntimeException("error"))]
         )
 
         expect:
@@ -188,11 +191,11 @@ class BatchResultSpec extends Specification {
         given:
         def failureResult = new com.vajrapulse.vortex.results.BatchResult<>(
             [],
-            [new com.vajrapulse.vortex.results.FailureEvent<>("item1", new RuntimeException("error"))]
+            [new new FailureEvent<>("item1", new RuntimeException("error"))]
         )
         def mixedResult = new com.vajrapulse.vortex.results.BatchResult<>(
-            [new com.vajrapulse.vortex.results.SuccessEvent<>("item1")],
-            [new com.vajrapulse.vortex.results.FailureEvent<>("item2", new RuntimeException("error"))]
+            [new new SuccessEvent<>("item1")],
+            [new new FailureEvent<>("item2", new RuntimeException("error"))]
         )
 
         expect:
@@ -203,17 +206,17 @@ class BatchResultSpec extends Specification {
     def "should calculate failure rate"() {
         given:
         def allSuccess = new com.vajrapulse.vortex.results.BatchResult<>(
-            [new com.vajrapulse.vortex.results.SuccessEvent<>("item1"), new com.vajrapulse.vortex.results.SuccessEvent<>("item2")],
+            [new new SuccessEvent<>("item1"), new new SuccessEvent<>("item2")],
             []
         )
         def allFailure = new com.vajrapulse.vortex.results.BatchResult<>(
             [],
-            [new com.vajrapulse.vortex.results.FailureEvent<>("item1", new RuntimeException("error")), 
-             new com.vajrapulse.vortex.results.FailureEvent<>("item2", new RuntimeException("error"))]
+            [new new FailureEvent<>("item1", new RuntimeException("error")), 
+             new new FailureEvent<>("item2", new RuntimeException("error"))]
         )
         def mixed = new com.vajrapulse.vortex.results.BatchResult<>(
-            [new com.vajrapulse.vortex.results.SuccessEvent<>("item1")],
-            [new com.vajrapulse.vortex.results.FailureEvent<>("item2", new RuntimeException("error"))]
+            [new new SuccessEvent<>("item1")],
+            [new new FailureEvent<>("item2", new RuntimeException("error"))]
         )
         def empty = new com.vajrapulse.vortex.results.BatchResult<>(null, null)
 
@@ -231,9 +234,9 @@ class BatchResultSpec extends Specification {
         def result = new com.vajrapulse.vortex.results.BatchResult<>(
             [],
             [
-                new com.vajrapulse.vortex.results.FailureEvent<>("item1", runtimeError),
-                new com.vajrapulse.vortex.results.FailureEvent<>("item2", runtimeError),
-                new com.vajrapulse.vortex.results.FailureEvent<>("item3", illegalError)
+                new new FailureEvent<>("item1", runtimeError),
+                new new FailureEvent<>("item2", runtimeError),
+                new new FailureEvent<>("item3", illegalError)
             ]
         )
 
@@ -249,7 +252,7 @@ class BatchResultSpec extends Specification {
     def "should handle null items in findItemResult"() {
         given:
         def result = new com.vajrapulse.vortex.results.BatchResult<>(
-            [new com.vajrapulse.vortex.results.SuccessEvent<>(null)],
+            [new new SuccessEvent<>(null)],
             []
         )
 
@@ -267,7 +270,7 @@ class BatchResultSpec extends Specification {
         def error = new RuntimeException("error")
         def result = new com.vajrapulse.vortex.results.BatchResult<>(
             [],
-            [new com.vajrapulse.vortex.results.FailureEvent<>(null, error)]
+            [new new FailureEvent<>(null, error)]
         )
 
         when:
@@ -282,7 +285,7 @@ class BatchResultSpec extends Specification {
     def "should find item with custom comparator returning true"() {
         given:
         def result = new com.vajrapulse.vortex.results.BatchResult<>(
-            [new com.vajrapulse.vortex.results.SuccessEvent<>("ITEM1")],
+            [new new SuccessEvent<>("ITEM1")],
             []
         )
 
@@ -299,7 +302,7 @@ class BatchResultSpec extends Specification {
     def "should not find item with custom comparator returning false"() {
         given:
         def result = new com.vajrapulse.vortex.results.BatchResult<>(
-            [new com.vajrapulse.vortex.results.SuccessEvent<>("ITEM1")],
+            [new new SuccessEvent<>("ITEM1")],
             []
         )
 
@@ -321,16 +324,16 @@ class BatchResultSpec extends Specification {
     def "should calculate failure rate correctly for various scenarios"() {
         given:
         def oneSuccess = new com.vajrapulse.vortex.results.BatchResult<>(
-            [new com.vajrapulse.vortex.results.SuccessEvent<>("item1")],
+            [new new SuccessEvent<>("item1")],
             []
         )
         def oneFailure = new com.vajrapulse.vortex.results.BatchResult<>(
             [],
-            [new com.vajrapulse.vortex.results.FailureEvent<>("item1", new RuntimeException("error"))]
+            [new new FailureEvent<>("item1", new RuntimeException("error"))]
         )
         def twoSuccessOneFailure = new com.vajrapulse.vortex.results.BatchResult<>(
-            [new com.vajrapulse.vortex.results.SuccessEvent<>("item1"), new com.vajrapulse.vortex.results.SuccessEvent<>("item2")],
-            [new com.vajrapulse.vortex.results.FailureEvent<>("item3", new RuntimeException("error"))]
+            [new new SuccessEvent<>("item1"), new new SuccessEvent<>("item2")],
+            [new new FailureEvent<>("item3", new RuntimeException("error"))]
         )
 
         expect:
@@ -343,8 +346,8 @@ class BatchResultSpec extends Specification {
         given:
         def error = new RuntimeException("error")
         def result = new com.vajrapulse.vortex.results.BatchResult<>(
-            [new com.vajrapulse.vortex.results.SuccessEvent<>("item1")],
-            [new com.vajrapulse.vortex.results.FailureEvent<>("item1", error)]
+            [new new SuccessEvent<>("item1")],
+            [new new FailureEvent<>("item1", error)]
         )
 
         when:
@@ -358,7 +361,7 @@ class BatchResultSpec extends Specification {
     def "should handle findItemResult with null success data and non-null item"() {
         given:
         def result = new com.vajrapulse.vortex.results.BatchResult<>(
-            [new com.vajrapulse.vortex.results.SuccessEvent<>(null)],
+            [new new SuccessEvent<>(null)],
             []
         )
 
@@ -373,7 +376,7 @@ class BatchResultSpec extends Specification {
         given:
         def result = new com.vajrapulse.vortex.results.BatchResult<>(
             [],
-            [new com.vajrapulse.vortex.results.FailureEvent<>(null, new RuntimeException("error"))]
+            [new new FailureEvent<>(null, new RuntimeException("error"))]
         )
 
         when:
@@ -387,8 +390,8 @@ class BatchResultSpec extends Specification {
         given:
         def empty = new com.vajrapulse.vortex.results.BatchResult<>(null, null)
         def withItems = new com.vajrapulse.vortex.results.BatchResult<>(
-            [new com.vajrapulse.vortex.results.SuccessEvent<>("item1")],
-            [new com.vajrapulse.vortex.results.FailureEvent<>("item2", new RuntimeException("error"))]
+            [new new SuccessEvent<>("item1")],
+            [new new FailureEvent<>("item2", new RuntimeException("error"))]
         )
 
         when:
@@ -405,8 +408,8 @@ class BatchResultSpec extends Specification {
     def "should cover all findItemResult branches with custom comparator"() {
         given:
         def result = new com.vajrapulse.vortex.results.BatchResult<>(
-            [new com.vajrapulse.vortex.results.SuccessEvent<>("item1"), new com.vajrapulse.vortex.results.SuccessEvent<>(null)],
-            [new com.vajrapulse.vortex.results.FailureEvent<>("item2", new RuntimeException("error")), new com.vajrapulse.vortex.results.FailureEvent<>(null, new RuntimeException("error2"))]
+            [new new SuccessEvent<>("item1"), new new SuccessEvent<>(null)],
+            [new new FailureEvent<>("item2", new RuntimeException("error")), new new FailureEvent<>(null, new RuntimeException("error2"))]
         )
 
         when:
@@ -437,7 +440,7 @@ class BatchResultSpec extends Specification {
     def "should cover findItemResult when successData is null and item is not null"() {
         given:
         def result = new com.vajrapulse.vortex.results.BatchResult<>(
-            [new com.vajrapulse.vortex.results.SuccessEvent<>(null)],
+            [new new SuccessEvent<>(null)],
             []
         )
 
@@ -452,7 +455,7 @@ class BatchResultSpec extends Specification {
         given:
         def result = new com.vajrapulse.vortex.results.BatchResult<>(
             [],
-            [new com.vajrapulse.vortex.results.FailureEvent<>(null, new RuntimeException("error"))]
+            [new new FailureEvent<>(null, new RuntimeException("error"))]
         )
 
         when:
@@ -477,8 +480,8 @@ class BatchResultSpec extends Specification {
     def "should cover getFailureRate branch when total is not zero"() {
         given:
         def withItems = new com.vajrapulse.vortex.results.BatchResult<>(
-            [new com.vajrapulse.vortex.results.SuccessEvent<>("item1")],
-            [new com.vajrapulse.vortex.results.FailureEvent<>("item2", new RuntimeException("error"))]
+            [new new SuccessEvent<>("item1")],
+            [new new FailureEvent<>("item2", new RuntimeException("error"))]
         )
 
         when:
@@ -491,7 +494,7 @@ class BatchResultSpec extends Specification {
 
     def "should create BatchResult with null successes"() {
         when:
-        def result = new com.vajrapulse.vortex.results.BatchResult<>(null, [new com.vajrapulse.vortex.results.FailureEvent<>("item1", new RuntimeException("error"))])
+        def result = new com.vajrapulse.vortex.results.BatchResult<>(null, [new new FailureEvent<>("item1", new RuntimeException("error"))])
 
         then:
         result.successes.isEmpty()
@@ -500,7 +503,7 @@ class BatchResultSpec extends Specification {
 
     def "should create BatchResult with null failures"() {
         when:
-        def result = new com.vajrapulse.vortex.results.BatchResult<>([new com.vajrapulse.vortex.results.SuccessEvent<>("item1")], null)
+        def result = new com.vajrapulse.vortex.results.BatchResult<>([new new SuccessEvent<>("item1")], null)
 
         then:
         result.successes.size() == 1

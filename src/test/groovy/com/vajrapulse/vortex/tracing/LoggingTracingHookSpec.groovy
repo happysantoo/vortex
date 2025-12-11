@@ -1,8 +1,8 @@
 package com.vajrapulse.vortex.tracing
 
 import com.vajrapulse.vortex.results.BatchResult
-import com.vajrapulse.vortex.results.FailureEvent
-import com.vajrapulse.vortex.results.SuccessEvent
+import new FailureEvent
+import new SuccessEvent
 import org.slf4j.Logger
 import spock.lang.Specification
 
@@ -108,8 +108,8 @@ class LoggingTracingHookSpec extends Specification {
         logger.isDebugEnabled() >> true
         def hook = new LoggingTracingHook(logger)
         def batchResult = new com.vajrapulse.vortex.results.BatchResult<>(
-            [new com.vajrapulse.vortex.results.SuccessEvent<>("item-1"), new com.vajrapulse.vortex.results.SuccessEvent<>("item-2")],
-            [new com.vajrapulse.vortex.results.FailureEvent<>("item-3", new RuntimeException("error"))]
+            [new new SuccessEvent<>("item-1"), new new SuccessEvent<>("item-2")],
+            [new new FailureEvent<>("item-3", new RuntimeException("error"))]
         )
 
         when:
@@ -123,7 +123,7 @@ class LoggingTracingHookSpec extends Specification {
         given:
         def logger = Mock(Logger)
         def hook = new LoggingTracingHook(logger)
-        def batchResult = new com.vajrapulse.vortex.results.BatchResult<>([new com.vajrapulse.vortex.results.SuccessEvent<>("item-1")], [])
+        def batchResult = new com.vajrapulse.vortex.results.BatchResult<>([new new SuccessEvent<>("item-1")], [])
 
         when:
         hook.onBatchDispatchSuccess(null, batchResult)
@@ -219,7 +219,7 @@ class LoggingTracingHookSpec extends Specification {
         when:
         hook.onSubmit("item")
         hook.onBatchDispatchStart(["item"])
-        hook.onBatchDispatchSuccess(["item"], new com.vajrapulse.vortex.results.BatchResult<>([new com.vajrapulse.vortex.results.SuccessEvent<>("item")], []))
+        hook.onBatchDispatchSuccess(["item"], new com.vajrapulse.vortex.results.BatchResult<>([new new SuccessEvent<>("item")], []))
 
         then:
         0 * logger.debug(_, _)
