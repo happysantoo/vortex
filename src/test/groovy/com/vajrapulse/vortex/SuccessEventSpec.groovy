@@ -1,5 +1,6 @@
 package com.vajrapulse.vortex
 
+import com.vajrapulse.vortex.results.SuccessEvent
 import spock.lang.Specification
 
 class SuccessEventSpec extends Specification {
