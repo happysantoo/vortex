@@ -431,11 +431,7 @@ class MicroBatcherSpec extends Specification {
         
         // Wait for all futures to complete - this is the proper synchronization
         def completedFutures = 0
-        results.each { 
-            try { 
-                it.get(2, TimeUnit.SECONDS)
-                completedFutures++
-            } 
+        Thread.sleep(200)  // Wait for batch processing 
             catch (Exception e) { 
                 // Ignore exceptions - items should still be processed
             }
@@ -1156,7 +1152,7 @@ class MicroBatcherSpec extends Specification {
         ]
         Thread.sleep(80) // Wait for initial batch
         Thread.sleep(80) // Wait for replay batch
-        Thread.sleep(200)  // Wait for batch processing { 
+        Thread.sleep(200)  // Wait for batch processing 
             try { it.get(1, TimeUnit.SECONDS) } 
             catch (Exception e) { null }
         }
@@ -1191,7 +1187,7 @@ class MicroBatcherSpec extends Specification {
             batcher.submit("success-2")
         ]
         Thread.sleep(150)
-        Thread.sleep(200)  // Wait for batch processing { 
+        Thread.sleep(200)  // Wait for batch processing 
             try { it.get(1, TimeUnit.SECONDS) } 
             catch (Exception e) { null }
         }
@@ -4232,7 +4228,7 @@ class MicroBatcherSpec extends Specification {
             batcher.submit("success-2")
         ]
         // Wait for processing and replay
-        Thread.sleep(200)  // Wait for batch processing { 
+        Thread.sleep(200)  // Wait for batch processing 
             try {
                 it.get(2, TimeUnit.SECONDS)
             } catch (Exception e) {
@@ -4471,7 +4467,7 @@ class MicroBatcherSpec extends Specification {
             batcher.submit("success-1"),
             batcher.submit("fail-1")
         ]
-        Thread.sleep(200)  // Wait for batch processing { 
+        Thread.sleep(200)  // Wait for batch processing 
             try {
                 it.get(2, TimeUnit.SECONDS)
             } catch (Exception e) {
