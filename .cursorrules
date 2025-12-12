@@ -1,74 +1,430 @@
-# Vortex Micro-Batching Library - Cursor Rules
+# Vortex Micro-Batching Library - Cursor Rules & Copilot Instructions
 
 ## Code Quality Standards
 
-1. Never use reflection in the code for any reason unless its approved by me.
+1. **Never use reflection** in the code for any reason unless explicitly approved.
 
-### Test Coverage Requirements
-- **Minimum 90% line coverage** - All classes must maintain >90% line coverage (excluding examples and PendingRequest)
-- **Minimum 80% instruction coverage** - Overall code coverage must be >80% (realistic for async code with lambdas)
-- **Minimum 50% branch coverage** - Methods must have >50% branch coverage (complex async code with many edge cases)
-- **Complex methods** - Methods like dispatchBatch with complex result mapping logic may have lower branch coverage
-- **All public APIs must have tests** - Every public method and class needs test coverage
-- **Edge cases must be tested** - Null values, empty collections, error conditions, timeouts, interruptions
-- **Integration scenarios** - Test real-world usage patterns
+---
 
-### Testing Standards
-- **Use Spock Framework** - All tests must be written in Spock (Groovy)
-- **Descriptive test names** - Use "should [expected behavior]" naming convention
-- **Given-When-Then structure** - Follow BDD-style test organization
-- **Cleanup resources** - Always close MicroBatcher instances in cleanup blocks
-- **Avoid flaky tests** - Use proper synchronization, avoid hard-coded sleeps where possible
-- **Test isolation** - Each test should be independent and not rely on others
+## TESTING REQUIREMENTS & BEST PRACTICES
 
-### Code Style
-- **Simplicity first** - Keep code minimal and easy to understand
-- **Java 21 features** - Use modern Java features (virtual threads, records where appropriate)
-- **No unnecessary dependencies** - Keep the library lightweight
-- **Clear naming** - Use descriptive variable and method names
-- **Documentation** - Public APIs must have JavaDoc comments
+### Test Coverage Requirements (MANDATORY)
 
-### Build & CI Requirements
-- **Build must pass** - All tests must pass before committing
-- **Coverage verification** - JaCoCo coverage verification must pass (>90%)
-- **No compilation warnings** - Code should compile cleanly
-- **Gradle 9.2.0** - Use specified Gradle version
+#### Minimum Coverage Thresholds
+- **Line Coverage**: Minimum 90% for all classes (excluding examples and PendingRequest)
+- **Instruction Coverage**: Minimum 80% overall (realistic for complex async code with lambdas)
+- **Branch Coverage**: Minimum 50% for methods (complex async code with many edge cases)
+- **Public API Coverage**: 100% - Every public method and class MUST have test coverage
 
-### Architecture Principles
-- **Generic design** - Support any backend type via Backend<T> interface
-- **Non-blocking** - All operations should be asynchronous
-- **Thread-safe** - Safe for concurrent use from multiple threads
-- **Resource management** - Proper cleanup with AutoCloseable
-- **Observability** - Comprehensive metrics via Micrometer
+#### Coverage Verification
+- **Before every commit**: Run `./gradlew jacocoTestCoverageVerification` - MUST pass
+- **Coverage exclusions**: Only use exclusions for genuinely untestable code (see build.gradle.kts)
+- **Coverage reports**: Review `build/reports/jacoco/test/html/index.html` after changes
+- **Coverage violations**: Fix immediately - do not commit with coverage violations
 
-### Metrics Requirements
-- **All metrics must be tested** - Verify metrics are recorded correctly
-- **Metric names follow convention** - Use "vortex.*" prefix
-- **Gauges for state** - Use gauges for queue depth and similar state metrics
-- **Counters for events** - Use counters for discrete events
-- **Timers for latencies** - Use timers for duration measurements
+#### What Must Be Tested
+1. **All public APIs**: Every public method, constructor, and class
+2. **Edge cases**: Null values, empty collections, invalid parameters, boundary conditions
+3. **Error conditions**: Exceptions, failures, timeouts, interruptions
+4. **Concurrency**: Thread safety, race conditions, concurrent access patterns
+5. **Integration scenarios**: Real-world usage patterns, end-to-end flows
+6. **Metrics**: Verify all metrics are recorded correctly with correct values
+7. **Resource cleanup**: Ensure proper cleanup in all scenarios (close, errors, interruptions)
 
-### Error Handling
-- **Validate inputs** - Check for null and invalid parameters
-- **Meaningful exceptions** - Provide clear error messages
-- **Handle edge cases** - Empty batches, closed batcher, queue full scenarios
-- **Graceful degradation** - Handle backend failures appropriately
+### Testing Framework & Standards
 
-### Performance Considerations
-- **Virtual threads** - Use virtual threads for high concurrency
-- **Efficient batching** - Minimize wait times while maximizing batch sizes
-- **Low overhead** - Keep per-request overhead minimal
-- **Memory efficient** - Avoid unnecessary object creation
+#### Spock Framework (MANDATORY)
+- **All tests MUST be written in Spock (Groovy)**
+- **File naming**: Use `*Spec.groovy` convention (e.g., `MicroBatcherSpec.groovy`)
+- **One spec file per class**: Each class being tested should have its own spec file
+- **Package structure**: Tests mirror source structure (`src/test/groovy/` mirrors `src/main/java/`)
 
-### Documentation Requirements
-- **README updates** - Keep README current with features
-- **Example code** - Maintain working examples
-- **JavaDoc** - Document all public classes and methods
-- **API clarity** - Make the API intuitive and easy to use
+#### Test Structure (BDD Style)
+```groovy
+def "should [expected behavior] when [condition]"() {
+    given: "setup description"
+        // Setup code
+        def batcher = new MicroBatcher<>(backend, config)
+    
+    when: "action description"
+        def result = batcher.submit("item")
+    
+    then: "verification description"
+        result == ItemResult.Success("item")
+    
+    cleanup:
+        batcher?.close()
+}
+```
 
-### File Organization
+#### Test Naming Conventions
+- **Format**: `"should [expected behavior] when [condition]"`
+- **Examples**:
+  - `"should return success when item is submitted"`
+  - `"should reject item when queue is full"`
+  - `"should throw exception when batcher is closed"`
+  - `"should process batch when batch size is reached"`
 
-#### Markdown Documentation Files
+#### Test Organization
+- **Group related tests**: Use `def` blocks to organize related test methods
+- **Parameterized tests**: Use `@Unroll` for testing multiple scenarios
+- **Cleanup blocks**: ALWAYS use `cleanup:` blocks for resource cleanup
+- **Test isolation**: Each test must be independent and not rely on others
+
+#### Synchronization & Timing
+- **Avoid flaky tests**: Use proper synchronization mechanisms
+- **CountDownLatch**: Use for coordinating async operations
+- **Thread.sleep**: Only use when absolutely necessary, prefer CountDownLatch
+- **Timeouts**: Always specify timeouts for async operations
+- **Race conditions**: Test concurrent scenarios explicitly
+
+#### Example: Proper Async Test
+```groovy
+def "should process batch with callback when items are submitted"() {
+    given: "a batcher with callback"
+        def latch = new CountDownLatch(1)
+        def results = []
+        def batcher = new MicroBatcher<>(backend, config)
+    
+    when: "submitting items with callback"
+        batcher.submit("item1", { item, result ->
+            results.add(result)
+            latch.countDown()
+        })
+    
+    then: "callback is invoked"
+        latch.await(5, TimeUnit.SECONDS)
+        results.size() == 1
+        results[0] == ItemResult.Success("item1")
+    
+    cleanup:
+        batcher?.close()
+}
+```
+
+#### Metrics Testing
+- **Verify metric recording**: Check that metrics are incremented/recorded correctly
+- **Verify metric values**: Assert actual metric values, not just presence
+- **Test metric names**: Ensure metric names follow "vortex.*" convention
+- **Test metric types**: Verify counters, timers, and gauges are used correctly
+
+#### Example: Metrics Test
+```groovy
+def "should record metrics when item is submitted"() {
+    given: "a batcher with meter registry"
+        def registry = new SimpleMeterRegistry()
+        def batcher = new MicroBatcher<>(backend, config, registry)
+    
+    when: "submitting an item"
+        batcher.submit("item")
+        Thread.sleep(200) // Allow batch to process
+    
+    then: "metrics are recorded"
+        registry.counter("vortex.requests.submitted").count() == 1
+        registry.counter("vortex.requests.succeeded").count() == 1
+    
+    cleanup:
+        batcher?.close()
+}
+```
+
+#### Error Handling Tests
+- **Exception types**: Verify correct exception types are thrown
+- **Exception messages**: Check that error messages are meaningful
+- **Exception context**: Verify exceptions include relevant context (queue depth, active batches, etc.)
+- **Error recovery**: Test that system recovers gracefully from errors
+
+#### Concurrency Tests
+- **Thread safety**: Test concurrent access from multiple threads
+- **Race conditions**: Test scenarios where race conditions might occur
+- **Synchronization**: Verify proper synchronization mechanisms
+- **Deadlocks**: Ensure no deadlocks in concurrent scenarios
+
+#### Resource Management Tests
+- **Cleanup on close**: Verify resources are cleaned up on close()
+- **Cleanup on error**: Verify cleanup happens even when errors occur
+- **Memory leaks**: Test that resources are not leaked
+- **Interruption handling**: Test proper handling of thread interruptions
+
+---
+
+## CODE REVIEW PROCESS & EXPECTATIONS
+
+### Pre-Commit Checklist (MANDATORY)
+
+Before committing ANY code, verify:
+
+1. **Build Status**
+   - [ ] `./gradlew build` passes without errors
+   - [ ] `./gradlew test` - All tests pass
+   - [ ] No compilation warnings or errors
+
+2. **Test Coverage**
+   - [ ] `./gradlew jacocoTestReport` - Coverage report generated
+   - [ ] `./gradlew jacocoTestCoverageVerification` - Coverage verification passes
+   - [ ] Line coverage >90% for new/modified classes
+   - [ ] Instruction coverage >80% overall
+   - [ ] Branch coverage >50% for new/modified methods
+
+3. **Code Quality**
+   - [ ] All public APIs have JavaDoc comments
+   - [ ] Code follows project style guidelines
+   - [ ] No unused imports or variables
+   - [ ] No TODO comments (unless with issue reference)
+   - [ ] No hardcoded values (use constants)
+
+4. **Testing**
+   - [ ] Tests written in Spock (Groovy)
+   - [ ] All new features have tests
+   - [ ] Edge cases are tested
+   - [ ] Error conditions are tested
+   - [ ] Tests are not flaky (run multiple times)
+   - [ ] Cleanup blocks are present in all tests
+
+5. **Documentation**
+   - [ ] README updated if API changes
+   - [ ] JavaDoc added for public APIs
+   - [ ] Examples updated if applicable
+   - [ ] CHANGELOG.md updated for user-facing changes
+
+6. **File Organization**
+   - [ ] Markdown files in `documents/` folder (or standard README locations)
+   - [ ] No markdown files in source directories
+   - [ ] Files follow naming conventions
+
+### Code Review Focus Areas
+
+#### 1. Test Quality Review
+- **Test coverage**: Verify adequate coverage for new code
+- **Test clarity**: Tests should be easy to understand
+- **Test maintainability**: Tests should be maintainable and not brittle
+- **Test performance**: Tests should run quickly (< 1 second per test)
+- **Test isolation**: Tests should not depend on each other
+
+#### 2. Code Quality Review
+- **Simplicity**: Code should be simple and easy to understand
+- **Naming**: Variables and methods should have descriptive names
+- **Documentation**: Public APIs should be well-documented
+- **Error handling**: Proper error handling and meaningful error messages
+- **Thread safety**: Verify thread safety for concurrent access
+
+#### 3. Architecture Review
+- **Design patterns**: Appropriate use of design patterns
+- **Separation of concerns**: Clear separation of responsibilities
+- **Dependencies**: Minimal and appropriate dependencies
+- **Extensibility**: Code should be extensible where appropriate
+
+#### 4. Performance Review
+- **Efficiency**: Code should be efficient (no unnecessary allocations)
+- **Virtual threads**: Appropriate use of virtual threads
+- **Batching**: Efficient batching logic
+- **Memory**: Memory-efficient implementations
+
+#### 5. Metrics & Observability Review
+- **Metric names**: Follow "vortex.*" convention
+- **Metric types**: Use appropriate metric types (counter, timer, gauge)
+- **Metric values**: Verify metrics provide useful information
+- **Tracing**: Proper tracing hooks where applicable
+
+### Code Review Checklist for Reviewers
+
+When reviewing code, check:
+
+#### Functionality
+- [ ] Code implements the intended functionality correctly
+- [ ] Edge cases are handled appropriately
+- [ ] Error conditions are handled gracefully
+- [ ] No obvious bugs or logic errors
+
+#### Testing
+- [ ] Tests cover the new functionality
+- [ ] Tests cover edge cases
+- [ ] Tests cover error conditions
+- [ ] Tests are not flaky
+- [ ] Test coverage meets requirements
+
+#### Code Quality
+- [ ] Code is readable and maintainable
+- [ ] Code follows project conventions
+- [ ] No code duplication
+- [ ] Proper error handling
+- [ ] Meaningful variable and method names
+
+#### Documentation
+- [ ] Public APIs are documented
+- [ ] Complex logic is explained
+- [ ] Examples are updated if needed
+- [ ] README is updated if API changes
+
+#### Performance
+- [ ] No obvious performance issues
+- [ ] Efficient algorithms and data structures
+- [ ] Minimal object allocation
+- [ ] Appropriate use of virtual threads
+
+#### Security
+- [ ] No security vulnerabilities
+- [ ] Input validation where appropriate
+- [ ] Proper resource cleanup
+
+### Common Issues to Watch For
+
+#### Testing Issues
+- ❌ **Missing tests**: New code without tests
+- ❌ **Flaky tests**: Tests that fail intermittently
+- ❌ **Insufficient coverage**: Coverage below requirements
+- ❌ **Missing cleanup**: Tests that don't clean up resources
+- ❌ **Hard-coded sleeps**: Using Thread.sleep without proper synchronization
+
+#### Code Quality Issues
+- ❌ **Complex code**: Overly complex implementations
+- ❌ **Code duplication**: Duplicated code that should be extracted
+- ❌ **Poor naming**: Unclear variable or method names
+- ❌ **Missing documentation**: Public APIs without JavaDoc
+- ❌ **Unused code**: Dead code that should be removed
+
+#### Architecture Issues
+- ❌ **Tight coupling**: Classes that are too tightly coupled
+- ❌ **Circular dependencies**: Circular dependencies between classes
+- ❌ **Unnecessary dependencies**: Adding dependencies that aren't needed
+- ❌ **Poor separation**: Mixing concerns that should be separated
+
+#### Performance Issues
+- ❌ **Inefficient algorithms**: Using inefficient algorithms
+- ❌ **Memory leaks**: Not cleaning up resources properly
+- ❌ **Unnecessary allocations**: Creating objects unnecessarily
+- ❌ **Blocking operations**: Blocking operations in async code
+
+---
+
+## CODE STYLE & CONVENTIONS
+
+### Java Code Style
+- **Simplicity first**: Keep code minimal and easy to understand
+- **Java 21 features**: Use modern Java features (virtual threads, records, pattern matching)
+- **No unnecessary dependencies**: Keep the library lightweight
+- **Clear naming**: Use descriptive variable and method names
+- **Documentation**: Public APIs must have JavaDoc comments
+
+### Naming Conventions
+- **Classes**: PascalCase (e.g., `MicroBatcher`)
+- **Methods**: camelCase (e.g., `submitItem`)
+- **Constants**: UPPER_SNAKE_CASE (e.g., `MAX_QUEUE_SIZE`)
+- **Variables**: camelCase (e.g., `batchSize`)
+- **Packages**: lowercase (e.g., `com.vajrapulse.vortex`)
+
+### Code Organization
+- **One class per file**: Each class in its own file
+- **Package structure**: Logical package organization
+- **Imports**: Organize imports (static imports last)
+- **Line length**: Keep lines under 120 characters where possible
+
+---
+
+## BUILD & CI REQUIREMENTS
+
+### Build Requirements
+- **Build must pass**: All tests must pass before committing
+- **Coverage verification**: JaCoCo coverage verification must pass (>90%)
+- **No compilation warnings**: Code should compile cleanly
+- **Gradle 9.2.0**: Use specified Gradle version
+
+### CI/CD Pipeline
+- **Automated testing**: All tests run on every push
+- **Coverage verification**: Coverage verified on every push
+- **Build verification**: Build must pass before merge
+- **JMH benchmarks**: Benchmarks run on merge to main
+
+---
+
+## ARCHITECTURE PRINCIPLES
+
+### Core Principles
+- **Generic design**: Support any backend type via `Backend<T>` interface
+- **Non-blocking**: All operations should be asynchronous
+- **Thread-safe**: Safe for concurrent use from multiple threads
+- **Resource management**: Proper cleanup with AutoCloseable
+- **Observability**: Comprehensive metrics via Micrometer
+
+### Design Patterns
+- **Builder pattern**: Use for configuration objects
+- **Factory methods**: Use for common configurations
+- **Strategy pattern**: Use for pluggable behaviors (tracing hooks)
+- **Observer pattern**: Use for callbacks and metrics
+
+---
+
+## METRICS REQUIREMENTS
+
+### Metric Standards
+- **All metrics must be tested**: Verify metrics are recorded correctly
+- **Metric names follow convention**: Use "vortex.*" prefix
+- **Gauges for state**: Use gauges for queue depth and similar state metrics
+- **Counters for events**: Use counters for discrete events
+- **Timers for latencies**: Use timers for duration measurements
+
+### Metric Naming
+- **Format**: `vortex.<category>.<metric>`
+- **Examples**:
+  - `vortex.requests.submitted`
+  - `vortex.requests.succeeded`
+  - `vortex.requests.failed`
+  - `vortex.queue.depth`
+  - `vortex.batch.size`
+
+---
+
+## ERROR HANDLING REQUIREMENTS
+
+### Error Handling Standards
+- **Validate inputs**: Check for null and invalid parameters
+- **Meaningful exceptions**: Provide clear error messages
+- **Handle edge cases**: Empty batches, closed batcher, queue full scenarios
+- **Graceful degradation**: Handle backend failures appropriately
+
+### Exception Types
+- **IllegalArgumentException**: For invalid parameters
+- **IllegalStateException**: For invalid state (e.g., batcher closed)
+- **ItemRejectedException**: For item rejection scenarios
+- **RuntimeException**: For unexpected errors
+
+---
+
+## PERFORMANCE CONSIDERATIONS
+
+### Performance Standards
+- **Virtual threads**: Use virtual threads for high concurrency
+- **Efficient batching**: Minimize wait times while maximizing batch sizes
+- **Low overhead**: Keep per-request overhead minimal
+- **Memory efficient**: Avoid unnecessary object creation
+
+### Performance Testing
+- **JMH benchmarks**: Use JMH for performance benchmarks
+- **Benchmark coverage**: Benchmark critical paths
+- **Performance regression**: Monitor for performance regressions
+
+---
+
+## DOCUMENTATION REQUIREMENTS
+
+### Documentation Standards
+- **README updates**: Keep README current with features
+- **Example code**: Maintain working examples
+- **JavaDoc**: Document all public classes and methods
+- **API clarity**: Make the API intuitive and easy to use
+
+### JavaDoc Requirements
+- **Class-level**: Describe the class purpose and usage
+- **Method-level**: Describe parameters, return values, exceptions
+- **Parameter documentation**: Document all parameters
+- **Exception documentation**: Document all thrown exceptions
+- **Example code**: Include usage examples where helpful
+
+---
+
+## FILE ORGANIZATION
+
+### Markdown Documentation Files
 **All markdown documentation files MUST be created in the `documents/` folder with proper classification.**
 
 **Allowed Exceptions:**
@@ -83,77 +439,18 @@
 - ❌ Build directories
 - ❌ Any location outside `documents/` unless it's a standard README
 
-#### Document Classification and Folder Structure
+### Document Classification and Folder Structure
 
-**The `documents/` folder is organized into the following subfolders. ALWAYS create documents in the appropriate subfolder:**
+**The `documents/` folder is organized into the following subfolders:**
 
 1. **`documents/releases/`** - Release-specific documents
-   - Release notes (e.g., `RELEASE_NOTES.md`)
-   - Release checklists
-   - Release plans
-   - Release summaries
-   - Release deployment guides
-   - Release-specific changes and validation reports
-   - **Naming**: `RELEASE_<version>_<type>.md` or `RELEASE_NOTES.md`
-
 2. **`documents/roadmap/`** - Strategic planning and roadmaps
-   - Roadmap documents
-   - Strategic planning documents
-   - Gap analysis documents
-   - Minimal viable release plans
-   - Breaking changes planning
-
 3. **`documents/architecture/`** - Design and architecture documents
-   - Design documents (e.g., `DESIGN.md`)
-   - Architecture decisions
-   - Architecture plans
-   - Technical alternatives analysis
-   - Specifications
-
 4. **`documents/integrations/`** - Integration guides and publishing
-   - Integration plans
-   - Publishing guides (e.g., `MAVEN_CENTRAL_PUBLISHING.md`)
-   - Release tool integration (e.g., `JRELEASER_INTEGRATION.md`)
-   - Publishing status and troubleshooting
-   - Token authentication guides
-
 5. **`documents/guides/`** - User guides and quick references
-   - Quick reference guides
-   - User guides
-   - Configuration guides
-   - Process documentation (e.g., `RELEASE.md`)
-   - Benchmarking guides (e.g., `BENCHMARKS.md`)
-   - Dashboard guides (e.g., `GRAFANA_DASHBOARD.md`)
-
 6. **`documents/analysis/`** - Analysis and improvement documents
-   - Maintainability analysis
-   - Implementation updates
-   - Critical improvements documents
-   - Issue analysis
-
 7. **`documents/resources/`** - Non-markdown files
-   - JSON configuration files (e.g., Grafana dashboards)
-   - Requirements files
-   - Other non-markdown resources
-
 8. **`documents/archive/`** - Completed and historical documents
-   - Completed implementation summaries
-   - Historical release documents (older than current release cycle)
-   - Superseded plans and documents
-   - Initial/old documentation
-
-**Classification Rules:**
-- **Release documents**: Create in `documents/releases/` with version-specific naming
-- **Planning documents**: Create in `documents/roadmap/` or `documents/architecture/` based on scope
-- **Integration guides**: Create in `documents/integrations/` folder
-- **User documentation**: Create in `documents/guides/` folder
-- **Analysis documents**: Create in `documents/analysis/` folder
-- **Resource files**: Create in `documents/resources/` folder
-- **Archive old documents**: Move completed/historical documents to `documents/archive/` when:
-  - Release is complete and next release cycle begins
-  - Implementation is complete and verified
-  - Document is superseded by newer version
-  - Document is older than 2 release cycles
 
 **Rule**: When creating documentation, planning documents, or any markdown files:
 1. **Always create in the appropriate `documents/<subfolder>/` based on document type**
@@ -161,63 +458,153 @@
 3. Follow existing naming conventions in each subfolder
 4. Archive completed documents to `documents/archive/` when appropriate
 
-**Examples:**
-```markdown
-✅ documents/releases/RELEASE_NOTES.md
-✅ documents/integrations/MAVEN_CENTRAL_PUBLISHING.md
-✅ documents/roadmap/ROADMAP_TO_1.0.md
-✅ documents/architecture/DESIGN.md
-✅ documents/guides/BENCHMARKS.md
-✅ documents/resources/grafana-dashboard.json
-✅ README.md (root - allowed)
-✅ examples/README.md (allowed)
+---
 
-❌ documents/RELEASE_NOTES.md (should be in releases/)
-❌ RELEASE_NOTES.md (root - forbidden)
-❌ src/main/java/com/vajrapulse/DOCS.md (source directory - forbidden)
-```
+## CONTINUOUS MAINTENANCE RULES
 
-## Continuous Maintenance Rules
+### Before Every Commit
+1. Run `./gradlew build` - Must pass
+2. Run `./gradlew jacocoTestReport` - Check coverage report
+3. Verify coverage is >90%
+4. Run `./gradlew jacocoTestCoverageVerification` - Must pass
+5. Review code for obvious issues
+6. Ensure all tests pass
 
-1. **Before every commit:**
-   - Run `./gradlew build` - Must pass
-   - Run `./gradlew jacocoTestReport` - Check coverage report
-   - Verify coverage is >90%
-   - Run `./gradlew jacocoTestCoverageVerification` - Must pass
+### When Adding New Features
+1. Write Spock tests first (TDD approach)
+2. Ensure all code paths are tested
+3. Update README if API changes
+4. Add example usage if applicable
+5. Update CHANGELOG.md for user-facing changes
+6. Add JavaDoc for public APIs
 
-2. **When adding new features:**
-   - Write Spock tests first (TDD approach)
-   - Ensure all code paths are tested
-   - Update README if API changes
-   - Add example usage if applicable
+### When Fixing Bugs
+1. Add regression test that reproduces the bug
+2. Fix the bug
+3. Verify test passes
+4. Ensure coverage remains >90%
+5. Update CHANGELOG.md if bug fix is user-facing
 
-3. **When fixing bugs:**
-   - Add regression test that reproduces the bug
-   - Fix the bug
-   - Verify test passes
-   - Ensure coverage remains >90%
+### Code Review Checklist
+- [ ] Tests written in Spock
+- [ ] Coverage >90%
+- [ ] All tests pass
+- [ ] No new warnings
+- [ ] Documentation updated
+- [ ] **Markdown files created in `documents/` folder** (or standard README locations)
+- [ ] Example code works
+- [ ] Metrics tested
+- [ ] Error handling tested
+- [ ] Concurrency tested (if applicable)
 
-4. **Code review checklist:**
-   - [ ] Tests written in Spock
-   - [ ] Coverage >90%
-   - [ ] All tests pass
-   - [ ] No new warnings
-   - [ ] Documentation updated
-   - [ ] **Markdown files created in `documents/` folder** (or standard README locations)
-   - [ ] Example code works
-   - [ ] Metrics tested
+---
 
-## Excluded from Coverage
+## EXCLUDED FROM COVERAGE
 
-- Example classes (`com.vortex.batcher.example.*`)
+The following are excluded from coverage requirements (see build.gradle.kts for full list):
+- Example classes (`com.vajrapulse.vortex.example.*`)
 - Internal helper classes (`PendingRequest`)
 - Simple data classes (SuccessEvent, FailureEvent) - but still test their behavior
+- Configuration classes (BatcherConfig, BatcherConfig.Builder)
+- Functional interfaces (Backend)
+- Enums (HealthStatus, BatchSizePreset)
+- Complex methods with many branches (close(), submitInternal(), etc.)
 
-## Test Organization
+**Note**: Even if excluded from coverage requirements, behavior should still be tested through integration tests.
 
-- One spec file per class being tested
-- Use `*Spec.groovy` naming convention
-- Group related tests using `def` blocks
-- Use `@Unroll` for parameterized tests
-- Use `cleanup:` blocks for resource cleanup
+---
 
+## TEST ORGANIZATION
+
+### Test File Structure
+- **One spec file per class**: Each class being tested should have its own spec file
+- **Use `*Spec.groovy` naming convention**: e.g., `MicroBatcherSpec.groovy`
+- **Group related tests**: Use `def` blocks to organize related test methods
+- **Use `@Unroll` for parameterized tests**: Test multiple scenarios efficiently
+- **Use `cleanup:` blocks**: Always clean up resources in cleanup blocks
+
+### Test Package Structure
+- **Mirror source structure**: Tests should mirror source package structure
+- **Same package names**: Test packages should match source packages
+- **Organize by feature**: Group related tests together
+
+---
+
+## COPILOT INSTRUCTIONS FOR AI ASSISTANTS
+
+### When Writing Tests
+1. **Always use Spock Framework**: Write tests in Groovy using Spock
+2. **Follow BDD structure**: Use given-when-then blocks
+3. **Test all code paths**: Ensure all branches are tested
+4. **Test edge cases**: Include null checks, empty collections, boundary conditions
+5. **Test error conditions**: Test exceptions, failures, timeouts
+6. **Use proper synchronization**: Use CountDownLatch for async operations
+7. **Clean up resources**: Always use cleanup blocks
+8. **Name tests descriptively**: Use "should [behavior] when [condition]" format
+
+### When Reviewing Code
+1. **Check test coverage**: Verify adequate test coverage
+2. **Review test quality**: Ensure tests are clear and maintainable
+3. **Check for edge cases**: Verify edge cases are tested
+4. **Check error handling**: Verify error conditions are tested
+5. **Check resource cleanup**: Verify resources are cleaned up properly
+6. **Check for flaky tests**: Look for timing issues or race conditions
+7. **Check test isolation**: Ensure tests don't depend on each other
+
+### When Adding Features
+1. **Write tests first**: Follow TDD approach
+2. **Test all scenarios**: Happy path, error path, edge cases
+3. **Update documentation**: Update README, JavaDoc, examples
+4. **Verify coverage**: Ensure coverage requirements are met
+5. **Update CHANGELOG**: Document user-facing changes
+
+### When Fixing Bugs
+1. **Reproduce with test**: Write a test that reproduces the bug
+2. **Fix the bug**: Implement the fix
+3. **Verify fix**: Ensure the test passes
+4. **Check coverage**: Ensure coverage remains adequate
+5. **Update CHANGELOG**: Document the bug fix
+
+### Common Patterns to Use
+- **CountDownLatch**: For coordinating async operations
+- **Thread.sleep**: Only when absolutely necessary, with proper timeouts
+- **cleanup blocks**: Always use for resource cleanup
+- **@Unroll**: For parameterized tests
+- **given-when-then**: For BDD-style test structure
+
+### Common Pitfalls to Avoid
+- ❌ **Flaky tests**: Don't use Thread.sleep without proper synchronization
+- ❌ **Missing cleanup**: Always clean up resources
+- ❌ **Insufficient coverage**: Ensure all code paths are tested
+- ❌ **Test dependencies**: Don't make tests depend on each other
+- ❌ **Hard-coded values**: Use constants or configuration
+- ❌ **Missing edge cases**: Test null, empty, boundary conditions
+
+---
+
+## SUMMARY: KEY EXPECTATIONS
+
+### Testing Expectations
+1. **All code must have tests**: No exceptions for new code
+2. **Coverage must meet requirements**: >90% line, >80% instruction, >50% branch
+3. **Tests must be in Spock**: All tests written in Groovy using Spock
+4. **Tests must be comprehensive**: Cover happy path, error path, edge cases
+5. **Tests must be maintainable**: Clear, well-organized, not flaky
+
+### Code Review Expectations
+1. **Review before commit**: Self-review before committing
+2. **Check coverage**: Verify coverage requirements are met
+3. **Check test quality**: Ensure tests are clear and maintainable
+4. **Check code quality**: Ensure code follows standards
+5. **Check documentation**: Ensure documentation is updated
+
+### Project Expectations
+1. **Quality over speed**: Don't sacrifice quality for speed
+2. **Test-driven development**: Write tests first when possible
+3. **Comprehensive testing**: Test all scenarios, not just happy path
+4. **Maintainable code**: Write code that's easy to understand and maintain
+5. **Documentation**: Keep documentation current and comprehensive
+
+---
+
+**Remember**: Quality is not negotiable. If tests don't pass or coverage doesn't meet requirements, the code is not ready to commit.
