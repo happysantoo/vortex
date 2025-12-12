@@ -1,0 +1,102 @@
+name: JMH Benchmarks
+
+on:
+  push:
+    branches: [ main ]
+    paths-ignore:
+      - '**.md'
+      - '.gitignore'
+      - 'documents/**'
+      - 'examples/**'
+      - 'README.md'
+      - 'CHANGELOG.md'
+  workflow_dispatch: # Allow manual triggering
+
+jobs:
+  benchmarks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write  # Required for publishing to GitHub Pages
+      pages: write      # Required for publishing to GitHub Pages
+      id-token: write   # Required for OIDC if needed
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up JDK 21
+      uses: actions/setup-java@v4
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+    
+    - name: Grant execute permission for gradlew
+      run: chmod +x gradlew
+    
+    - name: Cache Gradle dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+        key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+        restore-keys: |
+          ${{ runner.os }}-gradle-
+    
+    - name: Build project
+      run: ./gradlew build --no-daemon -x test -x jacocoTestReport -x jacocoTestCoverageVerification
+    
+    - name: Run JMH benchmarks
+      run: ./gradlew jmh --no-daemon
+      continue-on-error: true # Don't fail the workflow if benchmarks have issues
+    
+    - name: Generate JMH HTML report
+      run: ./gradlew jmhReport --no-daemon
+      continue-on-error: true
+    
+    - name: Upload JMH results JSON
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: jmh-results-json
+        path: build/reports/jmh/results.json
+        retention-days: 90
+    
+    - name: Upload JMH HTML report
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: jmh-html-report
+        path: build/reports/jmh/html/**
+        retention-days: 90
+    
+    - name: Publish JMH report to GitHub Pages
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      uses: peaceiris/actions-gh-pages@v3
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: build/reports/jmh/html
+        destination_dir: benchmarks
+        keep_files: false
+        user_name: 'github-actions[bot]'
+        user_email: 'github-actions[bot]@users.noreply.github.com'
+    
+    - name: Display benchmark summary
+      if: always()
+      run: |
+        if [ -f build/reports/jmh/results.json ]; then
+          echo "## 📊 JMH Benchmark Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Benchmark results have been generated and published." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "📈 View the full HTML report:" >> $GITHUB_STEP_SUMMARY
+          echo "- Artifacts: Check the workflow run artifacts" >> $GITHUB_STEP_SUMMARY
+          REPO_NAME=$(echo "${{ github.repository }}" | cut -d'/' -f2)
+          echo "- GitHub Pages: https://${{ github.repository_owner }}.github.io/${REPO_NAME}/benchmarks/" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Note: GitHub Pages must be enabled in repository settings for the link to work." >> $GITHUB_STEP_SUMMARY
+        else
+          echo "⚠️ Warning: JMH results file not found" >> $GITHUB_STEP_SUMMARY
+        fi
+

@@ -1,5 +1,8 @@
 package com.vajrapulse.vortex
 
+import com.vajrapulse.vortex.results.BatchResult
+import com.vajrapulse.vortex.results.ItemResult
+import com.vajrapulse.vortex.results.SuccessEvent
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import spock.lang.Specification
 
@@ -31,7 +34,7 @@ class MicroBatcherAwaitCompletionSpec extends Specification {
         
         when:
         // Submit items
-        def futures = (1..3).collect { batcher.submit("item-$it") }
+        def results = (1..3).collect { batcher.submit("item-$it") }
         
         // Wait for batch to start processing
         batchLatch.await(1, TimeUnit.SECONDS)
@@ -43,8 +46,8 @@ class MicroBatcherAwaitCompletionSpec extends Specification {
         completed == true
         batcher.getQueueDepth() == 0
         
-        // All futures should complete
-        futures.each { it.get(1, TimeUnit.SECONDS) }
+        // All items should be accepted (not rejected)  
+        results.each { assert it instanceof ItemResult.Success }
         
         cleanup:
         batcher?.close()
@@ -79,7 +82,7 @@ class MicroBatcherAwaitCompletionSpec extends Specification {
         
         when:
         // Submit batches
-        def futures = (1..maxConcurrent).collect { batcher.submit("item-$it") }
+        def results = (1..maxConcurrent).collect { batcher.submit("item-$it") }
         
         // Wait for processing to start
         Thread.sleep(50)
@@ -91,8 +94,8 @@ class MicroBatcherAwaitCompletionSpec extends Specification {
         completed == true
         processingStarted.get() == true
         
-        // All futures should complete
-        futures.each { it.get(1, TimeUnit.SECONDS) }
+        // All items should be accepted (not rejected)
+        results.each { assert it instanceof ItemResult.Success }
         
         cleanup:
         batcher?.close()
@@ -219,9 +222,8 @@ class MicroBatcherAwaitCompletionSpec extends Specification {
         MicroBatcher<String> batcher = new MicroBatcher<>(backend, config, registry)
         
         when:
-        // Submit and wait for completion
-        def future = batcher.submit("item-1")
-        future.get(1, TimeUnit.SECONDS)
+        // Submit item
+        def result = batcher.submit("item-1")
         
         // Wait a bit for batch to complete
         Thread.sleep(100)

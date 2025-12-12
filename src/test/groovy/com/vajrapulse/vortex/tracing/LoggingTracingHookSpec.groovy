@@ -1,8 +1,8 @@
 package com.vajrapulse.vortex.tracing
 
-import com.vajrapulse.vortex.BatchResult
-import com.vajrapulse.vortex.FailureEvent
-import com.vajrapulse.vortex.SuccessEvent
+import com.vajrapulse.vortex.results.BatchResult
+import com.vajrapulse.vortex.results.FailureEvent
+import com.vajrapulse.vortex.results.SuccessEvent
 import org.slf4j.Logger
 import spock.lang.Specification
 

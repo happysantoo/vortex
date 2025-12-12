@@ -1,5 +1,6 @@
 package com.vajrapulse.vortex;
 
+import com.vajrapulse.vortex.results.BatchResult;
 import java.util.List;
 
 /**

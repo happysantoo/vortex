@@ -1,8 +1,12 @@
 package com.vajrapulse.vortex.benchmark;
 
 import com.vajrapulse.vortex.*;
+import com.vajrapulse.vortex.results.BatchResult;
+import com.vajrapulse.vortex.results.ItemResult;
+import com.vajrapulse.vortex.results.SuccessEvent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.openjdk.jmh.annotations.*;
+import org.openjdk.jmh.infra.Blackhole;
 import org.openjdk.jmh.runner.Runner;
 import org.openjdk.jmh.runner.RunnerException;
 import org.openjdk.jmh.runner.options.Options;
@@ -11,11 +15,16 @@ import org.openjdk.jmh.runner.options.OptionsBuilder;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 /**
- * JMH benchmarks for Vortex MicroBatcher.
+ * Throughput benchmarks for Vortex MicroBatcher using the unified submit() API.
+ * 
+ * Measures:
+ * - Single request throughput
+ * - Concurrent request throughput
+ * - Batch processing throughput
  * 
  * Run with: ./gradlew jmh
  */
@@ -56,28 +65,57 @@ public class MicroBatcherBenchmark {
         }
     }
     
+    /**
+     * Benchmark single request submission throughput.
+     */
     @Benchmark
-    public void submitSingleRequest() {
-        CompletableFuture<BatchResult<String>> future = batcher.submit("test-item");
-        future.join(); // Wait for completion
+    public void submitSingleRequest(Blackhole bh) {
+        ItemResult<String> result = batcher.submit("test-item");
+        bh.consume(result);
     }
     
+    /**
+     * Benchmark concurrent request submission throughput.
+     */
     @Benchmark
     @Threads(4)
-    public void submitConcurrentRequests() {
-        // Use thread name instead of deprecated getId()
+    public void submitConcurrentRequests(Blackhole bh) {
         String threadName = Thread.currentThread().getName();
-        CompletableFuture<BatchResult<String>> future = batcher.submit("test-item-" + threadName);
-        future.join();
+        ItemResult<String> result = batcher.submit("test-item-" + threadName);
+        bh.consume(result);
     }
     
+    /**
+     * Benchmark batch submission throughput with callback.
+     */
     @Benchmark
-    public void submitBatch() {
-        List<CompletableFuture<BatchResult<String>>> futures = new ArrayList<>();
+    public void submitBatchWithCallback(Blackhole bh) {
+        CountDownLatch latch = new CountDownLatch(10);
         for (int i = 0; i < 10; i++) {
-            futures.add(batcher.submit("item-" + i));
+            final int index = i;
+            ItemResult<String> result = batcher.submit("item-" + index, (item, itemResult) -> {
+                bh.consume(itemResult);
+                latch.countDown();
+            });
+            bh.consume(result);
         }
-        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+        // Wait for all callbacks to complete (best effort - may timeout in benchmark)
+        try {
+            latch.await(100, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+    
+    /**
+     * Benchmark batch submission throughput without callback.
+     */
+    @Benchmark
+    public void submitBatchWithoutCallback(Blackhole bh) {
+        for (int i = 0; i < 10; i++) {
+            ItemResult<String> result = batcher.submit("item-" + i);
+            bh.consume(result);
+        }
     }
     
     public static void main(String[] args) throws RunnerException {
@@ -88,4 +126,3 @@ public class MicroBatcherBenchmark {
         new Runner(opt).run();
     }
 }
-

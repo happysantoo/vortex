@@ -18,9 +18,9 @@ public class ExampleUsageSimplified {
             System.out.println("Processing batch of " + batch.size() + " items");
             List<SuccessEvent<String>> successes = new ArrayList<>();
             for (String item : batch) {
-                successes.add(new SuccessEvent<>(item));
+                successes.add(new com.vajrapulse.vortex.results.SuccessEvent<>(item));
             }
-            return new BatchResult<>(successes, List.of());
+            return new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of());
         };
         
         BatcherConfig config = BatcherConfig.builder()
@@ -63,7 +63,7 @@ public class ExampleUsageSimplified {
                 // Handle backpressure (queue full, concurrent limit, or backpressure threshold)
                 callback.exceptionally(throwable -> {
                     Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
-                    if (cause instanceof com.vajrapulse.vortex.backpressure.BackpressureException) {
+                    if (cause instanceof com.vajrapulse.vortex.backpressure.ItemRejectedException) {
                         System.err.println("⚠ " + itemId + " rejected: " + cause.getMessage());
                     }
                     return null;

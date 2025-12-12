@@ -1,7 +1,7 @@
 package com.vajrapulse.vortex;
 
+import com.vajrapulse.vortex.results.BatchResult;
 import java.util.List;
-
 /**
  * Interface for dispatching batches to a backend.
  * The dispatch method can be blocking - it will be executed on a virtual thread.

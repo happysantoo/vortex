@@ -1,7 +1,7 @@
 package com.vajrapulse.vortex.tracing;
 
-import com.vajrapulse.vortex.BatchResult;
 import com.vajrapulse.vortex.BatchTracingHook;
+import com.vajrapulse.vortex.results.BatchResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

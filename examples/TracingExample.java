@@ -59,9 +59,9 @@ public class TracingExample {
             System.out.println("Backend processing batch of " + batch.size() + " items");
             List<SuccessEvent<String>> successes = new ArrayList<>();
             for (String item : batch) {
-                successes.add(new SuccessEvent<>(item));
+                successes.add(new com.vajrapulse.vortex.results.SuccessEvent<>(item));
             }
-            return new BatchResult<>(successes, List.of());
+            return new com.vajrapulse.vortex.results.BatchResult<>(successes, List.of());
         };
         
         // Configure with LoggingTracingHook (uses SLF4J, logs at DEBUG/WARN/ERROR levels)
@@ -109,12 +109,12 @@ public class TracingExample {
             
             for (String item : batch) {
                 if (item.contains("fail")) {
-                    failures.add(new FailureEvent<>(item, new RuntimeException("Transient error")));
+                    failures.add(new com.vajrapulse.vortex.results.FailureEvent<>(item, new RuntimeException("Transient error")));
                 } else {
-                    successes.add(new SuccessEvent<>(item));
+                    successes.add(new com.vajrapulse.vortex.results.SuccessEvent<>(item));
                 }
             }
-            return new BatchResult<>(successes, failures);
+            return new com.vajrapulse.vortex.results.BatchResult<>(successes, failures);
         };
         
         // Use LoggingTracingHook with custom logger name

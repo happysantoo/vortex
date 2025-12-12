@@ -1,5 +1,7 @@
 package com.vajrapulse.vortex;
 
+import com.vajrapulse.vortex.results.BatchResult;
+import com.vajrapulse.vortex.results.SuccessEvent;
 import java.util.ArrayList;
 import java.util.List;
 

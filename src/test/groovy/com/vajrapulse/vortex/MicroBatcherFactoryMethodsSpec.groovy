@@ -1,5 +1,8 @@
 package com.vajrapulse.vortex
 
+import com.vajrapulse.vortex.results.BatchResult
+import com.vajrapulse.vortex.results.ItemResult
+import com.vajrapulse.vortex.results.SuccessEvent
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import spock.lang.Specification
 
@@ -100,20 +103,24 @@ class MicroBatcherFactoryMethodsSpec extends Specification {
     
     def "should work with factory methods"() {
         given:
+        def batchResults = []
         Backend<String> backend = { batch ->
-            new BatchResult<>(batch.collect { new SuccessEvent<>(it) }, List.of())
+            def result = new BatchResult<>(batch.collect { new SuccessEvent<>(it) }, List.of())
+            batchResults.add(result)
+            result
         }
         
         SimpleMeterRegistry registry = new SimpleMeterRegistry()
         
         when:
         MicroBatcher<String> batcher = MicroBatcher.forBalanced(backend, registry)
-        CompletableFuture<BatchResult<String>> future = batcher.submit("test")
-        BatchResult<String> result = future.get()
+        def submitResult = batcher.submit("test")
+        Thread.sleep(200) // Wait for batch processing
         
         then:
-        result != null
-        result.isAllSuccess()
+        submitResult instanceof ItemResult.Success
+        batchResults.size() >= 1
+        batchResults[0].isAllSuccess()
         
         cleanup:
         batcher?.close()

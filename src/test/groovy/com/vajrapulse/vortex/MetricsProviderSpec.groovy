@@ -1,5 +1,9 @@
 package com.vajrapulse.vortex
 
+import com.vajrapulse.vortex.results.BatchResult
+import com.vajrapulse.vortex.results.ItemResult
+import com.vajrapulse.vortex.results.SuccessEvent
+import com.vajrapulse.vortex.results.FailureEvent
 import spock.lang.Specification
 import java.time.Duration
 import java.util.concurrent.CountDownLatch
@@ -186,9 +190,9 @@ class MetricsProviderSpec extends Specification {
         def metrics = batcher.getMetricsProvider()
 
         // Submit a few items, some will be retried and some may be rejected
-        def futures = []
+        def results = []
         5.times {
-            futures << batcher.submit("item-$it")
+            results << batcher.submit("item-$it")
         }
         // Wait for processing and potential retries
         processedLatch.await(2, TimeUnit.SECONDS)

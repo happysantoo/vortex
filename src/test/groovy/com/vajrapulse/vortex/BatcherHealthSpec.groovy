@@ -1,7 +1,12 @@
 package com.vajrapulse.vortex
+import com.vajrapulse.vortex.results.ItemResult
 
-import com.vajrapulse.vortex.backpressure.BackpressureProvider
-import com.vajrapulse.vortex.backpressure.BackpressureStrategy
+import com.vajrapulse.vortex.health.BatcherHealth
+import com.vajrapulse.vortex.health.HealthStatus
+import com.vajrapulse.vortex.health.HealthInfo
+import com.vajrapulse.vortex.results.BatchResult
+import com.vajrapulse.vortex.results.SuccessEvent
+import com.vajrapulse.vortex.results.FailureEvent
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import spock.lang.Specification
 

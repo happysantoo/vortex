@@ -24,15 +24,15 @@ public class CustomBackendReplayExample {
                 for (String item : batch) {
                     if (item.contains("retry")) {
                         // Items with "retry" should be replayed
-                        successes.add(new SuccessEvent<>(item));
+                        successes.add(new com.vajrapulse.vortex.results.SuccessEvent<>(item));
                     } else if (item.contains("fail")) {
-                        failures.add(new FailureEvent<>(item, new RuntimeException("Failed")));
+                        failures.add(new com.vajrapulse.vortex.results.FailureEvent<>(item, new RuntimeException("Failed")));
                     } else {
-                        successes.add(new SuccessEvent<>(item));
+                        successes.add(new com.vajrapulse.vortex.results.SuccessEvent<>(item));
                     }
                 }
                 
-                return new BatchResult<>(successes, failures);
+                return new com.vajrapulse.vortex.results.BatchResult<>(successes, failures);
             }
             
             @Override
