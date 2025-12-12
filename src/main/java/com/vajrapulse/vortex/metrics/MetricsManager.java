@@ -23,10 +23,6 @@ public class MetricsManager {
     private final Counter requestsReplayed;
     private final Counter requestsRetried;
     private final Counter requestsRejected;
-    private final Counter backpressureRejected;
-    private final Counter backpressureDropped;
-    private final Counter backpressureCheckFailures;
-    private final Counter backpressureInvalidLevels;
     private final Counter queueOfferFailures;
     private final Counter dispatchRejected;
     private final Timer batchDispatchLatency;
@@ -71,22 +67,6 @@ public class MetricsManager {
         
         this.requestsRejected = Counter.builder("vortex.requests.rejected")
             .description("Total number of requests rejected due to queue being full")
-            .register(meterRegistry);
-        
-        this.backpressureRejected = Counter.builder("vortex.backpressure.rejected")
-            .description("Total number of requests rejected due to backpressure")
-            .register(meterRegistry);
-        
-        this.backpressureDropped = Counter.builder("vortex.backpressure.dropped")
-            .description("Total number of requests dropped due to backpressure")
-            .register(meterRegistry);
-        
-        this.backpressureCheckFailures = Counter.builder("vortex.backpressure.check.failures")
-            .description("Total number of backpressure check failures (exceptions)")
-            .register(meterRegistry);
-        
-        this.backpressureInvalidLevels = Counter.builder("vortex.backpressure.invalid.levels")
-            .description("Total number of invalid backpressure levels detected (NaN, out of range)")
             .register(meterRegistry);
         
         this.queueOfferFailures = Counter.builder("vortex.queue.offer.failures")
@@ -163,22 +143,6 @@ public class MetricsManager {
     
     public void recordRequestRejected() {
         requestsRejected.increment();
-    }
-    
-    public void recordBackpressureRejected() {
-        backpressureRejected.increment();
-    }
-    
-    public void recordBackpressureDropped() {
-        backpressureDropped.increment();
-    }
-    
-    public void recordBackpressureCheckFailure() {
-        backpressureCheckFailures.increment();
-    }
-    
-    public void recordBackpressureInvalidLevel() {
-        backpressureInvalidLevels.increment();
     }
     
     public void recordQueueOfferFailure() {

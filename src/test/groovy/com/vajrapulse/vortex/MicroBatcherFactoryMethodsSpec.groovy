@@ -103,20 +103,24 @@ class MicroBatcherFactoryMethodsSpec extends Specification {
     
     def "should work with factory methods"() {
         given:
+        def batchResults = []
         Backend<String> backend = { batch ->
-            new BatchResult<>(batch.collect { new SuccessEvent<>(it) }, List.of())
+            def result = new BatchResult<>(batch.collect { new SuccessEvent<>(it) }, List.of())
+            batchResults.add(result)
+            result
         }
         
         SimpleMeterRegistry registry = new SimpleMeterRegistry()
         
         when:
         MicroBatcher<String> batcher = MicroBatcher.forBalanced(backend, registry)
-        CompletableFuture<BatchResult<String>> future = batcher.submit("test")
-        BatchResult<String> Thread.sleep(200); // Wait for batch processing)
+        def submitResult = batcher.submit("test")
+        Thread.sleep(200) // Wait for batch processing
         
         then:
-        result != null
-        result.isAllSuccess()
+        submitResult instanceof ItemResult.Success
+        batchResults.size() >= 1
+        batchResults[0].isAllSuccess()
         
         cleanup:
         batcher?.close()

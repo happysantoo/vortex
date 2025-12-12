@@ -98,7 +98,7 @@ public interface MetricsProvider {
      * Returns the current depth of the request queue.
      * 
      * <p>This is the number of items currently waiting to be batched.
-     * A high queue depth may indicate backpressure or slow backend processing.
+     * A high queue depth may indicate slow backend processing or high load.
      * 
      * @return current queue depth (0 = empty queue)
      */
@@ -123,7 +123,7 @@ public interface MetricsProvider {
             long getTotalRetried();
 
             /**
-             * Returns the total number of requests that were rejected due to backpressure.
+             * Returns the total number of requests that were rejected (queue full, etc.).
              *
              * <p>Rejections occur when the internal queue is full (reached
              * {@code maxQueueSize}) and {@code submit()} cannot enqueue the

@@ -5,6 +5,50 @@ All notable changes to the Vortex Micro-Batching Library will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.9] - 2025-12-XX
+
+### Changed
+- **Unified Submit API**: Simplified API with single `submit(item, callback)` method
+  - Replaced `submitSync()` and `submitWithCallback()` with unified `submit(item, callback)` method
+  - Returns `ItemResult<T>` immediately (Success or Failure)
+  - Optional callback for batch processing results
+  - Cleaner, more intuitive API
+  - Backward compatible: `submit(item)` without callback still works
+- **Removed Backpressure Package**: Eliminated entire backpressure package for simplicity
+  - Removed `BackpressureProvider`, `BackpressureStrategy`, and related classes
+  - Queue rejection now handled via `queueRejectionThreshold` in `BatcherConfig`
+  - Simplified rejection logic: queue full → throw exception
+  - Reduced library complexity and maintenance burden
+
+### Removed
+- **Backpressure Package**: Removed entire `com.vajrapulse.vortex.backpressure` package
+  - Removed `BackpressureProvider`, `BackpressureStrategy`, `BackpressureContext`, `BackpressureResult`
+  - Removed `QueueDepthBackpressureProvider`, `CompositeBackpressureProvider`
+  - Removed `RejectStrategy`, `DropStrategy`, `BackpressureLevelCache`
+  - Removed `BackpressureAction` enum
+  - Backpressure metrics removed from `MetricsManager`
+- **Old Submit APIs**: Removed `submitSync()` and `submitWithCallback()` methods
+  - Replaced by unified `submit(item, callback)` API
+  - Migration: Use `submit(item)` or `submit(item, callback)` instead
+
+### Fixed
+- **Test Suite Cleanup**: Rewrote test suite to use new unified API
+  - Reduced test file size from 5,638 lines to 819 lines
+  - Removed obsolete tests for removed APIs
+  - All 206 tests passing
+- **JMH Benchmarks**: Updated all benchmarks to use unified `submit()` API
+  - Removed backpressure-related benchmark code
+  - Simplified benchmark implementations
+  - All benchmarks compile and run successfully
+
+### Documentation
+- **Updated Examples**: All examples updated to use unified `submit()` API
+- **Updated JMH Benchmarks**: All benchmarks reflect current API
+- **GitHub Actions**: Added automated JMH benchmark workflow
+  - Runs benchmarks on merge to main
+  - Publishes HTML reports to GitHub Pages
+  - Uploads artifacts for 90 days
+
 ## [0.0.8] - 2025-12-09
 
 ### Added

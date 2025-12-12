@@ -151,7 +151,7 @@ public class BatcherConfig {
      *   <li>0.5: Reject when queue is 50% full</li>
      * </ul>
      * 
-     * <p>This provides proactive backpressure by rejecting items before the queue
+     * <p>This provides proactive rejection by rejecting items before the queue
      * is completely full, giving the system time to process existing items.
      * 
      * @return the queue rejection threshold (0.0 to 1.0, default: 1.0)
@@ -394,7 +394,7 @@ public class BatcherConfig {
          *   <li>0.5: Reject when queue is 50% full</li>
          * </ul>
          * 
-         * <p>This provides proactive backpressure by rejecting items before the queue is
+         * <p>This provides proactive rejection by rejecting items before the queue is
          * completely full, giving the system time to process existing items. This is
          * particularly useful in high-throughput scenarios where you want to start rejecting
          * items early to prevent the queue from becoming completely saturated.

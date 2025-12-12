@@ -1,7 +1,8 @@
 package com.vajrapulse.vortex;
 
-import com.vajrapulse.vortex.backpressure.BackpressureProvider;
-import com.vajrapulse.vortex.backpressure.BackpressureStrategy;
+import com.vajrapulse.vortex.results.BatchResult;
+import com.vajrapulse.vortex.results.ItemResult;
+import com.vajrapulse.vortex.results.SuccessEvent;
 import org.openjdk.jmh.annotations.*;
 import org.openjdk.jmh.infra.Blackhole;
 
@@ -9,10 +10,12 @@ import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Benchmark to measure the overhead of submitSync() compared to submit().
+ * Benchmark to measure the performance of the unified submit() method.
  * 
- * This benchmark helps verify that submitSync() has minimal overhead
- * when items are accepted, and measures the cost of synchronous rejection checks.
+ * This benchmark measures:
+ * - Overhead of submit() when items are accepted
+ * - Cost of immediate rejection checks (queue full)
+ * - Performance with and without callbacks
  */
 @BenchmarkMode(Mode.AverageTime)
 @OutputTimeUnit(TimeUnit.NANOSECONDS)
@@ -23,9 +26,7 @@ import java.util.concurrent.TimeUnit;
 public class SubmitSyncBenchmark {
     
     private MicroBatcher<String> batcher;
-    private MicroBatcher<String> batcherWithBackpressure;
-    private BackpressureProvider backpressureProvider;
-    private BackpressureStrategy<String> backpressureStrategy;
+    private MicroBatcher<String> batcherSmallQueue;
     
     @Setup
     public void setup() {
@@ -37,37 +38,24 @@ public class SubmitSyncBenchmark {
             return new BatchResult<>(successes, java.util.List.of());
         };
         
+        // Large queue to avoid rejections
         BatcherConfig config = BatcherConfig.builder()
-            .batchSize(10)
-            .lingerTime(Duration.ofMillis(100))
-            .maxQueueSize(1000) // Large queue to avoid rejections
-            .build();
-        
-        this.batcher = new MicroBatcher<>(backend, config);
-        
-        // Setup backpressure (low backpressure - items will be accepted)
-        this.backpressureProvider = new BackpressureProvider() {
-            @Override
-            public double getBackpressureLevel() {
-                return 0.1; // Low backpressure
-            }
-            
-            @Override
-            public String getSourceName() {
-                return "Benchmark Provider";
-            }
-        };
-        this.backpressureStrategy = new com.vajrapulse.vortex.backpressure.RejectStrategy<>(0.7);
-        
-        BatcherConfig configWithBackpressure = BatcherConfig.builder()
             .batchSize(10)
             .lingerTime(Duration.ofMillis(100))
             .maxQueueSize(1000)
             .build();
         
-        this.batcherWithBackpressure = MicroBatcher.withBackpressure(
-            backend, configWithBackpressure, backpressureProvider, backpressureStrategy
-        );
+        this.batcher = new MicroBatcher<>(backend, config);
+        
+        // Small queue to test rejection path
+        BatcherConfig configSmall = BatcherConfig.builder()
+            .batchSize(10)
+            .lingerTime(Duration.ofMillis(100))
+            .maxQueueSize(5) // Very small queue - will reject quickly
+            .queueRejectionThreshold(1.0) // Reject at 100% capacity
+            .build();
+        
+        this.batcherSmallQueue = new MicroBatcher<>(backend, configSmall);
     }
     
     @TearDown
@@ -75,50 +63,56 @@ public class SubmitSyncBenchmark {
         if (batcher != null) {
             batcher.close();
         }
-        if (batcherWithBackpressure != null) {
-            batcherWithBackpressure.close();
+        if (batcherSmallQueue != null) {
+            batcherSmallQueue.close();
         }
     }
     
     /**
-     * Benchmark submit() - baseline for comparison.
+     * Benchmark submit() without callback - baseline performance.
      */
     @Benchmark
-    public void submit(Blackhole bh) {
-        var future = batcher.submit("item");
-        bh.consume(future);
-    }
-    
-    /**
-     * Benchmark submitSync() when item is accepted (success path).
-     */
-    @Benchmark
-    public void submitSyncAccepted(Blackhole bh) {
-        var result = batcher.submitSync("item");
+    public void submitWithoutCallback(Blackhole bh) {
+        var result = batcher.submit("item");
         bh.consume(result);
     }
     
     /**
-     * Benchmark submitSync() with backpressure check (low backpressure - accepted).
+     * Benchmark submit() with callback - measures callback overhead.
      */
     @Benchmark
-    public void submitSyncWithBackpressure(Blackhole bh) {
-        var result = batcherWithBackpressure.submitSync("item");
+    public void submitWithCallback(Blackhole bh) {
+        var result = batcher.submit("item", (item, itemResult) -> {
+            // Callback invoked when item is processed
+            bh.consume(itemResult);
+        });
         bh.consume(result);
     }
     
     /**
-     * Benchmark submitSync() when queue is full (rejection path).
+     * Benchmark submit() rejection path - when queue is full.
      * Note: This is a best-effort benchmark - queue may not always be full.
      */
     @Benchmark
-    public void submitSyncRejected(Blackhole bh) {
-        // Try to fill queue first (may not always succeed due to timing)
-        for (int i = 0; i < 100; i++) {
-            batcher.submitSync("item-" + i);
+    public void submitRejected(Blackhole bh) {
+        // Fill small queue to trigger rejections
+        for (int i = 0; i < 10; i++) {
+            var result = batcherSmallQueue.submit("item-" + i);
+            bh.consume(result);
         }
-        var result = batcher.submitSync("item-rejected");
+        // This should be rejected
+        var result = batcherSmallQueue.submit("item-rejected");
+        bh.consume(result);
+    }
+    
+    /**
+     * Benchmark submit() with queue rejection threshold check.
+     * Tests the threshold-based rejection logic.
+     */
+    @Benchmark
+    public void submitWithThresholdCheck(Blackhole bh) {
+        // Use batcher with threshold to test rejection logic
+        var result = batcherSmallQueue.submit("item");
         bh.consume(result);
     }
 }
-

@@ -112,7 +112,6 @@ tasks.jacocoTestCoverageVerification {
                 "com.vajrapulse.vortex.HealthStatus",
                 // HealthInfo is a simple record - tested through BatcherHealth
                 "com.vajrapulse.vortex.HealthInfo",
-                "com.vajrapulse.vortex.backpressure.BackpressureAction",
                 "com.vajrapulse.vortex.BatchSizePreset",
                 // InMemoryOverflowStorage has a defensive check for queue.offer() returning false
                 // This line cannot be tested with ConcurrentLinkedQueue (always returns true)
@@ -140,9 +139,6 @@ tasks.jacocoTestCoverageVerification {
                 // MicrometerTracingHook requires Micrometer Tracing to be configured
                 // Branch coverage is tested with mocked Tracer
                 "com.vajrapulse.vortex.tracing.MicrometerTracingHook.*",
-                // startBackpressureMonitoring() is a complex background monitoring method with many branches
-                // that are difficult to test comprehensively due to timing and threading concerns
-                "com.vajrapulse.vortex.MicroBatcher.startBackpressureMonitoring()",
                 // cleanupStaleRetries() is a background cleanup method that runs periodically
                 // Difficult to test comprehensively due to timing and threading concerns
                 "com.vajrapulse.vortex.RetryManager.cleanupStaleRetries()",

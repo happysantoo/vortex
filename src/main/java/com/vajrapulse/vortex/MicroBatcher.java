@@ -795,7 +795,7 @@ public class MicroBatcher<T> implements AutoCloseable {
      * 
      * <p>When a batch cannot be dispatched due to the concurrent batch limit,
      * the items in the batch are rejected individually. Each item's future
-     * (if using submit()) or callback (if using submitWithCallback()) will
+     * (if using submit() with callback) will
      * be notified of the rejection.
      * 
      * @param batch the batch that was rejected

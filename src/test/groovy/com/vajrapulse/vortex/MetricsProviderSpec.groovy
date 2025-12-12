@@ -192,7 +192,7 @@ class MetricsProviderSpec extends Specification {
         // Submit a few items, some will be retried and some may be rejected
         def results = []
         5.times {
-            futures << batcher.submit("item-$it")
+            results << batcher.submit("item-$it")
         }
         // Wait for processing and potential retries
         processedLatch.await(2, TimeUnit.SECONDS)
