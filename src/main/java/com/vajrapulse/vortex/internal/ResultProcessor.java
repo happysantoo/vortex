@@ -74,7 +74,7 @@ public class ResultProcessor<T> {
     private void processNonAtomicResults(List<PendingRequest<T>> batch, BatchResult<T> result) {
         List<SuccessEvent<T>> successes = result.getSuccesses();
         List<FailureEvent<T>> failures = result.getFailures();
-        
+
         // Check if replay is needed
         if (!successes.isEmpty() && !failures.isEmpty()) {
             boolean backendWantsReplay = backend.shouldReplaySuccesses(result);
@@ -82,7 +82,39 @@ public class ResultProcessor<T> {
                 replaySuccessfulItems(successes);
             }
         }
-        
+
+        Map<T, SuccessEvent<T>> successMap = buildSuccessMap(successes);
+        Map<T, FailureEvent<T>> failureMap = buildFailureMap(failures);
+
+        // Track used results for fallback logic
+        Map<T, Boolean> usedSuccesses = new HashMap<>();
+        Map<T, Boolean> usedFailures = new HashMap<>();
+
+        // Map results back to requests using O(1) hash lookup
+        long batchCompletionTime = System.nanoTime();
+
+        for (PendingRequest<T> req : batch) {
+            recordMetrics(req, batchCompletionTime);
+            T data = req.getData();
+
+            boolean matched = tryMatchSuccess(data, successMap, usedSuccesses, req);
+            if (!matched) {
+                tryMatchFailure(data, failureMap, usedFailures, req);
+            }
+        }
+
+        List<SuccessEvent<T>> unmatchedSuccesses = collectUnmatchedSuccesses(successes, usedSuccesses);
+        List<FailureEvent<T>> unmatchedFailures = collectUnmatchedFailures(failures, usedFailures);
+
+        distributeFallbackResults(batch, usedSuccesses, usedFailures, unmatchedSuccesses, unmatchedFailures);
+
+        // Clean up retry counts for successful items
+        for (SuccessEvent<T> success : successes) {
+            retryManager.clearRetryCount(success.getData());
+        }
+    }
+    
+    private Map<T, SuccessEvent<T>> buildSuccessMap(List<SuccessEvent<T>> successes) {
         // Build hash maps for O(1) lookup (optimization: O(n) -> O(1) per request)
         // Note: If backend returns multiple results with the same data value, only the last one
         // will be retained in the map. This is expected behavior - backends should return unique
@@ -94,7 +126,10 @@ public class ResultProcessor<T> {
                 successMap.put(data, success);
             }
         }
-        
+        return successMap;
+    }
+
+    private Map<T, FailureEvent<T>> buildFailureMap(List<FailureEvent<T>> failures) {
         Map<T, FailureEvent<T>> failureMap = new HashMap<>();
         for (FailureEvent<T> failure : failures) {
             T data = failure.getData();
@@ -102,78 +137,86 @@ public class ResultProcessor<T> {
                 failureMap.put(data, failure);
             }
         }
-        
-        // Track used results for fallback logic
-        Map<T, Boolean> usedSuccesses = new HashMap<>();
-        Map<T, Boolean> usedFailures = new HashMap<>();
-        
-        // Map results back to requests using O(1) hash lookup
-        long batchCompletionTime = System.nanoTime();
-        
-        for (PendingRequest<T> req : batch) {
-            recordMetrics(req, batchCompletionTime);
-            
-            T data = req.getData();
-            boolean matched = false;
-            
-            // Try to match with success (O(1) lookup)
-            SuccessEvent<T> success = successMap.get(data);
-            if (success != null && !usedSuccesses.getOrDefault(data, false)) {
-                metrics.recordRequestSucceeded();
-                req.getFuture().complete(new BatchResult<>(
-                    List.of(success),
-                    List.of()
-                ));
-                usedSuccesses.put(data, true);
-                matched = true;
-            }
-            
-            // Try to match with failure if not already matched (O(1) lookup)
-            if (!matched) {
-                FailureEvent<T> failure = failureMap.get(data);
-                if (failure != null && !usedFailures.getOrDefault(data, false)) {
-                    Throwable error = failure.getError();
-                    retryManager.tryRetryOrFail(data, error, req.getFuture());
-                    usedFailures.put(data, true);
-                    matched = true;
-                }
-            }
+        return failureMap;
+    }
+
+    private boolean tryMatchSuccess(
+            T data,
+            Map<T, SuccessEvent<T>> successMap,
+            Map<T, Boolean> usedSuccesses,
+            PendingRequest<T> req) {
+
+        SuccessEvent<T> success = successMap.get(data);
+        if (success != null && !usedSuccesses.getOrDefault(data, false)) {
+            metrics.recordRequestSucceeded();
+            req.getFuture().complete(new BatchResult<>(
+                List.of(success),
+                List.of()
+            ));
+            usedSuccesses.put(data, true);
+            return true;
         }
-        
-        // Collect unmatched results once after all exact matches are found
+        return false;
+    }
+
+    private boolean tryMatchFailure(
+            T data,
+            Map<T, FailureEvent<T>> failureMap,
+            Map<T, Boolean> usedFailures,
+            PendingRequest<T> req) {
+
+        FailureEvent<T> failure = failureMap.get(data);
+        if (failure != null && !usedFailures.getOrDefault(data, false)) {
+            Throwable error = failure.getError();
+            retryManager.tryRetryOrFail(data, error, req.getFuture());
+            usedFailures.put(data, true);
+            return true;
+        }
+        return false;
+    }
+
+    private List<SuccessEvent<T>> collectUnmatchedSuccesses(
+            List<SuccessEvent<T>> successes,
+            Map<T, Boolean> usedSuccesses) {
         List<SuccessEvent<T>> unmatchedSuccesses = new ArrayList<>();
         for (SuccessEvent<T> s : successes) {
             if (!usedSuccesses.getOrDefault(s.getData(), false)) {
                 unmatchedSuccesses.add(s);
             }
         }
-        
+        return unmatchedSuccesses;
+    }
+
+    private List<FailureEvent<T>> collectUnmatchedFailures(
+            List<FailureEvent<T>> failures,
+            Map<T, Boolean> usedFailures) {
         List<FailureEvent<T>> unmatchedFailures = new ArrayList<>();
         for (FailureEvent<T> f : failures) {
             if (!usedFailures.getOrDefault(f.getData(), false)) {
                 unmatchedFailures.add(f);
             }
         }
-        
+        return unmatchedFailures;
+    }
+
+    private void distributeFallbackResults(
+            List<PendingRequest<T>> batch,
+            Map<T, Boolean> usedSuccesses,
+            Map<T, Boolean> usedFailures,
+            List<SuccessEvent<T>> unmatchedSuccesses,
+            List<FailureEvent<T>> unmatchedFailures) {
+
         // Handle unmatched requests with fallback distribution
         for (PendingRequest<T> req : batch) {
-            // Check if this request was matched in the first pass
             T data = req.getData();
-            boolean wasMatched = usedSuccesses.getOrDefault(data, false) || 
-                                usedFailures.getOrDefault(data, false);
-            
+            boolean wasMatched = usedSuccesses.getOrDefault(data, false)
+                || usedFailures.getOrDefault(data, false);
+
             if (!wasMatched) {
                 handleFallback(req, unmatchedSuccesses, unmatchedFailures);
             }
         }
-        
-        // Clean up retry counts for successful items
-        for (SuccessEvent<T> success : successes) {
-            retryManager.clearRetryCount(success.getData());
-        }
     }
-    
-    // Removed tryMatchSuccess and tryMatchFailure - now using hash-based lookup in processNonAtomicResults
     
     private void handleFallback(PendingRequest<T> req, List<SuccessEvent<T>> unmatchedSuccesses, 
                                 List<FailureEvent<T>> unmatchedFailures) {

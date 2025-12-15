@@ -373,6 +373,87 @@ public class MicroBatcher<T> implements AutoCloseable {
     public ItemResult<T> submit(T item) {
         return submit(item, null);
     }
+
+    /**
+     * Creates a standard IllegalStateException used when the batcher is closed.
+     * Centralizes diagnostic message formatting so all public methods report
+     * consistent context (queue depth and active batches).
+     */
+    private IllegalStateException newClosedException() {
+        int queueDepth = queue.size();
+        int activeBatches = activeBatchCount != null ? activeBatchCount.get() : 0;
+        return new IllegalStateException(
+            String.format("MicroBatcher is closed. Queue depth: %d, Active batches: %d",
+                queueDepth, activeBatches)
+        );
+    }
+
+    /**
+     * Invokes tracing hook for submit events in a safe, centralized way.
+     * Any tracing errors are swallowed and optionally logged when debug mode
+     * is enabled. This ensures tracing never interferes with core batching.
+     */
+    private void safeOnSubmit(T item) {
+        if (tracingHook == null || item == null) {
+            return;
+        }
+        try {
+            tracingHook.onSubmit(item);
+        } catch (Exception e) {
+            if (debugMode) {
+                logger.debug("Tracing hook onSubmit failed", e);
+            }
+        }
+    }
+
+    /**
+     * Result of attempting to enqueue a pending request into the internal queue.
+     */
+    private enum EnqueueResult {
+        ACCEPTED,
+        REJECTED_THRESHOLD,
+        REJECTED_FULL,
+        INTERRUPTED
+    }
+
+    /**
+     * Attempts to enqueue the given request into the internal queue.
+     *
+     * @param request        the pending request to enqueue
+     * @param applyThreshold whether to apply the configured queue rejection threshold
+     * @param useTimeout     whether to use a timed offer when enqueuing
+     * @return the outcome of the enqueue attempt
+     */
+    private EnqueueResult tryEnqueue(PendingRequest<T> request, boolean applyThreshold, boolean useTimeout) {
+        int maxSize = config.getMaxQueueSize();
+
+        if (applyThreshold) {
+            double threshold = config.getQueueRejectionThreshold();
+            int rejectionThreshold = (int) Math.ceil(maxSize * threshold);
+            int currentSize = queue.size();
+            if (currentSize >= rejectionThreshold) {
+                return EnqueueResult.REJECTED_THRESHOLD;
+            }
+        }
+
+        boolean offered;
+        if (useTimeout) {
+            try {
+                offered = queue.offer(request, QUEUE_OFFER_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return EnqueueResult.INTERRUPTED;
+            }
+        } else {
+            offered = queue.offer(request);
+        }
+
+        if (!offered) {
+            return EnqueueResult.REJECTED_FULL;
+        }
+
+        return EnqueueResult.ACCEPTED;
+    }
     
     /**
      * Submits an item with immediate rejection feedback and optional callback for batch processing result.
@@ -452,10 +533,7 @@ public class MicroBatcher<T> implements AutoCloseable {
      */
     public ItemResult<T> submit(T item, ItemCallback<T> callback) {
         if (closed) {
-            throw new IllegalStateException(
-                String.format("MicroBatcher is closed. Queue depth: %d, Active batches: %d",
-                    queue.size(), activeBatchCount != null ? activeBatchCount.get() : 0)
-            );
+            throw newClosedException();
         }
         
         if (item == null) {
@@ -463,37 +541,24 @@ public class MicroBatcher<T> implements AutoCloseable {
         }
         
         // Tracing hook
-        if (tracingHook != null) {
-            try {
-                tracingHook.onSubmit(item);
-            } catch (Exception e) {
-                if (debugMode) {
-                    logger.debug("Tracing hook onSubmit failed", e);
-                }
-            }
-        }
-        
-        // Check queue capacity against rejection threshold
-        int currentSize = queue.size();
-        int maxSize = config.getMaxQueueSize();
-        double threshold = config.getQueueRejectionThreshold();
-        int rejectionThreshold = (int) Math.ceil(maxSize * threshold);
-        
-        if (currentSize >= rejectionThreshold) {
-            // Queue has reached rejection threshold - reject immediately
-            metrics.recordRequestRejected();
-            return ItemResult.failure(item, ItemRejectedException.queueFull(currentSize, maxSize));
-        }
-        
-        // Queue is below threshold - proceed with submission
+        safeOnSubmit(item);
+
+        // Queueing
         CompletableFuture<BatchResult<T>> future = new CompletableFuture<>();
-        PendingRequest<T> request = new PendingRequest<T>(item, future);
-        
-        // Try to offer to queue (should succeed since we checked threshold, but handle race condition)
-        if (!queue.offer(request)) {
-            // Queue filled between threshold check and offer (race condition) - reject
+        PendingRequest<T> request = new PendingRequest<>(item, future);
+
+        EnqueueResult enqueueResult = tryEnqueue(request, true, false);
+
+        if (enqueueResult == EnqueueResult.REJECTED_THRESHOLD || enqueueResult == EnqueueResult.REJECTED_FULL) {
+            // Queue is full or reached threshold - reject immediately
             metrics.recordRequestRejected();
-            return ItemResult.failure(item, ItemRejectedException.queueFull(queue.size(), maxSize));
+            int currentSize = queue.size();
+            int maxSize = config.getMaxQueueSize();
+            return ItemResult.failure(item, ItemRejectedException.queueFull(currentSize, maxSize));
+        } else if (enqueueResult == EnqueueResult.INTERRUPTED) {
+            // Preserve interruption status and treat as rejection
+            metrics.recordRequestRejected();
+            return ItemResult.failure(item, new InterruptedException("Interrupted while queuing item"));
         }
         
         // Item accepted - queue it for batch processing
@@ -523,41 +588,32 @@ public class MicroBatcher<T> implements AutoCloseable {
     private CompletableFuture<BatchResult<T>> submitInternal(T item) {
         if (closed) {
             CompletableFuture<BatchResult<T>> future = new CompletableFuture<>();
-            future.completeExceptionally(new IllegalStateException(
-                String.format("MicroBatcher is closed. Queue depth: %d, Active batches: %d",
-                    queue.size(), activeBatchCount != null ? activeBatchCount.get() : 0)
-            ));
+            future.completeExceptionally(newClosedException());
             return future;
         }
         
         // Tracing hook
-        if (tracingHook != null) {
-            try {
-                tracingHook.onSubmit(item);
-            } catch (Exception e) {
-                if (debugMode) {
-                    logger.debug("Tracing hook onSubmit failed", e);
-                }
-            }
-        }
-        
-        metrics.recordRequestSubmitted();
+        safeOnSubmit(item);
+
         CompletableFuture<BatchResult<T>> future = new CompletableFuture<>();
-        PendingRequest<T> request = new PendingRequest<T>(item, future);
-        
-        try {
-            if (!queue.offer(request, QUEUE_OFFER_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
-                metrics.recordRequestRejected();
-                int currentSize = queue.size();
-                int maxSize = config.getMaxQueueSize();
-                future.completeExceptionally(ItemRejectedException.queueFull(currentSize, maxSize));
-                return future;
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            future.completeExceptionally(e);
+        PendingRequest<T> request = new PendingRequest<>(item, future);
+
+        // For internal retries/replays we do not apply the public rejection threshold,
+        // but we still use a timed offer to avoid blocking indefinitely.
+        EnqueueResult enqueueResult = tryEnqueue(request, false, true);
+
+        if (enqueueResult == EnqueueResult.REJECTED_THRESHOLD || enqueueResult == EnqueueResult.REJECTED_FULL) {
+            metrics.recordRequestRejected();
+            int currentSize = queue.size();
+            int maxSize = config.getMaxQueueSize();
+            future.completeExceptionally(ItemRejectedException.queueFull(currentSize, maxSize));
+            return future;
+        } else if (enqueueResult == EnqueueResult.INTERRUPTED) {
+            future.completeExceptionally(new InterruptedException("Interrupted while queuing item"));
+            return future;
         }
-        
+
+        metrics.recordRequestSubmitted();
         return future;
     }
     
