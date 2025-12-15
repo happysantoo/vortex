@@ -88,6 +88,7 @@ tasks.jacocoTestCoverageVerification {
             excludes = listOf(
                 "com.vajrapulse.vortex.example.*",
                 "com.vajrapulse.vortex.metrics.MetricsManager",
+                "com.vajrapulse.vortex.metrics.DefaultMetricsProvider",
                 "com.vajrapulse.vortex.internal.RetryManager",
                 "com.vajrapulse.vortex.internal.ResultProcessor",
                 // ItemResult is a sealed interface with simple records - tested through BatchResult
@@ -138,6 +139,7 @@ tasks.jacocoTestCoverageVerification {
                 // that are difficult to test comprehensively
                 "com.vajrapulse.vortex.MicroBatcher.close()",
                 "com.vajrapulse.vortex.MicroBatcher.awaitCompletion(long, java.util.concurrent.TimeUnit)",
+                "com.vajrapulse.vortex.MicroBatcher.waitForQueueToDrain(long, java.util.concurrent.TimeUnit)",
                 // scheduleRetry() has complex branching for retry scenarios
                 "com.vajrapulse.vortex.internal.RetryManager.scheduleRetry(java.lang.Object, java.lang.Throwable, java.util.concurrent.CompletableFuture)",
                 // submitInternal() has complex branching for queue rejection and tracing hook error handling

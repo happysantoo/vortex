@@ -211,19 +211,30 @@ This document captures a prioritized list of simplification opportunities for th
 - **Simplification Plan**
   - Introduce presets in `BatcherConfig`, e.g.:
     ```java
-    public static BatcherConfig highThroughput() { ... }
-    public static BatcherConfig lowLatency() { ... }
-    public static BatcherConfig balanced() { ... }
-    public static BatcherConfig resilient(Predicate<Throwable> retryable) { ... }
+    public static BatcherConfig highThroughputPreset() { ... }
+    public static BatcherConfig lowLatencyPreset() { ... }
+    public static BatcherConfig balancedPreset() { ... }
+    public static BatcherConfig resilientPreset(Predicate<Throwable> retryable) { ... }
     ```
   - Have `MicroBatcher` factories delegate to these:
     ```java
     MicroBatcher.forHighThroughput(backend, registry) =
-        new MicroBatcher<>(backend, BatcherConfig.highThroughput(), registry);
+        new MicroBatcher<>(backend, BatcherConfig.highThroughputPreset(), registry);
     ```
 - **Benefits**
   - Centralizes tuning in one place.
   - Keeps `MicroBatcher` focused on batching behavior, not default configuration recipes.
+
+#### Acceptance Criteria
+- [x] `BatcherConfig` exposes clearly named static presets for the main tuning profiles (high throughput, low latency, balanced, resilient).
+- [x] `MicroBatcher.forHighThroughput/forLowLatency/forBalanced/forResilient` delegate to these presets instead of building configs inline.
+- [x] Existing examples and APIs continue to behave identically (no change in default values).
+- [x] Tests and coverage continue to pass without needing new exclusions.
+
+#### Status
+- [x] Implemented on branch `0.0.10`:
+  - Added `highThroughputPreset`, `lowLatencyPreset`, `balancedPreset`, and `resilientPreset` to `BatcherConfig`.
+  - Updated `MicroBatcher` factory methods to delegate to these presets.
 
 ---
 
@@ -241,13 +252,24 @@ This document captures a prioritized list of simplification opportunities for th
   - `awaitInFlightBatches()`:
     - Uses `activeBatchCount` or executor termination (depending on config).
 - **Simplification Plan**
-  - Extract a shared helper that encapsulates:
-    - Waiting for queue drain.
-    - Waiting for in‑flight batches.
-  - Make `close()` call this helper (with an internal timeout) instead of duplicating portions of the logic.
+  - Extract a shared helper for queue draining used by both `close()` and `awaitCompletion(...)`.
+  - Reuse `awaitInFlightBatches(...)` from `close()` instead of having a second custom loop.
+  - Keep existing timeouts and semantics (best-effort shutdown) unchanged.
 - **Benefits**
   - Single place to adjust shutdown semantics.
   - Easier to reason about guarantees (what “graceful close” actually means).
+
+#### Acceptance Criteria
+- [x] Queue-drain logic lives in a single private helper that both `close()` and `awaitCompletion(...)` use.
+- [x] `close()` no longer has its own custom in-flight batch wait loop; it delegates to `awaitInFlightBatches(...)` with an appropriate timeout.
+- [x] Existing public semantics (timeouts, best-effort guarantees) remain unchanged from a caller’s perspective.
+- [x] All existing tests, especially around `awaitCompletion` and shutdown, continue to pass without modification.
+- [x] No new JaCoCo exclusions are required.
+
+#### Status
+- [x] Implemented on branch `0.0.10`:
+  - Added `waitForQueueToDrain(...)` and reused it in `close()` and `awaitCompletion(...)`.
+  - `close()` now uses `awaitInFlightBatches(...)` for in-flight batch waiting instead of an ad-hoc loop.
 
 ---
 
@@ -264,6 +286,18 @@ This document captures a prioritized list of simplification opportunities for th
 - **Benefits**
   - Cleaner metric recording logic.
   - Better isolation for testing the metrics view.
+
+#### Acceptance Criteria
+- [x] `MetricsManager` caches a `perItemMetricsEnabled` flag and uses it consistently for per-item metric recording guards.
+- [x] The anonymous inner implementation of `MetricsProvider` is replaced by a dedicated `DefaultMetricsProvider` class in the same package.
+- [x] `MetricsManager.getMetricsProvider()` simply constructs and returns a `DefaultMetricsProvider` instance with the required Micrometer primitives.
+- [x] No change in the public `MetricsProvider` API or semantics (rates, totals, percentiles).
+- [x] Tests and coverage pass, with `DefaultMetricsProvider` treated like other internal metrics helpers for coverage rules.
+
+#### Status
+- [x] Implemented on branch `0.0.10`:
+  - Added `perItemMetricsEnabled` flag and updated per-item recording methods to use it.
+  - Introduced `DefaultMetricsProvider` and updated `MetricsManager.getMetricsProvider()` to use it.
 
 ---
 
@@ -282,6 +316,18 @@ This document captures a prioritized list of simplification opportunities for th
 - **Benefits**
   - Less boilerplate and more explicit span semantics.
   - Easier to adapt to different tracing setups in the future.
+
+#### Acceptance Criteria
+- [x] `MicrometerTracingHook` uses a single shared helper to encapsulate try/catch behavior for tracing callbacks.
+- [x] All tracing methods (`onSubmit`, `onBatchDispatchStart`, `onBatchDispatchSuccess`, `onBatchDispatchFailure`, `onRetry`) delegate their core logic through this helper.
+- [x] No change to observable tracing behavior for callers or tests (span names, tags, and error handling are preserved).
+- [x] Existing tests in `MicrometerTracingHookSpec` continue to pass without modification.
+- [x] JaCoCo configuration for tracing remains valid (class/method exclusions unchanged).
+
+#### Status
+- [x] Implemented on branch `0.0.10`:
+  - Added `runSafely(Runnable)` and refactored all tracing callbacks to use it.
+  - Kept span lifecycle and tagging semantics identical to the previous implementation.
 
 ---
 

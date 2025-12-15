@@ -53,14 +53,26 @@ public class MicrometerTracingHook implements BatchTracingHook {
         }
         this.tracer = tracer;
     }
+
+    /**
+     * Runs the given action, swallowing any exceptions.
+     * Tracing must never interfere with core batch processing behavior.
+     */
+    private void runSafely(Runnable action) {
+        try {
+            action.run();
+        } catch (Exception ignored) {
+            // Silently ignore tracing errors - don't affect batch processing
+        }
+    }
     
     @Override
     public void onSubmit(Object item) {
         if (item == null) {
             return;
         }
-        
-        try {
+
+        runSafely(() -> {
             Span span = tracer.nextSpan().name("vortex.submit");
             span.tag("vortex.item.type", item.getClass().getSimpleName());
             span.start();
@@ -68,9 +80,7 @@ public class MicrometerTracingHook implements BatchTracingHook {
                 // Span context is now current for this thread
                 // The span will be ended when the batch is processed
             }
-        } catch (Exception e) {
-            // Silently ignore tracing errors - don't affect batch processing
-        }
+        });
     }
     
     @Override
@@ -78,8 +88,8 @@ public class MicrometerTracingHook implements BatchTracingHook {
         if (batchItems == null || batchItems.isEmpty()) {
             return;
         }
-        
-        try {
+
+        runSafely(() -> {
             Span span = tracer.nextSpan().name("vortex.batch.dispatch");
             span.tag("vortex.batch.size", String.valueOf(batchItems.size()));
             span.start();
@@ -87,9 +97,7 @@ public class MicrometerTracingHook implements BatchTracingHook {
                 // Span context is now current for this thread
                 // The span will be ended in onBatchDispatchSuccess or onBatchDispatchFailure
             }
-        } catch (Exception e) {
-            // Silently ignore tracing errors - don't affect batch processing
-        }
+        });
     }
     
     @Override
@@ -97,17 +105,15 @@ public class MicrometerTracingHook implements BatchTracingHook {
         if (batchItems == null || batchItems.isEmpty()) {
             return;
         }
-        
-        try {
+
+        runSafely(() -> {
             Span currentSpan = tracer.currentSpan();
             if (currentSpan != null) {
                 currentSpan.tag("vortex.batch.success.count", String.valueOf(result.getSuccesses().size()));
                 currentSpan.tag("vortex.batch.failure.count", String.valueOf(result.getFailures().size()));
                 currentSpan.end();
             }
-        } catch (Exception e) {
-            // Silently ignore tracing errors - don't affect batch processing
-        }
+        });
     }
     
     @Override
@@ -115,8 +121,8 @@ public class MicrometerTracingHook implements BatchTracingHook {
         if (batchItems == null || batchItems.isEmpty()) {
             return;
         }
-        
-        try {
+
+        runSafely(() -> {
             Span currentSpan = tracer.currentSpan();
             if (currentSpan != null) {
                 if (error != null) {
@@ -124,9 +130,7 @@ public class MicrometerTracingHook implements BatchTracingHook {
                 }
                 currentSpan.end();
             }
-        } catch (Exception e) {
-            // Silently ignore tracing errors - don't affect batch processing
-        }
+        });
     }
     
     @Override
@@ -134,8 +138,8 @@ public class MicrometerTracingHook implements BatchTracingHook {
         if (item == null) {
             return;
         }
-        
-        try {
+
+        runSafely(() -> {
             Span span = tracer.nextSpan().name("vortex.retry");
             
             if (cause != null) {
@@ -149,9 +153,7 @@ public class MicrometerTracingHook implements BatchTracingHook {
                 }
                 span.end();
             }
-        } catch (Exception e) {
-            // Silently ignore tracing errors - don't affect batch processing
-        }
+        });
     }
 }
 

@@ -195,12 +195,7 @@ public class MicroBatcher<T> implements AutoCloseable {
      * @since 0.0.5
      */
     public static <T> MicroBatcher<T> forHighThroughput(Backend<T> backend, MeterRegistry meterRegistry) {
-        BatcherConfig config = BatcherConfig.builder()
-            .batchSize(100)
-            .lingerTime(Duration.ofMillis(500))
-            .maxQueueSize(500)
-            .build();
-        return new MicroBatcher<>(backend, config, meterRegistry);
+        return new MicroBatcher<>(backend, BatcherConfig.highThroughputPreset(), meterRegistry);
     }
     
     /**
@@ -239,12 +234,7 @@ public class MicroBatcher<T> implements AutoCloseable {
      * @since 0.0.5
      */
     public static <T> MicroBatcher<T> forLowLatency(Backend<T> backend, MeterRegistry meterRegistry) {
-        BatcherConfig config = BatcherConfig.builder()
-            .batchSize(5)
-            .lingerTime(Duration.ofMillis(10))
-            .maxQueueSize(20)
-            .build();
-        return new MicroBatcher<>(backend, config, meterRegistry);
+        return new MicroBatcher<>(backend, BatcherConfig.lowLatencyPreset(), meterRegistry);
     }
     
     /**
@@ -283,12 +273,7 @@ public class MicroBatcher<T> implements AutoCloseable {
      * @since 0.0.5
      */
     public static <T> MicroBatcher<T> forBalanced(Backend<T> backend, MeterRegistry meterRegistry) {
-        BatcherConfig config = BatcherConfig.builder()
-            .batchSize(20)
-            .lingerTime(Duration.ofMillis(100))
-            .maxQueueSize(50)
-            .build();
-        return new MicroBatcher<>(backend, config, meterRegistry);
+        return new MicroBatcher<>(backend, BatcherConfig.balancedPreset(), meterRegistry);
     }
     
     /**
@@ -336,14 +321,7 @@ public class MicroBatcher<T> implements AutoCloseable {
             Backend<T> backend,
             MeterRegistry meterRegistry,
             java.util.function.Predicate<Throwable> retryableErrorPredicate) {
-        BatcherConfig config = BatcherConfig.builder()
-            .batchSize(10)
-            .lingerTime(Duration.ofMillis(100))
-            .maxRetries(3)
-            .retryDelay(Duration.ofMillis(100))
-            .retryableErrorPredicate(retryableErrorPredicate)
-            .maxQueueSize(30)
-            .build();
+        BatcherConfig config = BatcherConfig.resilientPreset(retryableErrorPredicate);
         return new MicroBatcher<>(backend, config, meterRegistry);
     }
     
@@ -893,18 +871,9 @@ public class MicroBatcher<T> implements AutoCloseable {
         closed = true;
         
         retryManager.clearAll();
-        
-        // Wait for batch processor to finish processing queue (with timeout)
-        // NOTE: This is a best-effort wait. Items submitted after close() is called
-        // will be rejected, but items already in the queue will be processed.
-        long deadline = System.currentTimeMillis() + CLOSE_QUEUE_WAIT_TIMEOUT_MS;
-        long pollIntervalNanos = TimeUnit.MILLISECONDS.toNanos(CLOSE_POLL_INTERVAL_MS);
-        while (!queue.isEmpty() && System.currentTimeMillis() < deadline) {
-            LockSupport.parkNanos(pollIntervalNanos);
-            if (Thread.currentThread().isInterrupted()) {
-                break;
-            }
-        }
+
+        // Best-effort wait for the batch processor to drain the queue
+        waitForQueueToDrain(CLOSE_QUEUE_WAIT_TIMEOUT_MS, TimeUnit.MILLISECONDS);
         
         // Shutdown executor gracefully to allow in-flight batches to complete
         executor.shutdown();
@@ -919,16 +888,10 @@ public class MicroBatcher<T> implements AutoCloseable {
         }
         
         // Wait for all in-flight batches to complete (if concurrent limiting is enabled)
-        if (dispatchSemaphore != null && activeBatchCount != null) {
-            long batchWaitDeadline = System.currentTimeMillis() + (EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS * 1000);
-            while (activeBatchCount.get() > 0 && System.currentTimeMillis() < batchWaitDeadline) {
-                try {
-                    Thread.sleep(10);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    break;
-                }
-            }
+        try {
+            awaitInFlightBatches(EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
         
         // Process any remaining items synchronously after executor is done
@@ -986,22 +949,17 @@ public class MicroBatcher<T> implements AutoCloseable {
             // If already closed, just wait for in-flight batches
             return awaitInFlightBatches(timeout, unit);
         }
-        
-        long deadline = System.currentTimeMillis() + unit.toMillis(timeout);
-        
+
+        long timeoutMillis = unit.toMillis(timeout);
+
         // Wait for queue to drain
-        while (!queue.isEmpty() && System.currentTimeMillis() < deadline) {
-            Thread.sleep(10);
-            if (Thread.currentThread().isInterrupted()) {
-                throw new InterruptedException("Interrupted while waiting for queue to drain");
-            }
+        long remainingAfterQueue = waitForQueueToDrain(timeoutMillis, TimeUnit.MILLISECONDS);
+        if (remainingAfterQueue <= 0) {
+            return queue.isEmpty() && activeBatchCount == null || activeBatchCount.get() == 0;
         }
-        
-        // Wait for in-flight batches
-        return awaitInFlightBatches(
-            deadline - System.currentTimeMillis(), 
-            TimeUnit.MILLISECONDS
-        );
+
+        // Wait for in-flight batches with remaining time
+        return awaitInFlightBatches(remainingAfterQueue, TimeUnit.MILLISECONDS);
     }
     
     /**
@@ -1031,6 +989,29 @@ public class MicroBatcher<T> implements AutoCloseable {
         }
         
         return activeBatchCount.get() == 0;
+    }
+
+    /**
+     * Waits for the internal queue to drain, up to the given timeout.
+     *
+     * @param timeout the maximum time to wait
+     * @param unit the time unit of the timeout
+     * @return remaining time budget in milliseconds (may be zero or negative if timed out)
+     */
+    private long waitForQueueToDrain(long timeout, TimeUnit unit) {
+        long timeoutMillis = unit.toMillis(timeout);
+        long deadline = System.currentTimeMillis() + timeoutMillis;
+
+        while (!queue.isEmpty() && System.currentTimeMillis() < deadline) {
+            try {
+                Thread.sleep(CLOSE_POLL_INTERVAL_MS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+
+        return deadline - System.currentTimeMillis();
     }
     
     /**

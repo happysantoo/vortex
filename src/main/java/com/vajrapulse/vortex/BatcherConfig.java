@@ -201,6 +201,78 @@ public class BatcherConfig {
     public static Builder builder() {
         return new Builder();
     }
+
+    /**
+     * Creates a configuration optimized for high-throughput scenarios.
+     *
+     * <p>Equivalent to the configuration used by
+     * {@link com.vajrapulse.vortex.MicroBatcher#forHighThroughput(Backend, io.micrometer.core.instrument.MeterRegistry)}.
+     *
+     * @return a new {@link BatcherConfig} tuned for maximum throughput
+     * @since 0.0.10
+     */
+    public static BatcherConfig highThroughputPreset() {
+        return builder()
+            .batchSize(100)
+            .lingerTime(Duration.ofMillis(500))
+            .maxQueueSize(500)
+            .build();
+    }
+
+    /**
+     * Creates a configuration optimized for low-latency scenarios.
+     *
+     * <p>Equivalent to the configuration used by
+     * {@link com.vajrapulse.vortex.MicroBatcher#forLowLatency(Backend, io.micrometer.core.instrument.MeterRegistry)}.
+     *
+     * @return a new {@link BatcherConfig} tuned for minimal latency
+     * @since 0.0.10
+     */
+    public static BatcherConfig lowLatencyPreset() {
+        return builder()
+            .batchSize(5)
+            .lingerTime(Duration.ofMillis(10))
+            .maxQueueSize(20)
+            .build();
+    }
+
+    /**
+     * Creates a configuration optimized for balanced scenarios (default).
+     *
+     * <p>Equivalent to the configuration used by
+     * {@link com.vajrapulse.vortex.MicroBatcher#forBalanced(Backend, io.micrometer.core.instrument.MeterRegistry)}.
+     *
+     * @return a new {@link BatcherConfig} tuned for balanced latency and throughput
+     * @since 0.0.10
+     */
+    public static BatcherConfig balancedPreset() {
+        return builder()
+            .batchSize(20)
+            .lingerTime(Duration.ofMillis(100))
+            .maxQueueSize(50)
+            .build();
+    }
+
+    /**
+     * Creates a configuration optimized for resilient scenarios with retry support.
+     *
+     * <p>Equivalent to the configuration used by
+     * {@link com.vajrapulse.vortex.MicroBatcher#forResilient(Backend, io.micrometer.core.instrument.MeterRegistry, java.util.function.Predicate)}.
+     *
+     * @param retryableErrorPredicate predicate to determine which errors should be retried
+     * @return a new {@link BatcherConfig} tuned for resilience
+     * @since 0.0.10
+     */
+    public static BatcherConfig resilientPreset(Predicate<Throwable> retryableErrorPredicate) {
+        return builder()
+            .batchSize(10)
+            .lingerTime(Duration.ofMillis(100))
+            .maxRetries(3)
+            .retryDelay(Duration.ofMillis(100))
+            .retryableErrorPredicate(retryableErrorPredicate)
+            .maxQueueSize(30)
+            .build();
+    }
     
     /**
      * Builder class for BatcherConfig.
