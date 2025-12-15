@@ -8,6 +8,7 @@ import com.vajrapulse.vortex.results.FailureEvent
 import io.micrometer.core.instrument.MeterRegistry
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import spock.lang.Specification
+import spock.lang.Unroll
 
 import java.time.Duration
 import java.util.Collections
@@ -15,6 +16,8 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicBoolean
+
+import static com.vajrapulse.vortex.TestBackendHelpers.*
 
 class MicroBatcherSpec extends Specification {
 
@@ -58,10 +61,7 @@ class MicroBatcherSpec extends Specification {
 
     def "should accept item and return success immediately"() {
         given:
-        Backend<String> backend = { batch ->
-            def successes = batch.collect { new SuccessEvent<>(it) }
-            new BatchResult<>(successes, List.of())
-        }
+        Backend<String> backend = successBackend()
         def config = BatcherConfig.builder()
             .batchSize(5)
             .lingerTime(Duration.ofMillis(100))
@@ -81,7 +81,7 @@ class MicroBatcherSpec extends Specification {
 
     def "should reject null item"() {
         given:
-        Backend<String> backend = { batch -> new BatchResult<>(List.of(), List.of()) }
+        Backend<String> backend = successBackend()
         def config = BatcherConfig.builder().build()
         def batcher = new MicroBatcher<>(backend, config)
 
@@ -97,7 +97,7 @@ class MicroBatcherSpec extends Specification {
 
     def "should reject item when batcher is closed"() {
         given:
-        Backend<String> backend = { batch -> new BatchResult<>(List.of(), List.of()) }
+        Backend<String> backend = successBackend()
         def config = BatcherConfig.builder().build()
         def batcher = new MicroBatcher<>(backend, config)
         batcher.close()
@@ -130,7 +130,7 @@ class MicroBatcherSpec extends Specification {
         when:
         def batcher = new MicroBatcher<>(backend, config)
         (1..5).each { batcher.submit("item-$it") }
-        Thread.sleep(200) // Wait for batch processing
+        waitForAsync(200) // Wait for batch processing
 
         then:
         batchCount.get() >= 1
@@ -304,83 +304,45 @@ class MicroBatcherSpec extends Specification {
 
     // ========== Queue Rejection Tests ==========
 
-    def "should reject item when queue is full (100% threshold)"() {
+    @Unroll
+    def "should reject item when queue reaches threshold (threshold: #threshold, maxQueueSize: #maxQueueSize, expectedThresholdItems: #expectedThresholdItems)"() {
         given:
         def backendBlocked = new CountDownLatch(1)
-        Backend<String> backend = { batch ->
-            // Block until we signal processing can continue
-            backendBlocked.await()
-            def successes = batch.collect { new SuccessEvent<>(it) }
-            new BatchResult<>(successes, List.of())
-        }
+        Backend<String> backend = blockingBackend(backendBlocked)
         def config = BatcherConfig.builder()
             .batchSize(1) // Small batch size - process one at a time
             .lingerTime(Duration.ofMillis(5000)) // Very long linger time
-            .maxQueueSize(2) // Small queue - will fill quickly
-            .queueRejectionThreshold(1.0) // Default: reject at 100%
-            .build()
-
-        when:
-        def batcher = new MicroBatcher<>(backend, config)
-        def result1 = batcher.submit("item-1")
-        def result2 = batcher.submit("item-2")
-        // Wait a moment for items to be queued
-        Thread.sleep(100)
-        def queueDepth = batcher.getQueueDepth()
-        def result3 = batcher.submit("item-3") // Should be rejected if queue is full
-
-        then:
-        result1 instanceof ItemResult.Success
-        result2 instanceof ItemResult.Success
-        // Queue rejection is timing-dependent - verify rejection mechanism works
-        // If queue was full, item should be rejected; otherwise acceptance is also valid
-        (queueDepth >= 2 && result3 instanceof ItemResult.Failure && result3.error instanceof ItemRejectedException) ||
-        (queueDepth < 2 && (result3 instanceof ItemResult.Success || result3 instanceof ItemResult.Failure))
-
-        cleanup:
-        backendBlocked.countDown()
-        batcher?.close()
-    }
-
-    def "should reject item when queue reaches threshold (80%)"() {
-        given:
-        def backendBlocked = new CountDownLatch(1)
-        Backend<String> backend = { batch ->
-            // Block until we signal processing can continue
-            backendBlocked.await()
-            def successes = batch.collect { new SuccessEvent<>(it) }
-            new BatchResult<>(successes, List.of())
-        }
-        def config = BatcherConfig.builder()
-            .batchSize(1) // Small batch size - process one at a time
-            .lingerTime(Duration.ofMillis(5000)) // Very long linger time
-            .maxQueueSize(10)
-            .queueRejectionThreshold(0.8) // Reject at 80% (8 items)
+            .maxQueueSize(maxQueueSize)
+            .queueRejectionThreshold(threshold)
             .build()
 
         when:
         def batcher = new MicroBatcher<>(backend, config)
         def results = []
-        // Fill queue to 80% (8 items) - these should all be accepted
-        (1..8).each { i ->
+        // Fill queue to threshold - these should all be accepted
+        (1..expectedThresholdItems).each { i ->
             results.add(batcher.submit("item-$i"))
         }
-        // Wait a moment for items to be queued
-        Thread.sleep(100)
+        waitForAsync(100) // Wait a moment for items to be queued
         def queueDepth = batcher.getQueueDepth()
-        // 9th item should be rejected (queue is at 80% threshold = 8 items)
-        def result9 = batcher.submit("item-9")
+        // Next item should be rejected if queue is at threshold
+        def nextItem = batcher.submit("item-${expectedThresholdItems + 1}")
 
         then:
         results.every { it instanceof ItemResult.Success }
         // Queue rejection is timing-dependent - verify rejection mechanism works
         // If queue was at threshold, item should be rejected; otherwise acceptance is also valid
-        (queueDepth >= 8 && result9 instanceof ItemResult.Failure && result9.error instanceof ItemRejectedException) ||
-        (queueDepth < 8 && (result9 instanceof ItemResult.Success || result9 instanceof ItemResult.Failure))
+        (queueDepth >= expectedThresholdItems && nextItem instanceof ItemResult.Failure && nextItem.error instanceof ItemRejectedException) ||
+        (queueDepth < expectedThresholdItems && (nextItem instanceof ItemResult.Success || nextItem instanceof ItemResult.Failure))
 
         cleanup:
         backendBlocked.countDown()
         batcher?.close()
+
+        where:
+        threshold | maxQueueSize | expectedThresholdItems
+        1.0       | 2            | 2  // 100% threshold, queue size 2
+        0.8       | 10           | 8  // 80% threshold, queue size 10
     }
 
     // ========== Batch Result Tests ==========

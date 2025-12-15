@@ -344,10 +344,24 @@ This document captures a prioritized list of simplification opportunities for th
   - Keep simple local validation (e.g. non‑null, non‑negative) in setters.
   - Add a single validation block in `build()` for cross‑field invariants:
     - `maxQueueSize >= batchSize`
-    - `retryDelay` only meaningful if `maxRetries > 0`, etc.
+    - `retryDelay` only meaningful if `maxRetries > 0`
+    - When retries are enabled, a retryable error predicate must be configured
 - **Benefits**
   - One place to maintain and extend invariants.
   - Easier to understand configuration rules.
+
+#### Acceptance Criteria
+- [x] Individual setters continue to validate single-field constraints (non-null, non-negative, etc.).
+- [x] `BatcherConfig.Builder.build()` performs cross-field checks for:
+  - `maxQueueSize` vs `batchSize` when explicitly set.
+  - `retryDelay` being zero when `maxRetries == 0`.
+  - `retryableErrorPredicate` being non-null when `maxRetries > 0`.
+- [x] Misconfigured combinations fail fast with clear exception messages.
+- [x] All existing tests and coverage continue to pass without needing changes.
+
+#### Status
+- [x] Implemented on branch `0.0.10`:
+  - Added cross-field validation block in `Builder.build()` with the invariants above.
 
 ---
 
@@ -356,7 +370,7 @@ This document captures a prioritized list of simplification opportunities for th
 - **Location**
   - `MicroBatcherSpec` and related specs
 - **Current State**
-  - Many tests inline simple “always success” or “always fail” backends.
+  - Many tests inline simple "always success" or "always fail" backends.
   - Repeated patterns for `CountDownLatch`, `AtomicBoolean`, `Thread.sleep` for async coordination.
 - **Simplification Plan**
   - Introduce a small Groovy/Java helper for test backends (e.g., `TestBackend` or static methods in `MicroBatcherTestUtils`).
@@ -364,6 +378,24 @@ This document captures a prioritized list of simplification opportunities for th
 - **Benefits**
   - Shorter, more focused specs.
   - Fewer timing‑sensitive flakes from ad‑hoc sleeps.
+
+#### Acceptance Criteria
+- [x] A `TestBackendHelpers` class (or similar) provides factory methods for common backend patterns:
+  - `successBackend()` - always succeeds
+  - `failingBackend(Throwable)` - always fails
+  - `blockingBackend(CountDownLatch)` - blocks on latch
+  - `recordingBackend(List)` - records batches
+- [x] Helper methods for async coordination (e.g., `awaitLatch`, `waitForAsync`) reduce `Thread.sleep` usage.
+- [x] At least one test uses `@Unroll` with a `where:` table for parameterized scenarios (e.g., queue rejection thresholds).
+- [x] Tests are refactored to use helpers where appropriate, reducing duplication.
+- [x] All tests continue to pass with the same coverage.
+
+#### Status
+- [x] Implemented on branch `0.0.10`:
+  - Created `TestBackendHelpers.groovy` with factory methods for common backend patterns and async coordination helpers.
+  - Refactored several tests in `MicroBatcherSpec` to use `successBackend()`, `blockingBackend()`, and `waitForAsync()`.
+  - Combined two queue rejection tests into a single `@Unroll` parameterized test covering multiple threshold scenarios.
+  - All tests pass with existing coverage maintained.
 
 ---
 
@@ -386,6 +418,23 @@ This document captures a prioritized list of simplification opportunities for th
 - **Benefits**
   - Easier to maintain and evolve benchmarks alongside the main codebase.
   - Faster, more focused performance runs.
+
+#### Acceptance Criteria
+- [x] A `BenchmarkBatcherFactory` class provides factory methods for common benchmark configurations:
+  - `successBackend()` - simple backend that always succeeds
+  - `defaultBatcher()` - standard configuration for throughput benchmarks
+  - `smallQueueBatcher(batchSize, maxQueueSize, threshold)` - for rejection testing
+  - `latencyBatcher()` - optimized for latency benchmarks
+- [x] All three benchmark classes (`SubmitSyncBenchmark`, `MicroBatcherBenchmark`, `LatencyBenchmark`) use the factory instead of duplicating setup code.
+- [x] Benchmark setup methods are simplified (fewer lines, clearer intent).
+- [x] Benchmarks compile and can run successfully (verified via `./gradlew compileJmhJava`).
+
+#### Status
+- [x] Implemented on branch `0.0.10`:
+  - Created `BenchmarkBatcherFactory` with factory methods for common backend and batcher configurations.
+  - Refactored all three benchmark classes to use the factory, removing duplicated backend creation and config setup.
+  - Reduced setup code in each benchmark by ~15-20 lines.
+  - All benchmarks compile successfully.
 
 ---
 

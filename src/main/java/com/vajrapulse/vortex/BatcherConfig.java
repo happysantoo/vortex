@@ -557,6 +557,18 @@ public class BatcherConfig {
          * @return a new BatcherConfig instance
          */
         public BatcherConfig build() {
+            // Cross-field validation to ensure consistent configuration
+            if (maxRetries == 0 && !retryDelay.isZero()) {
+                throw new IllegalStateException("Retry delay is set but maxRetries is 0 – either enable retries or reset retryDelay");
+            }
+            if (maxRetries > 0 && retryableErrorPredicate == null) {
+                throw new IllegalStateException("Retryable error predicate must be configured when maxRetries > 0");
+            }
+            if (maxQueueSize != null && maxQueueSize < batchSize) {
+                throw new IllegalStateException(
+                    "Max queue size (" + maxQueueSize + ") must be at least equal to batch size (" + batchSize + ")"
+                );
+            }
             return new BatcherConfig(this);
         }
     }
