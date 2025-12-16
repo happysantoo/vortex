@@ -115,7 +115,7 @@ tasks.jacocoTestCoverageVerification {
             limit {
                 counter = "LINE"
                 value = "COVEREDRATIO"
-                minimum = "0.81".toBigDecimal() // 81% minimum for MicroBatcher (81% achieved, 82% target)
+                minimum = "0.82".toBigDecimal() // 82% minimum for MicroBatcher
             }
         }
         // Method-level branch coverage - >50% for methods (complex async code with many edge cases)
