@@ -201,6 +201,74 @@ public class BatcherConfig {
     public static Builder builder() {
         return new Builder();
     }
+
+    /**
+     * Creates a configuration optimized for high-throughput scenarios.
+     *
+     * <p>Use with constructor: {@code new MicroBatcher<>(backend, BatcherConfig.highThroughputPreset(), registry)}
+     *
+     * @return a new {@link BatcherConfig} tuned for maximum throughput
+     * @since 0.0.10
+     */
+    public static BatcherConfig highThroughputPreset() {
+        return builder()
+            .batchSize(100)
+            .lingerTime(Duration.ofMillis(500))
+            .maxQueueSize(500)
+            .build();
+    }
+
+    /**
+     * Creates a configuration optimized for low-latency scenarios.
+     *
+     * <p>Use with constructor: {@code new MicroBatcher<>(backend, BatcherConfig.lowLatencyPreset(), registry)}
+     *
+     * @return a new {@link BatcherConfig} tuned for minimal latency
+     * @since 0.0.10
+     */
+    public static BatcherConfig lowLatencyPreset() {
+        return builder()
+            .batchSize(5)
+            .lingerTime(Duration.ofMillis(10))
+            .maxQueueSize(20)
+            .build();
+    }
+
+    /**
+     * Creates a configuration optimized for balanced scenarios (default).
+     *
+     * <p>Use with constructor: {@code new MicroBatcher<>(backend, BatcherConfig.balancedPreset(), registry)}
+     *
+     * @return a new {@link BatcherConfig} tuned for balanced latency and throughput
+     * @since 0.0.10
+     */
+    public static BatcherConfig balancedPreset() {
+        return builder()
+            .batchSize(20)
+            .lingerTime(Duration.ofMillis(100))
+            .maxQueueSize(50)
+            .build();
+    }
+
+    /**
+     * Creates a configuration optimized for resilient scenarios with retry support.
+     *
+     * <p>Use with constructor: {@code new MicroBatcher<>(backend, BatcherConfig.resilientPreset(predicate), registry)}
+     *
+     * @param retryableErrorPredicate predicate to determine which errors should be retried
+     * @return a new {@link BatcherConfig} tuned for resilience
+     * @since 0.0.10
+     */
+    public static BatcherConfig resilientPreset(Predicate<Throwable> retryableErrorPredicate) {
+        return builder()
+            .batchSize(10)
+            .lingerTime(Duration.ofMillis(100))
+            .maxRetries(3)
+            .retryDelay(Duration.ofMillis(100))
+            .retryableErrorPredicate(retryableErrorPredicate)
+            .maxQueueSize(30)
+            .build();
+    }
     
     /**
      * Builder class for BatcherConfig.
@@ -485,6 +553,18 @@ public class BatcherConfig {
          * @return a new BatcherConfig instance
          */
         public BatcherConfig build() {
+            // Cross-field validation to ensure consistent configuration
+            if (maxRetries == 0 && !retryDelay.isZero()) {
+                throw new IllegalStateException("Retry delay is set but maxRetries is 0 – either enable retries or reset retryDelay");
+            }
+            if (maxRetries > 0 && retryableErrorPredicate == null) {
+                throw new IllegalStateException("Retryable error predicate must be configured when maxRetries > 0");
+            }
+            if (maxQueueSize != null && maxQueueSize < batchSize) {
+                throw new IllegalStateException(
+                    "Max queue size (" + maxQueueSize + ") must be at least equal to batch size (" + batchSize + ")"
+                );
+            }
             return new BatcherConfig(this);
         }
     }

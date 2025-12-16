@@ -14,7 +14,8 @@ public class MetricsManager {
     private final MeterRegistry meterRegistry;
     private final BatcherConfig config;
     private final BlockingQueue<?> queue;
-    
+    private final boolean perItemMetricsEnabled;
+
     // Core metrics
     private final Counter requestsSubmitted;
     private final Counter batchesDispatched;
@@ -39,6 +40,7 @@ public class MetricsManager {
         this.meterRegistry = meterRegistry;
         this.config = config;
         this.queue = queue;
+        this.perItemMetricsEnabled = config.isPerItemMetrics();
         
         // Initialize core metrics
         this.requestsSubmitted = Counter.builder("vortex.requests.submitted")
@@ -166,7 +168,7 @@ public class MetricsManager {
     }
     
     public void recordItemBatchSize(int batchSize) {
-        if (itemBatchSize != null) {
+        if (perItemMetricsEnabled && itemBatchSize != null) {
             itemBatchSize.record(batchSize);
         }
     }
@@ -183,7 +185,7 @@ public class MetricsManager {
      * @param queueWaitTimeNanos the queue wait time in nanoseconds
      */
     public void recordQueueWaitTime(long queueWaitTimeNanos) {
-        if (config.isPerItemMetrics() && itemWaitTime != null) {
+        if (perItemMetricsEnabled && itemWaitTime != null) {
             itemWaitTime.record(queueWaitTimeNanos, TimeUnit.NANOSECONDS);
         }
     }
@@ -195,7 +197,7 @@ public class MetricsManager {
      * @param fullLatencyNanos the full latency from submit to completion in nanoseconds
      */
     public void recordItemSubmitLatency(long fullLatencyNanos) {
-        if (config.isPerItemMetrics() && itemSubmitLatency != null) {
+        if (perItemMetricsEnabled && itemSubmitLatency != null) {
             itemSubmitLatency.record(fullLatencyNanos, TimeUnit.NANOSECONDS);
         }
     }
@@ -206,89 +208,18 @@ public class MetricsManager {
      * @return a MetricsProvider instance
      */
     public MetricsProvider getMetricsProvider() {
-        return new MetricsProvider() {
-            @Override
-            public double getFailureRate() {
-                double submitted = requestsSubmitted.count();
-                if (submitted == 0.0) {
-                    return 0.0;
-                }
-                return requestsFailed.count() / submitted;
-            }
-            
-            @Override
-            public double getSuccessRate() {
-                double submitted = requestsSubmitted.count();
-                if (submitted == 0.0) {
-                    return 0.0;
-                }
-                return requestsSucceeded.count() / submitted;
-            }
-            
-            @Override
-            public long getTotalSubmitted() {
-                return (long) requestsSubmitted.count();
-            }
-            
-            @Override
-            public long getTotalSucceeded() {
-                return (long) requestsSucceeded.count();
-            }
-            
-            @Override
-            public long getTotalFailed() {
-                return (long) requestsFailed.count();
-            }
-            
-            @Override
-            public long getTotalReplayed() {
-                return (long) requestsReplayed.count();
-            }
-            
-            @Override
-            public long getTotalRetried() {
-                return (long) requestsRetried.count();
-            }
-            
-            @Override
-            public long getTotalRejected() {
-                return (long) requestsRejected.count();
-            }
-            
-            @Override
-            public int getQueueDepth() {
-                return queue.size();
-            }
-            
-            @Override
-            public long getTotalBatchesDispatched() {
-                return (long) batchesDispatched.count();
-            }
-            
-            @Override
-            public double getAverageDispatchLatency() {
-                double mean = batchDispatchLatency.mean(TimeUnit.MILLISECONDS);
-                return Double.isNaN(mean) ? 0.0 : mean;
-            }
-            
-            @Override
-            public double getAverageWaitLatency() {
-                double mean = requestWaitLatency.mean(TimeUnit.MILLISECONDS);
-                return Double.isNaN(mean) ? 0.0 : mean;
-            }
-            
-            @Override
-            public double getP95DispatchLatency() {
-                double percentile = batchDispatchLatency.percentile(0.95, TimeUnit.MILLISECONDS);
-                return Double.isNaN(percentile) ? 0.0 : percentile;
-            }
-            
-            @Override
-            public double getP99DispatchLatency() {
-                double percentile = batchDispatchLatency.percentile(0.99, TimeUnit.MILLISECONDS);
-                return Double.isNaN(percentile) ? 0.0 : percentile;
-            }
-        };
+        return new DefaultMetricsProvider(
+            queue,
+            requestsSubmitted,
+            requestsSucceeded,
+            requestsFailed,
+            requestsReplayed,
+            requestsRetried,
+            requestsRejected,
+            batchesDispatched,
+            batchDispatchLatency,
+            requestWaitLatency
+        );
     }
 }
 

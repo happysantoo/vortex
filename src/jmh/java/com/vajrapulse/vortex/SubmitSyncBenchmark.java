@@ -1,12 +1,10 @@
 package com.vajrapulse.vortex;
 
-import com.vajrapulse.vortex.results.BatchResult;
+import com.vajrapulse.vortex.benchmark.BenchmarkBatcherFactory;
 import com.vajrapulse.vortex.results.ItemResult;
-import com.vajrapulse.vortex.results.SuccessEvent;
 import org.openjdk.jmh.annotations.*;
 import org.openjdk.jmh.infra.Blackhole;
 
-import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -30,32 +28,11 @@ public class SubmitSyncBenchmark {
     
     @Setup
     public void setup() {
-        // Simple backend that processes immediately
-        Backend<String> backend = batch -> {
-            var successes = batch.stream()
-                .map(SuccessEvent<String>::new)
-                .toList();
-            return new BatchResult<>(successes, java.util.List.of());
-        };
-        
         // Large queue to avoid rejections
-        BatcherConfig config = BatcherConfig.builder()
-            .batchSize(10)
-            .lingerTime(Duration.ofMillis(100))
-            .maxQueueSize(1000)
-            .build();
-        
-        this.batcher = new MicroBatcher<>(backend, config);
+        this.batcher = BenchmarkBatcherFactory.defaultBatcher();
         
         // Small queue to test rejection path
-        BatcherConfig configSmall = BatcherConfig.builder()
-            .batchSize(10)
-            .lingerTime(Duration.ofMillis(100))
-            .maxQueueSize(5) // Very small queue - will reject quickly
-            .queueRejectionThreshold(1.0) // Reject at 100% capacity
-            .build();
-        
-        this.batcherSmallQueue = new MicroBatcher<>(backend, configSmall);
+        this.batcherSmallQueue = BenchmarkBatcherFactory.smallQueueBatcher(10, 5, 1.0);
     }
     
     @TearDown

@@ -4,29 +4,26 @@
 [![Java](https://img.shields.io/badge/Java-21+-blue.svg)](https://www.oracle.com/java/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-green.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Build Status](https://img.shields.io/github/actions/workflow/status/happysantoo/vortex/build.yml?label=Build)](https://github.com/happysantoo/vortex/actions)
-[![Test Coverage](https://img.shields.io/badge/Coverage-%3E90%25-brightgreen.svg)](https://github.com/happysantoo/vortex)
+[![Test Coverage](https://img.shields.io/badge/Coverage-82%25-brightgreen.svg)](https://github.com/happysantoo/vortex)
 
 A lightweight Java 21 library for micro-batching requests to any backend. Built with virtual threads, smart batching (size or time-based), comprehensive metrics, and production-ready features.
 
-**Current Version**: 0.0.8
+**Current Version**: 0.0.10
 
 ## Features
 
 - ✅ **Java 21** with virtual threads for high concurrency
 - ✅ **Smart Batching**: Triggers on batch size OR linger time (whichever comes first)
-- ✅ **Atomic Commits**: Optional atomic commit mode where batch fails if any request fails
+- ✅ **Unified Submission API**: Single `submit(item, callback)` method with immediate rejection feedback
+- ✅ **Type-Safe Results**: Sealed `ItemResult` interface with pattern matching support
 - ✅ **Generic Backend**: Works with any backend via the `Backend<T>` interface
 - ✅ **Comprehensive Metrics**: Micrometer metrics for queue depth, success/failure rates, latencies, percentiles
 - ✅ **Built-in Retry**: Configurable retry support for transient failures
-- ✅ **Item Result Tracking**: Type-safe sealed `ItemResult` interface with pattern matching
-- ✅ **Synchronous Submission API**: `submitSync()` for immediate rejection visibility
-- ✅ **Batch Callbacks**: Submit items with callbacks for async result handling (with immediate rejection support)
-- ✅ **Per-Item Metrics**: Optional detailed metrics for individual items (queue wait time vs full latency)
-- ✅ **Backpressure Caching**: TTL-based caching reduces provider calls by ~95% in high-throughput scenarios
+- ✅ **Backpressure Handling**: Automatic queue management with configurable rejection thresholds
 - ✅ **Concurrent Dispatch Limiting**: Prevent connection pool exhaustion by limiting concurrent batch dispatches
 - ✅ **Graceful Shutdown**: `awaitCompletion()` method for waiting on queue and in-flight batches
 - ✅ **Tracing Hooks**: LoggingTracingHook (SLF4J) and MicrometerTracingHook for distributed tracing
-- ✅ **Dynamic Configuration**: Update batch size and linger time at runtime
+- ✅ **Configuration Presets**: High-throughput, low-latency, balanced, and resilient presets
 - ✅ **Debug Mode**: Detailed logging for troubleshooting
 - ✅ **Auto-Replay**: Automatic replay of successful items when batches have mixed results
 - ✅ **Lightweight**: Minimal dependencies, clean code
@@ -40,7 +37,7 @@ A lightweight Java 21 library for micro-batching requests to any backend. Built 
 <dependency>
     <groupId>com.vajrapulse</groupId>
     <artifactId>vortex</artifactId>
-    <version>0.0.8</version>
+    <version>0.0.10</version>
 </dependency>
 ```
 
@@ -48,7 +45,7 @@ A lightweight Java 21 library for micro-batching requests to any backend. Built 
 
 ```kotlin
 dependencies {
-    implementation("com.vajrapulse:vortex:0.0.8")
+    implementation("com.vajrapulse:vortex:0.0.10")
 }
 ```
 
@@ -56,75 +53,174 @@ dependencies {
 
 ```java
 import com.vajrapulse.vortex.*;
+import com.vajrapulse.vortex.results.*;
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.CompletableFuture;
 
 // 1. Create a backend implementation
-// Backend can be blocking - it will run on a virtual thread
 Backend<String> backend = batch -> {
-    List<SuccessEvent<String>> successes = new ArrayList<>();
-    List<FailureEvent<String>> failures = new ArrayList<>();
-    
-    for (String item : batch) {
-        try {
-            // Process item (e.g., HTTP call, database query)
-            // Can throw Exception if processing fails
-            processItem(item);
-            successes.add(new SuccessEvent<>(item));
-        } catch (Exception e) {
-            failures.add(new FailureEvent<>(item, e));
-        }
-    }
-    
-    return new BatchResult<>(successes, failures);
-    // Note: Can throw Exception - will be handled by the batcher
+    List<SuccessEvent<String>> successes = batch.stream()
+        .map(SuccessEvent::new)
+        .toList();
+    return new BatchResult<>(successes, List.of());
 };
 
 // 2. Configure the batcher
 BatcherConfig config = BatcherConfig.builder()
-    .batchSize(10)                    // Batch size trigger
-    .lingerTime(Duration.ofMillis(100)) // Time-based trigger
-    .atomicCommit(false)               // Optional: all-or-nothing
+    .batchSize(10)                    // Batch up to 10 items
+    .lingerTime(Duration.ofMillis(100)) // Or wait 100ms, whichever comes first
+    .maxQueueSize(50)                 // Maximum 50 items in queue
     .build();
 
 // 3. Create and use the batcher
 try (MicroBatcher<String> batcher = new MicroBatcher<>(backend, config)) {
-    // submit() returns CompletableFuture for async client handling
-    CompletableFuture<BatchResult<String>> future = batcher.submit("request-data");
+    // Submit with callback for async result handling
+    ItemResult<String> result = batcher.submit("item-1", (item, itemResult) -> {
+        if (itemResult instanceof ItemResult.Success<String>) {
+            System.out.println("Item processed successfully: " + item);
+        } else if (itemResult instanceof ItemResult.Failure<String> failure) {
+            System.err.println("Item failed: " + failure.error().getMessage());
+        }
+    });
     
-    // Wait for result (or use async callbacks)
-    BatchResult<String> result = future.get();
-    
-    // Check if all succeeded
-    if (result.isAllSuccess()) {
-        // Handle success...
+    // Check immediate acceptance/rejection
+    if (result instanceof ItemResult.Success<String>) {
+        System.out.println("Item accepted!");
+    } else if (result instanceof ItemResult.Failure<String> failure) {
+        System.err.println("Item rejected: " + failure.error().getMessage());
     }
-    
-    // Or use async callbacks:
-    // future.thenAccept(result -> { /* handle result */ });
+}
+```
+
+## Core API
+
+### Submission API
+
+The library provides a unified `submit(item, callback)` method:
+
+```java
+// With callback (async result handling)
+ItemResult<String> result = batcher.submit("item", (item, itemResult) -> {
+    // Callback fires when item is processed (typically 10-50ms after submission)
+    if (itemResult instanceof ItemResult.Success<String>) {
+        System.out.println("Success: " + item);
+    } else if (itemResult instanceof ItemResult.Failure<String> failure) {
+        System.err.println("Failed: " + failure.error().getMessage());
+    }
+});
+
+// Without callback (fire and forget)
+ItemResult<String> result = batcher.submit("item", null);
+
+// Check immediate rejection
+if (result instanceof ItemResult.Failure<String> failure) {
+    // Item was rejected immediately (queue full, etc.)
+    handleRejection(failure.error());
+}
+```
+
+**Key Points:**
+- Returns `ItemResult` immediately (Success = accepted, Failure = rejected)
+- Callback (if provided) fires asynchronously when item is processed
+- Callback receives individual item's result, not the full batch result
+- Thread-safe and can be called from multiple threads
+
+### ItemResult Types
+
+`ItemResult<T>` is a sealed interface with two variants:
+
+```java
+// Success - item was accepted or processed successfully
+ItemResult.Success<T> success = ItemResult.success(item);
+
+// Failure - item was rejected or processing failed
+ItemResult.Failure<T> failure = ItemResult.failure(item, error);
+```
+
+**Pattern Matching (Java 21+):**
+
+```java
+ItemResult<String> result = batcher.submit("item", null);
+
+switch (result) {
+    case ItemResult.Success<String> success -> 
+        System.out.println("Success: " + success.item());
+    case ItemResult.Failure<String> failure -> 
+        System.err.println("Failed: " + failure.error().getMessage());
 }
 ```
 
 ## Configuration
 
-### BatcherConfig Builder
-
-The `BatcherConfig` uses a builder pattern for configuration:
+### Basic Configuration
 
 ```java
 BatcherConfig config = BatcherConfig.builder()
-    .batchSize(10)                          // Max items per batch (default: 10)
-    .lingerTime(Duration.ofMillis(100))     // Max wait time (default: 100ms)
-    .atomicCommit(false)                     // All-or-nothing mode (default: false)
-    .autoReplaySuccesses(false)              // Auto-replay successful items (default: false)
-    .perItemMetrics(false)                   // Enable per-item metrics (default: false)
-    .debugMode(false)                        // Enable debug logging (default: false)
-    .maxRetries(0)                           // Max retries for failures (default: 0)
-    .retryDelay(Duration.ZERO)               // Delay between retries (default: 0)
-    .retryableErrorPredicate(e -> false)     // Which errors to retry (default: none)
-    .maxQueueSize(20)                        // Max queue size (default: 2 × batchSize)
+    .batchSize(10)                           // Items per batch
+    .lingerTime(Duration.ofMillis(100))      // Max wait time
+    .maxQueueSize(50)                        // Queue capacity
+    .build();
+```
+
+### Configuration Presets
+
+Use presets for common scenarios:
+
+```java
+// High Throughput (large batches, longer wait)
+BatcherConfig highThroughput = BatcherConfig.highThroughputPreset();
+MicroBatcher<String> batcher = new MicroBatcher<>(backend, highThroughput, registry);
+
+// Low Latency (small batches, short wait)
+BatcherConfig lowLatency = BatcherConfig.lowLatencyPreset();
+MicroBatcher<String> batcher = new MicroBatcher<>(backend, lowLatency, registry);
+
+// Balanced (default)
+BatcherConfig balanced = BatcherConfig.balancedPreset();
+MicroBatcher<String> batcher = new MicroBatcher<>(backend, balanced, registry);
+
+// Resilient (with retry)
+Predicate<Throwable> retryable = e -> e instanceof IOException;
+BatcherConfig resilient = BatcherConfig.resilientPreset(retryable);
+MicroBatcher<String> batcher = new MicroBatcher<>(backend, resilient, registry);
+```
+
+### Advanced Configuration
+
+```java
+BatcherConfig config = BatcherConfig.builder()
+    // Batching
+    .batchSize(20)                           // Batch up to 20 items
+    .lingerTime(Duration.ofMillis(200))      // Or wait 200ms
+    
+    // Queue Management
+    .maxQueueSize(100)                       // Max 100 items in queue
+    .queueRejectionThreshold(0.9)            // Reject at 90% capacity
+    
+    // Concurrent Limiting
+    .maxConcurrentBatches(5)                 // Max 5 concurrent batches
+    
+    // Retry
+    .maxRetries(3)                           // Retry failed items up to 3 times
+    .retryDelay(Duration.ofMillis(100))      // Wait 100ms between retries
+    .retryableErrorPredicate(e ->            // Only retry transient errors
+        e instanceof IOException || 
+        e instanceof TimeoutException)
+    
+    // Atomic Commit
+    .atomicCommit(true)                      // Batch fails if any item fails
+    
+    // Auto-Replay
+    .autoReplaySuccesses(true)               // Replay successful items in mixed batches
+    
+    // Metrics
+    .perItemMetrics(true)                    // Track per-item metrics
+    
+    // Debugging
+    .debugMode(true)                         // Enable debug logging
+    
+    // Tracing
+    .tracingHook(new LoggingTracingHook())  // Add tracing hook
+    
     .build();
 ```
 
@@ -134,6 +230,9 @@ BatcherConfig config = BatcherConfig.builder()
 |--------|------|---------|-------------|
 | `batchSize` | `int` | 10 | Maximum number of requests per batch |
 | `lingerTime` | `Duration` | 100ms | Maximum time to wait before dispatching a batch |
+| `maxQueueSize` | `int` | `2 × batchSize` | Maximum queue size for pending requests |
+| `queueRejectionThreshold` | `double` | 1.0 | Percentage (0.0-1.0) at which to start rejecting items |
+| `maxConcurrentBatches` | `int` | 0 (unlimited) | Maximum concurrent batch dispatches |
 | `atomicCommit` | `boolean` | false | If true, entire batch fails if any request fails |
 | `autoReplaySuccesses` | `boolean` | false | Automatically replay successful items when batch has mixed results |
 | `perItemMetrics` | `boolean` | false | Enable detailed per-item metrics (adds overhead) |
@@ -141,442 +240,159 @@ BatcherConfig config = BatcherConfig.builder()
 | `maxRetries` | `int` | 0 | Maximum number of retries for failed items |
 | `retryDelay` | `Duration` | 0ms | Delay between retry attempts |
 | `retryableErrorPredicate` | `Predicate<Throwable>` | `e -> false` | Determines which errors should be retried |
-| `maxQueueSize` | `int` | `2 × batchSize` | Maximum queue size for pending requests (backpressure control) |
+| `tracingHook` | `BatchTracingHook` | null | Optional tracing hook for observability |
 
-### Smart Batching
+## Exception Handling
 
-Batches are dispatched when **either**:
-- The batch size is reached, OR
-- The linger time has elapsed
+### ItemRejectedException
 
-This ensures optimal throughput and low latency. Whichever condition is met first triggers the batch dispatch.
-
-## Core Concepts
-
-### ItemResult - Type-Safe Results
-
-The library provides a sealed `ItemResult<T>` interface for type-safe result handling:
+Thrown when an item is rejected due to capacity constraints:
 
 ```java
-// Find a specific item's result
-Optional<ItemResult<String>> itemResult = batchResult.findItemResult("my-item");
-
-if (itemResult.isPresent()) {
-    ItemResult<String> result = itemResult.get();
-    
-    // Pattern matching with sealed interface
-    switch (result) {
-        case ItemResult.Success<String> success -> {
-            System.out.println("Item succeeded: " + success.getItem());
-        }
-        case ItemResult.Failure<String> failure -> {
-            System.out.println("Item failed: " + failure.getError().getMessage());
-        }
-    }
-}
-```
-
-### BatchResult - Enhanced Error Handling
-
-`BatchResult` provides several convenience methods:
-
-```java
-BatchResult<String> result = future.get();
-
-// Check batch status
-if (result.isAllSuccess()) { /* all succeeded */ }
-if (result.isCompleteFailure()) { /* all failed */ }
-if (result.isCompleteSuccess()) { /* alias for isAllSuccess() */ }
-
-// Get failure rate (0.0 to 1.0)
-double failureRate = result.getFailureRate();
-
-// Group failures by error type
-Map<Class<? extends Throwable>, List<FailureEvent<String>>> failuresByType = 
-    result.getFailuresByType();
-
-// Find specific item result
-Optional<ItemResult<String>> itemResult = result.findItemResult("item-1");
-```
-
-### Submitting Items
-
-#### Basic Submission
-
-```java
-CompletableFuture<BatchResult<String>> future = batcher.submit("item");
-BatchResult<String> result = future.get();
-```
-
-#### Synchronous Submission (0.0.5+)
-
-For immediate rejection visibility (useful for load testing frameworks):
-
-```java
-ItemResult<String> result = batcher.submitSync("item");
+ItemResult<String> result = batcher.submit("item", null);
 
 if (result instanceof ItemResult.Failure<String> failure) {
-    // Immediate rejection - handle immediately
-    System.err.println("Rejected: " + failure.getError().getMessage());
-    // Options: retry, log, send to dead letter queue
-} else {
-    // Item accepted and queued
-    // Use submitWithCallback() to track eventual batch result
+    Throwable error = failure.error();
+    
+    if (error instanceof ItemRejectedException rejected) {
+        // Item was rejected
+        System.out.println("Rejection source: " + rejected.getSourceName());
+        System.out.println("Current level: " + rejected.getCurrentLevel());
+        System.out.println("Max level: " + rejected.getMaxLevel());
+        
+        // Handle rejection
+        handleRejection(rejected);
+    }
 }
 ```
 
-**Performance**: `submitSync()` is 11% faster than async `submit()` when items are accepted.
+**Rejection Sources:**
+- **"Vortex Queue Depth"**: Queue is full or reached rejection threshold
+- **"Concurrent Batches"**: Too many batches are being dispatched concurrently
 
-#### Submission with Callback
+### Other Exceptions
+
+- **`IllegalStateException`**: Thrown when batcher is closed
+- **`NullPointerException`**: Thrown when submitting a null item
+
+**For detailed exception handling, see [User Guide](documents/guides/USER_GUIDE.md#exception-handling)**
+
+## Backpressure and Queue Management
+
+### Understanding Backpressure
+
+Backpressure occurs when the system cannot keep up with incoming requests. MicroBatcher provides built-in backpressure handling through queue management.
+
+### Queue Configuration
 
 ```java
-CompletableFuture<Void> callbackFuture = batcher.submitWithCallback(
-    "item",
-    (item, result) -> {
-        if (result instanceof ItemResult.Success<String> success) {
-            System.out.println("Success: " + success.getItem());
-        } else if (result instanceof ItemResult.Failure<String> failure) {
-            // Item failed (either rejected or batch processing failed)
-            if (failure.getError() instanceof com.vajrapulse.vortex.backpressure.BackpressureException) {
-                // Immediate rejection due to backpressure (queue full, concurrent limit, or backpressure threshold)
-                com.vajrapulse.vortex.backpressure.BackpressureException bpEx = 
-                    (com.vajrapulse.vortex.backpressure.BackpressureException) failure.getError();
-                System.out.println("Rejected: " + bpEx.getMessage() + 
-                    " (level: " + bpEx.getBackpressureLevel() + ", source: " + bpEx.getSourceName() + ")");
-            } else {
-                // Batch processing failure
-                System.out.println("Failed: " + failure.getError().getMessage());
-            }
-        }
-    }
-);
-
-// Callback timing:
-// - Immediate: If item rejected (backpressure >= threshold) - fires synchronously
-// - After Batch Processing: If item accepted - fires asynchronously when batch completes (typically 10-50ms)
+BatcherConfig config = BatcherConfig.builder()
+    .batchSize(10)                    // Items per batch
+    .maxQueueSize(50)                 // Maximum items in queue
+    .queueRejectionThreshold(0.8)     // Reject when queue is 80% full (0.0 to 1.0)
+    .build();
 ```
 
-**Integration with Load Testing Frameworks:**
+**Key Settings:**
+- **`maxQueueSize`**: Maximum number of items that can be queued (default: `2 * batchSize`)
+- **`queueRejectionThreshold`**: Percentage (0.0 to 1.0) at which to start rejecting (default: 1.0)
+
+### Handling Rejections
 
 ```java
-// In load testing task
-// Use submitSync() for immediate rejection feedback
-ItemResult<String> syncResult = batcher.submitSync(item);
+ItemResult<String> result = batcher.submit("item", null);
 
-if (syncResult instanceof ItemResult.Failure<String>) {
-    // Immediate rejection - return failure to framework
-    return TaskResult.failure(syncResult.getError());
+if (result instanceof ItemResult.Failure<String> failure) {
+    if (failure.error() instanceof ItemRejectedException rejected) {
+        // Handle rejection: retry, overflow queue, fail fast, etc.
+        handleRejection(item, rejected);
+    }
 }
-
-// Item accepted - use callback for batch processing results
-batcher.submitWithCallback(item, (submittedItem, batchResult) -> {
-    // Track batch processing results separately
-    // (for metrics, not for framework feedback)
-    if (batchResult instanceof ItemResult.Success<String>) {
-        batchSuccessCounter.increment();
-    } else {
-        batchFailureCounter.increment();
-    }
-});
-
-// Return success - item was accepted
-return TaskResult.success();
 ```
 
-**Important Notes:**
-- The callback may fire on a different thread (batch processing thread)
-- If you need immediate rejection feedback, use `submitSync()` first to check if item will be rejected
-- For load testing frameworks, you may want to use `submitSync()` to get immediate rejection feedback, then use `submitWithCallback()` for tracking batch processing results
+**For detailed backpressure strategies, see [User Guide](documents/guides/USER_GUIDE.md#backpressure-and-queue-management)**
 
 ## Advanced Features
 
 ### Retry Support
 
-Configure automatic retry for transient failures:
+```java
+BatcherConfig config = BatcherConfig.builder()
+    .maxRetries(3)
+    .retryDelay(Duration.ofMillis(100))
+    .retryableErrorPredicate(e -> 
+        e instanceof IOException || 
+        e instanceof TimeoutException)
+    .build();
+
+// Failed items are automatically retried
+batcher.submit("item", (item, result) -> {
+    // This callback may be called multiple times if retries occur
+    if (result instanceof ItemResult.Success<String>) {
+        System.out.println("Item succeeded (possibly after retry)");
+    }
+});
+```
+
+### Atomic Commit Mode
+
+In atomic commit mode, if any item in a batch fails, the entire batch is considered failed:
 
 ```java
 BatcherConfig config = BatcherConfig.builder()
-    .batchSize(10)
-    .lingerTime(Duration.ofMillis(100))
-    .maxRetries(3)                                    // Retry up to 3 times
-    .retryDelay(Duration.ofMillis(100))               // Wait 100ms between retries
-    .retryableErrorPredicate(e -> 
-        e instanceof IOException ||                   // Retry I/O errors
-        e instanceof TimeoutException                // Retry timeouts
-    )
+    .atomicCommit(true)  // Enable atomic commit
     .build();
+
+// If any item fails, all items in the batch fail
 ```
 
-**How it works:**
-- Failed items matching the `retryableErrorPredicate` are automatically retried
-- Retries respect `maxRetries` limit
-- `retryDelay` is applied between retry attempts
-- Original `CompletableFuture` completes when retry succeeds or max retries reached
-
-### Dynamic Configuration
-
-Update batch size and linger time at runtime:
+### Graceful Shutdown
 
 ```java
 try (MicroBatcher<String> batcher = new MicroBatcher<>(backend, config)) {
-    // Update batch size (applies to next batch)
-    batcher.updateBatchSize(20);
+    // Submit items
+    batcher.submit("item-1", null);
+    batcher.submit("item-2", null);
     
-    // Update linger time (applies to next batch)
-    batcher.updateLingerTime(Duration.ofMillis(200));
+    // Wait for all items to be processed
+    boolean completed = batcher.awaitCompletion(5, TimeUnit.SECONDS);
     
-    // Get current values
-    int currentBatchSize = batcher.getCurrentBatchSize();
-    Duration currentLingerTime = batcher.getCurrentLingerTime();
+    if (completed) {
+        System.out.println("All items processed");
+    } else {
+        System.out.println("Timeout - some items may still be processing");
+    }
+    
+    // close() is called automatically by try-with-resources
 }
 ```
 
-**Note**: Updates apply to *next* batch being formed, not the current batch. Updates are thread-safe.
-
-### Per-Item Metrics
-
-Enable detailed metrics for individual items:
-
-```java
-BatcherConfig config = BatcherConfig.builder()
-    .batchSize(10)
-    .lingerTime(Duration.ofMillis(100))
-    .perItemMetrics(true)  // Enable per-item metrics
-    .build();
-```
-
-When enabled, the following metrics are recorded per item:
-- `vortex.item.submit.latency` - Time from submit to batch completion
-- `vortex.item.wait.time` - Time item waits in queue before batching
-- `vortex.item.batch.size` - Size of batch when item was processed
-
-**Note**: Per-item metrics add overhead. Only enable when needed for detailed analysis.
-
-### Debug Mode
-
-Enable detailed logging for troubleshooting:
-
-```java
-BatcherConfig config = BatcherConfig.builder()
-    .batchSize(10)
-    .lingerTime(Duration.ofMillis(100))
-    .debugMode(true)  // Enable debug logging
-    .build();
-```
-
-Debug mode logs:
-- Batch formation events
-- Item submission events
-- Batch dispatch events
-- Queue depth changes
-- Timing information
-
-## Metrics
-
-The library exposes comprehensive Micrometer metrics and provides a convenient `MetricsProvider` interface for easy access.
-
-### Using MetricsProvider (Recommended)
-
-The `MetricsProvider` interface provides convenient, domain-specific access to key metrics:
+### Metrics and Monitoring
 
 ```java
 MetricsProvider metrics = batcher.getMetricsProvider();
 
-// Get failure rate (0.0 to 1.0)
-double failureRate = metrics.getFailureRate();
-
-// Get success rate (0.0 to 1.0)
+// Rate metrics
 double successRate = metrics.getSuccessRate();
+double failureRate = metrics.getFailureRate();
+double rejectionRate = metrics.getRejectionRate();
 
-// Get queue depth
-int queueDepth = metrics.getQueueDepth();
+// Latency metrics
+double avgLatency = metrics.getAverageLatency();
+double p95Latency = metrics.getPercentileLatency(0.95);
+double p99Latency = metrics.getPercentileLatency(0.99);
 
-// Get totals
-long submitted = metrics.getTotalSubmitted();
-long succeeded = metrics.getTotalSucceeded();
-long failed = metrics.getTotalFailed();
-
-// Get latency metrics
-double avgLatency = metrics.getAverageDispatchLatency();
-double p95Latency = metrics.getP95DispatchLatency();
-double p99Latency = metrics.getP99DispatchLatency();
+// Queue metrics
+int queueDepth = batcher.getQueueDepth();
 ```
 
-**Use Cases:**
-- **Adaptive Batch Sizing**: Adjust batch size based on failure rate
-- **Circuit Breaker**: Open circuit when failure rate exceeds threshold
-- **Auto-Scaling**: Scale backend workers based on queue depth
-- **Health Monitoring**: Check system health using success/failure rates
+**For complete metrics documentation, see [User Guide](documents/guides/USER_GUIDE.md#advanced-features)**
 
-**Example - Adaptive Batching:**
-```java
-MetricsProvider metrics = batcher.getMetricsProvider();
+## Documentation
 
-// Adjust batch size based on failure rate
-if (metrics.getFailureRate() > 0.1) {
-    batcher.updateBatchSize(5); // Reduce batch size
-} else if (metrics.getFailureRate() < 0.01) {
-    batcher.updateBatchSize(20); // Increase batch size
-}
-```
-
-### Direct MeterRegistry Access
-
-For advanced use cases, you can access the underlying Micrometer registry:
-
-```java
-MeterRegistry registry = batcher.getMeterRegistry();
-double queueDepth = registry.gauge("vortex.queue.depth", 0.0);
-long submitted = registry.counter("vortex.requests.submitted").count();
-```
-
-### Core Metrics
-
-- `vortex.requests.submitted` - Total requests submitted (Counter)
-- `vortex.batches.dispatched` - Total batches dispatched (Counter)
-- `vortex.requests.succeeded` - Total successful requests (Counter)
-- `vortex.requests.failed` - Total failed requests (Counter)
-- `vortex.requests.replayed` - Total successful requests that were replayed (Counter)
-- `vortex.queue.depth` - Current queue depth (Gauge)
-- `vortex.batch.dispatch.latency` - Time to dispatch a batch (Timer)
-- `vortex.request.wait.latency` - Time a request waits before being batched (Timer)
-- `vortex.queue.wait.time` - Distribution of queue wait times with percentiles (Timer)
-  - Includes p50, p95, p99 percentiles
-- `vortex.batch.size` - Distribution of batch sizes (DistributionSummary)
-- `vortex.dispatch.rejected` - Batches rejected due to concurrent dispatch limit (Counter, 0.0.7+)
-- `vortex.dispatch.active.batches` - Current number of batches being dispatched concurrently (Gauge, 0.0.7+)
-
-### Per-Item Metrics (when enabled)
-
-- `vortex.item.submit.latency` - Time from submit to batch completion (Timer)
-- `vortex.item.wait.time` - Time item waits in queue (Timer)
-- `vortex.item.batch.size` - Size of batch when item was processed (DistributionSummary)
-
-### Accessing Metrics
-
-```java
-MeterRegistry registry = batcher.getMeterRegistry();
-
-// Get counters
-long submitted = registry.counter("vortex.requests.submitted").count();
-long succeeded = registry.counter("vortex.requests.succeeded").count();
-
-// Get timers
-double avgLatency = registry.timer("vortex.batch.dispatch.latency")
-    .mean(TimeUnit.MILLISECONDS);
-
-// Get percentiles
-double p95 = registry.timer("vortex.queue.wait.time")
-    .percentile(0.95, TimeUnit.MILLISECONDS);
-
-// Get gauges
-double queueDepth = registry.gauge("vortex.queue.depth", 0.0);
-```
-
-## Atomic Commits
-
-When `atomicCommit` is enabled:
-- If any request in a batch fails, the entire batch is marked as failed
-- All requests in the batch receive a failure event
-- Useful for transactional operations where partial success is not acceptable
-
-```java
-BatcherConfig config = BatcherConfig.builder()
-    .batchSize(10)
-    .lingerTime(Duration.ofMillis(100))
-    .atomicCommit(true)  // Enable atomic commit mode
-    .build();
-```
-
-## Auto-Replay Successes
-
-The library supports automatic replay of successful items when a batch contains both successes and failures. This is useful for scenarios like:
-- **Atomic backends** (e.g., database inserts with unique constraints) where some items are rejected
-- **Backends that need reprocessing** when partial failures occur
-
-### Configuration
-
-Replay can be controlled in two ways:
-
-#### 1. Backend Decision (Recommended)
-
-Implement `shouldReplaySuccesses()` in your Backend:
-
-   ```java
-   Backend<String> backend = new Backend<String>() {
-       @Override
-       public BatchResult<String> dispatch(List<String> batch) throws Exception {
-           // Your dispatch logic
-           return new BatchResult<>(successes, failures);
-       }
-       
-       @Override
-       public boolean shouldReplaySuccesses(BatchResult<String> result) {
-           // Atomic backend: replay when there are failures
-           return !result.getFailures().isEmpty() && !result.getSuccesses().isEmpty();
-       }
-   };
-   ```
-
-#### 2. Config Fallback
-
-Use `autoReplaySuccesses(true)` in BatcherConfig:
-   - Only used if backend doesn't override `shouldReplaySuccesses()`
-   - Default: `false`
-
-### Behavior
-
-- Only replays when there are **both** successes and failures in the same batch
-- Successful items are re-submitted to the batcher for another attempt
-- Failures are returned to clients immediately
-- Backend decision takes precedence over config
-
-## Architecture
-
-### Virtual Threads
-
-- Uses Java 21 virtual threads for efficient I/O-bound operations
-- Backend dispatch runs on virtual threads automatically
-- Blocking I/O is efficient with virtual threads
-
-### Synchronous Backend API
-
-The `Backend<T>` interface is simple and synchronous:
-- **You don't need to return `CompletableFuture`** - just return `BatchResult` directly
-- Can throw `Exception` for error handling
-- Backend code can be blocking (HTTP calls, DB queries, etc.)
-- Virtual threads make blocking efficient
-
-### Non-blocking Client API
-
-The batcher's `submit()` method returns `CompletableFuture<BatchResult<T>>`:
-- Non-blocking for clients
-- Can use callbacks: `future.thenAccept(result -> ...)`
-- Can compose: `CompletableFuture.allOf(...)`
-- Can wait if needed: `future.get()`
-
-### Thread Safety
-
-- All public methods are thread-safe
-- Safe for concurrent use from multiple threads
-- Dynamic configuration updates are thread-safe
-
-### Resource Management
-
-- Implements `AutoCloseable` for proper cleanup
-- Gracefully shuts down on `close()`
-- Processes remaining items before shutdown
-
-## Requirements
-
-- **Java 21+** (for virtual threads)
-- **Gradle 9.2.0+** (for building)
-
-## Building
-
-```bash
-./gradlew build
-```
+- **[Complete User Guide](documents/guides/USER_GUIDE.md)**: Comprehensive guide covering all features, exception handling, backpressure, sync/async usage, and best practices
+- **[Examples](examples/)**: Working code examples for common scenarios
+- **[Benchmarks](documents/guides/BENCHMARKS.md)**: Performance benchmarks and results
 
 ## Examples
 
@@ -585,10 +401,8 @@ See the `examples/` directory for comprehensive examples:
 - **BasicUsageExample.java** - Simple batching demonstration
 - **AtomicCommitExample.java** - Atomic commit mode
 - **AutoReplayExample.java** - Automatic replay of successful items
-- **TimeBasedBatchingExample.java** - Time-based batching
 - **MetricsExample.java** - Metrics collection and monitoring
 - **HttpBackendExample.java** - HTTP backend integration
-- **CustomBackendReplayExample.java** - Custom backend with replay logic
 
 ### Running Examples
 
@@ -622,341 +436,119 @@ After running benchmarks, view the HTML report:
 - **JSON Results**: `build/reports/jmh/results.json`
 - **Text Results**: `build/results/jmh/results.txt`
 
-The benchmarks measure:
-- **Throughput**: Operations per second for single requests, concurrent requests, and batch submissions
-- **Latency**: Average time from submission to completion
-
 For more details, see [BENCHMARKS.md](documents/guides/BENCHMARKS.md).
 
-## Design
+## Requirements
 
-For a detailed explanation of the architecture, request flow, and design decisions, see [DESIGN.md](documents/architecture/DESIGN.md).
+- **Java 21+** (for virtual threads)
+- **Gradle 9.2.0+** (for building)
+
+## Building
+
+```bash
+./gradlew build
+```
 
 ## Best Practices
 
-### Choosing Batch Size
-
-- **Small batches (1-10)**: Lower latency, higher overhead
-- **Medium batches (10-100)**: Good balance for most use cases
-- **Large batches (100+)**: Higher throughput, higher latency
-
-### Choosing Linger Time
-
-- **Short (10-50ms)**: Lower latency, smaller batches
-- **Medium (50-200ms)**: Good balance
-- **Long (200ms+)**: Larger batches, higher latency
-
-### Error Handling
-
-- Use `retryableErrorPredicate` to retry only transient errors
-- Set appropriate `maxRetries` to avoid infinite retry loops
-- Use `retryDelay` to avoid overwhelming backends
-- Monitor `vortex.requests.failed` metric
-
-### Observability and Tracing (Phase 1)
-
-Vortex is designed to integrate cleanly with tracing and observability systems without adding extra dependencies.
-
-- **Tracing Hook**: Configure an optional `BatchTracingHook` via `BatcherConfig`:
+### 1. Always Handle Rejections
 
 ```java
-BatchTracingHook tracingHook = new BatchTracingHook() {
-    @Override
-    public void onSubmit(Object item) {
-        // Start or link a span for item submission
-    }
-
-    @Override
-    public void onBatchDispatchStart(List<?> batchItems) {
-        // Record batch dispatch start
-    }
-
-    @Override
-    public void onBatchDispatchSuccess(List<?> batchItems, BatchResult<?> result) {
-        // Record successful dispatch
-    }
-
-    @Override
-    public void onBatchDispatchFailure(List<?> batchItems, Throwable error) {
-        // Record failed dispatch
-    }
-
-    @Override
-    public void onRetry(Object item, Throwable cause) {
-        // Record retry event
-    }
-};
-
-BatcherConfig config = BatcherConfig.builder()
-    .batchSize(10)
-    .lingerTime(Duration.ofMillis(50))
-    .tracingHook(tracingHook)
-    .build();
-```
-
-- **MetricsProvider Enhancements**:
-  - `getTotalRetried()` - total number of retried requests
-  - `getTotalRejected()` - total number of requests rejected due to backpressure
-
-These hooks and metrics can be wired into OpenTelemetry, Zipkin, or any other observability stack by implementing `BatchTracingHook` in your application.
-
-#### Built-in Tracing Hooks
-
-Vortex provides two built-in tracing hook implementations:
-
-**1. LoggingTracingHook** - Simple log-based tracing using SLF4J:
-```java
-import com.vajrapulse.vortex.tracing.LoggingTracingHook;
-
-// Use default logger
-LoggingTracingHook loggingHook = new LoggingTracingHook();
-
-// Or use custom logger name
-LoggingTracingHook customHook = new LoggingTracingHook("com.example.MyBatcher");
-
-BatcherConfig config = BatcherConfig.builder()
-    .batchSize(10)
-    .lingerTime(Duration.ofMillis(50))
-    .tracingHook(loggingHook)
-    .build();
-```
-
-Log levels:
-- **DEBUG**: Item submission, batch dispatch start, batch dispatch success
-- **WARN**: Retry events
-- **ERROR**: Batch dispatch failures
-
-**2. MicrometerTracingHook** - Distributed tracing via Micrometer Tracing:
-```java
-import com.vajrapulse.vortex.tracing.MicrometerTracingHook;
-import io.micrometer.tracing.Tracer;
-
-// Get Tracer from your Micrometer Tracing setup
-Tracer tracer = ...; // From your Micrometer Tracing configuration
-
-MicrometerTracingHook micrometerHook = new MicrometerTracingHook(tracer);
-
-BatcherConfig config = BatcherConfig.builder()
-    .batchSize(10)
-    .lingerTime(Duration.ofMillis(50))
-    .tracingHook(micrometerHook)
-    .build();
-```
-
-#### Diagnostics API
-
-For lightweight health checks and dashboards, use the diagnostics view:
-
-```java
-MicroBatcher<String> batcher = new MicroBatcher<>(backend, config);
-BatcherDiagnostics diag = batcher.diagnostics();
-
-boolean closed = diag.isClosed();
-int currentBatchSize = diag.getCurrentBatchSize();
-Duration currentLinger = diag.getCurrentLingerTime();
-int queueDepth = diag.getQueueDepth();
-```
-
-This API is read-only and safe to call from any thread. It is ideal for exposing state via health endpoints or operational dashboards without accessing internal fields.
-
-### Backpressure Handling
-
-The library provides built-in backpressure control through configurable queue size:
-
-**Queue Size Configuration:**
-- Default: `2 × batchSize` (e.g., batchSize=10 → queue=20 items)
-- Configurable via `maxQueueSize()` in `BatcherConfig`
-- Must be at least equal to `batchSize`
-
-**Backpressure Behavior:**
-- When queue is full, `submit()` waits up to 100ms for space
-- If still full after 100ms, returns `BackpressureException`
-- Monitor `vortex.queue.depth` metric to detect backpressure early
-
-**Handling Rejections (0.0.8+):**
-
-As of 0.0.8, all rejections (queue full, concurrent limit, backpressure threshold) throw `BackpressureException` for unified exception handling:
-
-```java
-import com.vajrapulse.vortex.backpressure.BackpressureException;
-
-// Option 1: Handle in callback
-CompletableFuture<Void> future = batcher.submitWithCallback(
-    "item",
-    (item, result) -> { /* handle result */ }
-);
-future.exceptionally(throwable -> {
-    if (throwable.getCause() instanceof com.vajrapulse.vortex.backpressure.BackpressureException) {
-        // Queue is full - handle backpressure
-        // Options: retry, log, send to dead letter queue, or fail fast
-        System.err.println("Request rejected: Queue full");
-    }
-    return null;
-});
-
-// Option 2: Handle in submit() future
-CompletableFuture<BatchResult<String>> future = batcher.submit("item");
-future.exceptionally(throwable -> {
-    if (throwable instanceof com.vajrapulse.vortex.backpressure.BackpressureException) {
-        // Handle backpressure
-    }
-    return null;
-});
-```
-
-**Best Practices:**
-- Set `maxQueueSize` based on expected throughput and backend capacity
-- Monitor `vortex.queue.depth` to detect backpressure early
-- Handle `BackpressureException` appropriately (retry, circuit breaker, etc.)
-- Consider increasing `maxQueueSize` for high-throughput scenarios
-- Use `submitWithCallback()` for cleaner error handling
-
-**For detailed backpressure handling strategies, see [Backpressure Guide](documents/guides/BACKPRESSURE_GUIDE.md)**
-
-#### Advanced Backpressure with QueueDepthBackpressureProvider
-
-For integration with load testing frameworks (e.g., VajraPulse AdaptiveLoadPattern), use `QueueDepthBackpressureProvider`:
-
-```java
-import com.vajrapulse.vortex.backpressure.*;
-
-// Create queue depth supplier
-Supplier<Integer> queueDepthSupplier = () -> batcher.getQueueDepth();
-
-// Create backpressure provider
-BackpressureProvider backpressureProvider = new QueueDepthBackpressureProvider(
-    queueDepthSupplier,
-    maxQueueSize  // e.g., 1000 items (20 batches × 50 items)
-);
-
-// Use in AdaptiveLoadPattern (VajraPulse)
-AdaptiveLoadPattern pattern = new AdaptiveLoadPattern(
-    initialTps,
-    rampIncrement,
-    rampDecrement,
-    rampInterval,
-    maxTps,
-    sustainDuration,
-    errorThreshold,
-    metricsProvider,
-    backpressureProvider  // Queue-only backpressure
-);
-
-// Configure MicroBatcher with backpressure
-BackpressureStrategy<String> strategy = new RejectStrategy<>(0.7);  // 70% threshold
-BatcherConfig configWithBackpressure = BatcherConfig.builder()
-    .batchSize(50)
-    .lingerTime(Duration.ofMillis(50))
-    .backpressureProvider(backpressureProvider)
-    .backpressureStrategy(strategy)
-    .build();
-
-MicroBatcher<String> batcher = new MicroBatcher<>(backend, configWithBackpressure, meterRegistry);
-```
-
-**Recommended Configuration:**
-- **Max Queue Size**: 20-50 batches worth of items (e.g., 20 batches × 50 items = 1000 items)
-
-#### Concurrent Batch Dispatch Limiting (0.0.7+)
-
-Prevent connection pool exhaustion by limiting concurrent batch dispatches:
-
-```java
-BatcherConfig config = BatcherConfig.builder()
-    .batchSize(50)
-    .lingerTime(Duration.ofMillis(50))
-    .maxConcurrentBatches(8)  // Limit to 80% of 10-connection pool
-    .build();
-
-MicroBatcher<String> batcher = new MicroBatcher<>(backend, config, meterRegistry);
-```
-
-**Recommended Value**: 80% of connection pool size
-- For a 10-connection pool: set to 8 (leaves 2 connections for other operations)
-- For a 20-connection pool: set to 16
-
-**How it works:**
-- When the limit is reached, new batches are rejected immediately
-- Rejected batches notify their futures/callbacks with `BackpressureException`
-- Semaphore is released when batch completes, allowing new batches to dispatch
-- Metrics: `vortex.dispatch.rejected` counter and `vortex.dispatch.active.batches` gauge
-
-**Example with Metrics:**
-```java
-// Monitor active concurrent batches
-double activeBatches = registry.gauge("vortex.dispatch.active.batches", 0.0);
-long rejectedBatches = registry.counter("vortex.dispatch.rejected").count();
-
-if (activeBatches >= maxConcurrentBatches) {
-    log.warn("Concurrent batch limit reached: {}", activeBatches);
+// ✅ Good - handles rejections
+ItemResult<String> result = batcher.submit("item", null);
+if (result instanceof ItemResult.Failure<String> failure) {
+    handleRejection(failure.error());
 }
+
+// ❌ Bad - ignores rejections
+batcher.submit("item", null);
 ```
 
-#### CompositeBackpressureProvider Builder (0.0.7+)
-
-Use the builder pattern for cleaner composite provider construction:
+### 2. Use Try-With-Resources
 
 ```java
-import com.vajrapulse.vortex.backpressure.*;
+// ✅ Good - automatic cleanup
+try (MicroBatcher<String> batcher = new MicroBatcher<>(backend, config)) {
+    // Use batcher
+}
 
-// Using builder pattern
-BackpressureProvider composite = CompositeBackpressureProvider.builder()
-    .queueDepth(() -> batcher.getQueueDepth(), maxQueueSize)
-    .add(connectionPoolProvider)  // Your custom provider
-    .add(customProvider)
-    .build();
-
-// Alternative: Constructor-based (still supported)
-BackpressureProvider composite = new CompositeBackpressureProvider(
-    queueDepthProvider,
-    connectionPoolProvider
-);
+// ❌ Bad - manual cleanup (easy to forget)
+MicroBatcher<String> batcher = new MicroBatcher<>(backend, config);
+// ... use batcher ...
+batcher.close(); // Easy to forget!
 ```
 
-**Benefits:**
-- Fluent API for combining multiple providers
-- Convenience method `queueDepth()` for queue depth provider
-- Cleaner, more intuitive than constructor-based approach
-- **RejectStrategy Threshold**: 0.7 (70% capacity) - rejects items when queue > 70% full
-- **AdaptiveLoadPattern Threshold**: 0.7 (70% capacity) - ramps down TPS when backpressure >= 0.7
+### 3. Handle Callback Exceptions
 
-**Why Queue-Only Backpressure?**
-- Queue depth directly measures "can the system keep up?"
-- If queue is full, system can't process items fast enough (regardless of root cause)
-- Simpler than monitoring multiple signals (connection pool, network, etc.)
-- Works with any backend (not just JDBC/databases)
+```java
+// ✅ Good - callback exceptions don't crash the system
+batcher.submit("item", (item, result) -> {
+    try {
+        processResult(result);
+    } catch (Exception e) {
+        logger.error("Error processing result", e);
+    }
+});
+```
 
-### Performance Tuning
+### 4. Use Configuration Presets
 
-- Enable `perItemMetrics` only when needed (adds overhead)
-- Use `debugMode` only for troubleshooting (adds logging overhead)
-- Monitor queue depth to detect backpressure
-- Adjust batch size and linger time based on metrics
+```java
+// ✅ Good - use presets
+BatcherConfig config = BatcherConfig.highThroughputPreset();
 
-## Migration from 0.0.1
+// ❌ Bad - manual configuration (may not be optimal)
+BatcherConfig config = BatcherConfig.builder()
+    .batchSize(100)
+    .lingerTime(Duration.ofMillis(500))
+    .maxQueueSize(500)
+    .build();
+```
+
+**For more best practices, see [User Guide](documents/guides/USER_GUIDE.md#best-practices)**
+
+## Migration from 0.0.9
 
 ### Breaking Changes
 
-None - 0.0.3 is backward compatible with 0.0.2 and 0.0.1.
+- **Removed Factory Methods**: `forHighThroughput()`, `forLowLatency()`, `forBalanced()`, `forResilient()`
+  - **Migration**: Use constructors with `BatcherConfig` presets:
+    ```java
+    // Old
+    MicroBatcher<String> batcher = MicroBatcher.forHighThroughput(backend, registry);
+    
+    // New
+    MicroBatcher<String> batcher = new MicroBatcher<>(
+        backend, 
+        BatcherConfig.highThroughputPreset(), 
+        registry
+    );
+    ```
+
+- **Removed Dynamic Configuration**: `updateBatchSize()`, `updateLingerTime()`, `getCurrentBatchSize()`, `getCurrentLingerTime()`
+  - **Migration**: Configuration is now immutable. Create a new `BatcherConfig` if you need different settings.
 
 ### New Features
 
-- `ItemResult` sealed interface for type-safe results
-- `findItemResult()` method in `BatchResult`
-- `submitWithCallback()` method in `MicroBatcher`
-- Retry support (`maxRetries`, `retryDelay`, `retryableErrorPredicate`)
-- Per-item metrics (`perItemMetrics` flag)
-- Debug mode (`debugMode` flag)
-- Dynamic configuration (`updateBatchSize()`, `updateLingerTime()`)
-- Configurable queue size (`maxQueueSize`) for backpressure control
-- Enhanced error handling methods (`isCompleteFailure()`, `getFailureRate()`, `getFailuresByType()`)
+- **Simplified API**: Removed redundant factory methods and dynamic configuration
+- **Configuration Presets**: Added preset factory methods to `BatcherConfig` for common scenarios
+- **Improved Coverage**: Increased test coverage to 82% for `MicroBatcher` class
 
 ### Recommended Updates
 
-1. Use `ItemResult` for type-safe result handling
-2. Use `findItemResult()` instead of manual iteration
-3. Consider enabling retry for transient failures
-4. Use `submitWithCallback()` for cleaner async code
-5. Configure `maxQueueSize` based on your throughput requirements
-6. Always handle `BackpressureException` to detect backpressure
+1. Replace factory methods with constructors using presets
+2. Remove any calls to `updateBatchSize()` or `updateLingerTime()`
+3. Use `BatcherConfig` presets for common scenarios
+4. Review [User Guide](documents/guides/USER_GUIDE.md) for detailed usage patterns
 
+## License
+
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for details.
+
+## Contributing
+
+Contributions are welcome! Please see our contributing guidelines for more information.
+
+## Support
+
+For questions, issues, or feature requests, please open an issue on [GitHub](https://github.com/happysantoo/vortex).

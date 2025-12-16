@@ -13,7 +13,7 @@ import java.util.function.Predicate
 
 class MicroBatcherFactoryMethodsSpec extends Specification {
 
-    def "should create high-throughput batcher"() {
+    def "should create high-throughput batcher using constructor with preset"() {
         given:
         Backend<String> backend = { batch ->
             new BatchResult<>(batch.collect { new SuccessEvent<>(it) }, List.of())
@@ -22,7 +22,7 @@ class MicroBatcherFactoryMethodsSpec extends Specification {
         SimpleMeterRegistry registry = new SimpleMeterRegistry()
         
         when:
-        MicroBatcher<String> batcher = MicroBatcher.forHighThroughput(backend, registry)
+        MicroBatcher<String> batcher = new MicroBatcher<>(backend, BatcherConfig.highThroughputPreset(), registry)
         
         then:
         batcher != null
@@ -34,7 +34,7 @@ class MicroBatcherFactoryMethodsSpec extends Specification {
         batcher?.close()
     }
     
-    def "should create low-latency batcher"() {
+    def "should create low-latency batcher using constructor with preset"() {
         given:
         Backend<String> backend = { batch ->
             new BatchResult<>(batch.collect { new SuccessEvent<>(it) }, List.of())
@@ -43,7 +43,7 @@ class MicroBatcherFactoryMethodsSpec extends Specification {
         SimpleMeterRegistry registry = new SimpleMeterRegistry()
         
         when:
-        MicroBatcher<String> batcher = MicroBatcher.forLowLatency(backend, registry)
+        MicroBatcher<String> batcher = new MicroBatcher<>(backend, BatcherConfig.lowLatencyPreset(), registry)
         
         then:
         batcher != null
@@ -55,7 +55,7 @@ class MicroBatcherFactoryMethodsSpec extends Specification {
         batcher?.close()
     }
     
-    def "should create balanced batcher"() {
+    def "should create balanced batcher using constructor with preset"() {
         given:
         Backend<String> backend = { batch ->
             new BatchResult<>(batch.collect { new SuccessEvent<>(it) }, List.of())
@@ -64,7 +64,7 @@ class MicroBatcherFactoryMethodsSpec extends Specification {
         SimpleMeterRegistry registry = new SimpleMeterRegistry()
         
         when:
-        MicroBatcher<String> batcher = MicroBatcher.forBalanced(backend, registry)
+        MicroBatcher<String> batcher = new MicroBatcher<>(backend, BatcherConfig.balancedPreset(), registry)
         
         then:
         batcher != null
@@ -76,7 +76,7 @@ class MicroBatcherFactoryMethodsSpec extends Specification {
         batcher?.close()
     }
     
-    def "should create resilient batcher"() {
+    def "should create resilient batcher using constructor with preset"() {
         given:
         Backend<String> backend = { batch ->
             new BatchResult<>(batch.collect { new SuccessEvent<>(it) }, List.of())
@@ -86,7 +86,7 @@ class MicroBatcherFactoryMethodsSpec extends Specification {
         Predicate<Throwable> retryable = { it instanceof IOException }
         
         when:
-        MicroBatcher<String> batcher = MicroBatcher.forResilient(backend, registry, retryable)
+        MicroBatcher<String> batcher = new MicroBatcher<>(backend, BatcherConfig.resilientPreset(retryable), registry)
         
         then:
         batcher != null
@@ -101,7 +101,7 @@ class MicroBatcherFactoryMethodsSpec extends Specification {
         batcher?.close()
     }
     
-    def "should work with factory methods"() {
+    def "should work with constructor and preset"() {
         given:
         def batchResults = []
         Backend<String> backend = { batch ->
@@ -113,7 +113,7 @@ class MicroBatcherFactoryMethodsSpec extends Specification {
         SimpleMeterRegistry registry = new SimpleMeterRegistry()
         
         when:
-        MicroBatcher<String> batcher = MicroBatcher.forBalanced(backend, registry)
+        MicroBatcher<String> batcher = new MicroBatcher<>(backend, BatcherConfig.balancedPreset(), registry)
         def submitResult = batcher.submit("test")
         Thread.sleep(200) // Wait for batch processing
         

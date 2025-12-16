@@ -1,10 +1,7 @@
 package com.vajrapulse.vortex;
 
-import com.vajrapulse.vortex.ItemRejectedException;
 import com.vajrapulse.vortex.results.BatchResult;
 import com.vajrapulse.vortex.results.ItemResult;
-import com.vajrapulse.vortex.results.SuccessEvent;
-import com.vajrapulse.vortex.results.FailureEvent;
 import com.vajrapulse.vortex.internal.PendingRequest;
 import com.vajrapulse.vortex.internal.RetryManager;
 import com.vajrapulse.vortex.internal.ResultProcessor;
@@ -23,7 +20,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.locks.LockSupport;
 
 /**
  * A lightweight micro-batcher that groups requests and dispatches them to a backend.
@@ -49,14 +45,9 @@ public class MicroBatcher<T> implements AutoCloseable {
     
     // Concurrent dispatch limiting (optional)
     private final Semaphore dispatchSemaphore;
-    private final int maxConcurrentBatches;
     private final AtomicInteger activeBatchCount;
     
     private volatile boolean closed = false;
-    
-    // Dynamic configuration (mutable, thread-safe)
-    private volatile int currentBatchSize;
-    private volatile Duration currentLingerTime;
     
     // Cached configuration for performance
     private final boolean debugMode;
@@ -112,7 +103,7 @@ public class MicroBatcher<T> implements AutoCloseable {
         this.meterRegistry = meterRegistry;
         
         // Initialize concurrent dispatch limiting
-        this.maxConcurrentBatches = config.getMaxConcurrentBatches();
+        int maxConcurrentBatches = config.getMaxConcurrentBatches();
         if (maxConcurrentBatches > 0) {
             this.dispatchSemaphore = new Semaphore(maxConcurrentBatches);
             this.activeBatchCount = new AtomicInteger(0);
@@ -127,9 +118,6 @@ public class MicroBatcher<T> implements AutoCloseable {
         // Queue size is configurable via BatcherConfig.maxQueueSize (defaults to 2x batch size)
         this.queue = new LinkedBlockingQueue<>(config.getMaxQueueSize());
         
-        // Initialize dynamic config from static config
-        this.currentBatchSize = config.getBatchSize();
-        this.currentLingerTime = config.getLingerTime();
         
         // Cached configuration for performance / observability
         this.debugMode = config.isDebugMode();
@@ -160,194 +148,6 @@ public class MicroBatcher<T> implements AutoCloseable {
     }
     
     /**
-     * Creates a MicroBatcher optimized for high-throughput scenarios.
-     * 
-     * <p>This factory method creates a batcher with:
-     * <ul>
-     *   <li>Large batch size (100 items)</li>
-     *   <li>Longer linger time (500ms)</li>
-     *   <li>Large queue size (500 items)</li>
-     * </ul>
-     * 
-     * <p>Use when:
-     * <ul>
-     *   <li>Maximum throughput is required</li>
-     *   <li>Latency up to 500ms is acceptable</li>
-     *   <li>Processing large volumes efficiently</li>
-     * </ul>
-     * 
-     * <p><strong>Performance Characteristics:</strong>
-     * <ul>
-     *   <li>Throughput: High (optimized for maximum items/second)</li>
-     *   <li>Latency: Higher (up to 500ms per batch)</li>
-     *   <li>Memory: Higher (larger queue and batches)</li>
-     * </ul>
-     * 
-     * <p>Example:
-     * <pre>{@code
-     * MicroBatcher<String> batcher = MicroBatcher.forHighThroughput(backend, registry);
-     * }</pre>
-     * 
-     * @param <T> the type of request elements
-     * @param backend the backend implementation
-     * @param meterRegistry the meter registry for metrics
-     * @return a new MicroBatcher optimized for high throughput
-     * @since 0.0.5
-     */
-    public static <T> MicroBatcher<T> forHighThroughput(Backend<T> backend, MeterRegistry meterRegistry) {
-        BatcherConfig config = BatcherConfig.builder()
-            .batchSize(100)
-            .lingerTime(Duration.ofMillis(500))
-            .maxQueueSize(500)
-            .build();
-        return new MicroBatcher<>(backend, config, meterRegistry);
-    }
-    
-    /**
-     * Creates a MicroBatcher optimized for low-latency scenarios.
-     * 
-     * <p>This factory method creates a batcher with:
-     * <ul>
-     *   <li>Small batch size (5 items)</li>
-     *   <li>Short linger time (10ms)</li>
-     *   <li>Small queue size (20 items)</li>
-     * </ul>
-     * 
-     * <p>Use when:
-     * <ul>
-     *   <li>Latency is critical (&lt; 50ms)</li>
-     *   <li>Throughput is less important</li>
-     *   <li>Real-time or near-real-time processing</li>
-     * </ul>
-     * 
-     * <p><strong>Performance Characteristics:</strong>
-     * <ul>
-     *   <li>Throughput: Lower (smaller batches)</li>
-     *   <li>Latency: Low (typically &lt; 50ms per batch)</li>
-     *   <li>Memory: Lower (smaller queue and batches)</li>
-     * </ul>
-     * 
-     * <p>Example:
-     * <pre>{@code
-     * MicroBatcher<String> batcher = MicroBatcher.forLowLatency(backend, registry);
-     * }</pre>
-     * 
-     * @param <T> the type of request elements
-     * @param backend the backend implementation
-     * @param meterRegistry the meter registry for metrics
-     * @return a new MicroBatcher optimized for low latency
-     * @since 0.0.5
-     */
-    public static <T> MicroBatcher<T> forLowLatency(Backend<T> backend, MeterRegistry meterRegistry) {
-        BatcherConfig config = BatcherConfig.builder()
-            .batchSize(5)
-            .lingerTime(Duration.ofMillis(10))
-            .maxQueueSize(20)
-            .build();
-        return new MicroBatcher<>(backend, config, meterRegistry);
-    }
-    
-    /**
-     * Creates a MicroBatcher optimized for balanced scenarios (default).
-     * 
-     * <p>This factory method creates a batcher with:
-     * <ul>
-     *   <li>Medium batch size (20 items)</li>
-     *   <li>Medium linger time (100ms)</li>
-     *   <li>Medium queue size (50 items)</li>
-     * </ul>
-     * 
-     * <p>Use when:
-     * <ul>
-     *   <li>Balancing latency and throughput</li>
-     *   <li>General-purpose batching</li>
-     *   <li>Most common use case</li>
-     * </ul>
-     * 
-     * <p><strong>Performance Characteristics:</strong>
-     * <ul>
-     *   <li>Throughput: Medium (good balance)</li>
-     *   <li>Latency: Medium (typically 50-200ms per batch)</li>
-     *   <li>Memory: Medium (reasonable queue and batch sizes)</li>
-     * </ul>
-     * 
-     * <p>Example:
-     * <pre>{@code
-     * MicroBatcher<String> batcher = MicroBatcher.forBalanced(backend, registry);
-     * }</pre>
-     * 
-     * @param <T> the type of request elements
-     * @param backend the backend implementation
-     * @param meterRegistry the meter registry for metrics
-     * @return a new MicroBatcher optimized for balanced performance
-     * @since 0.0.5
-     */
-    public static <T> MicroBatcher<T> forBalanced(Backend<T> backend, MeterRegistry meterRegistry) {
-        BatcherConfig config = BatcherConfig.builder()
-            .batchSize(20)
-            .lingerTime(Duration.ofMillis(100))
-            .maxQueueSize(50)
-            .build();
-        return new MicroBatcher<>(backend, config, meterRegistry);
-    }
-    
-    /**
-     * Creates a MicroBatcher optimized for resilient scenarios with retry support.
-     * 
-     * <p>This factory method creates a batcher with:
-     * <ul>
-     *   <li>Medium batch size (10 items)</li>
-     *   <li>Medium linger time (100ms)</li>
-     *   <li>Retry support (3 retries with 100ms delay)</li>
-     *   <li>Retries transient errors (IOException, TimeoutException)</li>
-     * </ul>
-     * 
-     * <p>Use when:
-     * <ul>
-     *   <li>Dealing with unreliable backends</li>
-     *   <li>Network calls that may fail transiently</li>
-     *   <li>Resilience is more important than throughput</li>
-     * </ul>
-     * 
-     * <p><strong>Performance Characteristics:</strong>
-     * <ul>
-     *   <li>Throughput: Medium (retries may reduce effective throughput)</li>
-     *   <li>Latency: Higher (retries add delay)</li>
-     *   <li>Reliability: High (automatic retry for transient failures)</li>
-     * </ul>
-     * 
-     * <p>Example:
-     * <pre>{@code
-     * MicroBatcher<String> batcher = MicroBatcher.forResilient(
-     *     backend, 
-     *     registry,
-     *     e -> e instanceof IOException || e instanceof TimeoutException
-     * );
-     * }</pre>
-     * 
-     * @param <T> the type of request elements
-     * @param backend the backend implementation
-     * @param meterRegistry the meter registry for metrics
-     * @param retryableErrorPredicate predicate to determine which errors should be retried
-     * @return a new MicroBatcher optimized for resilience
-     * @since 0.0.5
-     */
-    public static <T> MicroBatcher<T> forResilient(
-            Backend<T> backend,
-            MeterRegistry meterRegistry,
-            java.util.function.Predicate<Throwable> retryableErrorPredicate) {
-        BatcherConfig config = BatcherConfig.builder()
-            .batchSize(10)
-            .lingerTime(Duration.ofMillis(100))
-            .maxRetries(3)
-            .retryDelay(Duration.ofMillis(100))
-            .retryableErrorPredicate(retryableErrorPredicate)
-            .maxQueueSize(30)
-            .build();
-        return new MicroBatcher<>(backend, config, meterRegistry);
-    }
-    
-    /**
      * Submits an item for batch processing without a callback.
      * 
      * <p>This is a convenience method that calls {@link #submit(Object, ItemCallback)} with a null callback.
@@ -372,6 +172,87 @@ public class MicroBatcher<T> implements AutoCloseable {
      */
     public ItemResult<T> submit(T item) {
         return submit(item, null);
+    }
+
+    /**
+     * Creates a standard IllegalStateException used when the batcher is closed.
+     * Centralizes diagnostic message formatting so all public methods report
+     * consistent context (queue depth and active batches).
+     */
+    private IllegalStateException newClosedException() {
+        int queueDepth = queue.size();
+        int activeBatches = activeBatchCount != null ? activeBatchCount.get() : 0;
+        return new IllegalStateException(
+            String.format("MicroBatcher is closed. Queue depth: %d, Active batches: %d",
+                queueDepth, activeBatches)
+        );
+    }
+
+    /**
+     * Invokes tracing hook for submit events in a safe, centralized way.
+     * Any tracing errors are swallowed and optionally logged when debug mode
+     * is enabled. This ensures tracing never interferes with core batching.
+     */
+    private void safeOnSubmit(T item) {
+        if (tracingHook == null || item == null) {
+            return;
+        }
+        try {
+            tracingHook.onSubmit(item);
+        } catch (Exception e) {
+            if (debugMode) {
+                logger.debug("Tracing hook onSubmit failed", e);
+            }
+        }
+    }
+
+    /**
+     * Result of attempting to enqueue a pending request into the internal queue.
+     */
+    private enum EnqueueResult {
+        ACCEPTED,
+        REJECTED_THRESHOLD,
+        REJECTED_FULL,
+        INTERRUPTED
+    }
+
+    /**
+     * Attempts to enqueue the given request into the internal queue.
+     *
+     * @param request        the pending request to enqueue
+     * @param applyThreshold whether to apply the configured queue rejection threshold
+     * @param useTimeout     whether to use a timed offer when enqueuing
+     * @return the outcome of the enqueue attempt
+     */
+    private EnqueueResult tryEnqueue(PendingRequest<T> request, boolean applyThreshold, boolean useTimeout) {
+        int maxSize = config.getMaxQueueSize();
+
+        if (applyThreshold) {
+            double threshold = config.getQueueRejectionThreshold();
+            int rejectionThreshold = (int) Math.ceil(maxSize * threshold);
+            int currentSize = queue.size();
+            if (currentSize >= rejectionThreshold) {
+                return EnqueueResult.REJECTED_THRESHOLD;
+            }
+        }
+
+        boolean offered;
+        if (useTimeout) {
+            try {
+                offered = queue.offer(request, QUEUE_OFFER_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return EnqueueResult.INTERRUPTED;
+            }
+        } else {
+            offered = queue.offer(request);
+        }
+
+        if (!offered) {
+            return EnqueueResult.REJECTED_FULL;
+        }
+
+        return EnqueueResult.ACCEPTED;
     }
     
     /**
@@ -452,10 +333,7 @@ public class MicroBatcher<T> implements AutoCloseable {
      */
     public ItemResult<T> submit(T item, ItemCallback<T> callback) {
         if (closed) {
-            throw new IllegalStateException(
-                String.format("MicroBatcher is closed. Queue depth: %d, Active batches: %d",
-                    queue.size(), activeBatchCount != null ? activeBatchCount.get() : 0)
-            );
+            throw newClosedException();
         }
         
         if (item == null) {
@@ -463,37 +341,24 @@ public class MicroBatcher<T> implements AutoCloseable {
         }
         
         // Tracing hook
-        if (tracingHook != null) {
-            try {
-                tracingHook.onSubmit(item);
-            } catch (Exception e) {
-                if (debugMode) {
-                    logger.debug("Tracing hook onSubmit failed", e);
-                }
-            }
-        }
-        
-        // Check queue capacity against rejection threshold
-        int currentSize = queue.size();
-        int maxSize = config.getMaxQueueSize();
-        double threshold = config.getQueueRejectionThreshold();
-        int rejectionThreshold = (int) Math.ceil(maxSize * threshold);
-        
-        if (currentSize >= rejectionThreshold) {
-            // Queue has reached rejection threshold - reject immediately
-            metrics.recordRequestRejected();
-            return ItemResult.failure(item, ItemRejectedException.queueFull(currentSize, maxSize));
-        }
-        
-        // Queue is below threshold - proceed with submission
+        safeOnSubmit(item);
+
+        // Queueing
         CompletableFuture<BatchResult<T>> future = new CompletableFuture<>();
-        PendingRequest<T> request = new PendingRequest<T>(item, future);
-        
-        // Try to offer to queue (should succeed since we checked threshold, but handle race condition)
-        if (!queue.offer(request)) {
-            // Queue filled between threshold check and offer (race condition) - reject
+        PendingRequest<T> request = new PendingRequest<>(item, future);
+
+        EnqueueResult enqueueResult = tryEnqueue(request, true, false);
+
+        if (enqueueResult == EnqueueResult.REJECTED_THRESHOLD || enqueueResult == EnqueueResult.REJECTED_FULL) {
+            // Queue is full or reached threshold - reject immediately
             metrics.recordRequestRejected();
-            return ItemResult.failure(item, ItemRejectedException.queueFull(queue.size(), maxSize));
+            int currentSize = queue.size();
+            int maxSize = config.getMaxQueueSize();
+            return ItemResult.failure(item, ItemRejectedException.queueFull(currentSize, maxSize));
+        } else if (enqueueResult == EnqueueResult.INTERRUPTED) {
+            // Preserve interruption status and treat as rejection
+            metrics.recordRequestRejected();
+            return ItemResult.failure(item, new InterruptedException("Interrupted while queuing item"));
         }
         
         // Item accepted - queue it for batch processing
@@ -523,41 +388,32 @@ public class MicroBatcher<T> implements AutoCloseable {
     private CompletableFuture<BatchResult<T>> submitInternal(T item) {
         if (closed) {
             CompletableFuture<BatchResult<T>> future = new CompletableFuture<>();
-            future.completeExceptionally(new IllegalStateException(
-                String.format("MicroBatcher is closed. Queue depth: %d, Active batches: %d",
-                    queue.size(), activeBatchCount != null ? activeBatchCount.get() : 0)
-            ));
+            future.completeExceptionally(newClosedException());
             return future;
         }
         
         // Tracing hook
-        if (tracingHook != null) {
-            try {
-                tracingHook.onSubmit(item);
-            } catch (Exception e) {
-                if (debugMode) {
-                    logger.debug("Tracing hook onSubmit failed", e);
-                }
-            }
-        }
-        
-        metrics.recordRequestSubmitted();
+        safeOnSubmit(item);
+
         CompletableFuture<BatchResult<T>> future = new CompletableFuture<>();
-        PendingRequest<T> request = new PendingRequest<T>(item, future);
-        
-        try {
-            if (!queue.offer(request, QUEUE_OFFER_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
-                metrics.recordRequestRejected();
-                int currentSize = queue.size();
-                int maxSize = config.getMaxQueueSize();
-                future.completeExceptionally(ItemRejectedException.queueFull(currentSize, maxSize));
-                return future;
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            future.completeExceptionally(e);
+        PendingRequest<T> request = new PendingRequest<>(item, future);
+
+        // For internal retries/replays we do not apply the public rejection threshold,
+        // but we still use a timed offer to avoid blocking indefinitely.
+        EnqueueResult enqueueResult = tryEnqueue(request, false, true);
+
+        if (enqueueResult == EnqueueResult.REJECTED_THRESHOLD || enqueueResult == EnqueueResult.REJECTED_FULL) {
+            metrics.recordRequestRejected();
+            int currentSize = queue.size();
+            int maxSize = config.getMaxQueueSize();
+            future.completeExceptionally(ItemRejectedException.queueFull(currentSize, maxSize));
+            return future;
+        } else if (enqueueResult == EnqueueResult.INTERRUPTED) {
+            future.completeExceptionally(new InterruptedException("Interrupted while queuing item"));
+            return future;
         }
-        
+
+        metrics.recordRequestSubmitted();
         return future;
     }
     
@@ -607,10 +463,10 @@ public class MicroBatcher<T> implements AutoCloseable {
     
     private void processBatch() throws InterruptedException {
         // Pre-size batch list to avoid resizing
-        int batchSize = currentBatchSize;
+        int batchSize = config.getBatchSize();
         List<PendingRequest<T>> batch = new ArrayList<>(batchSize);
         
-        Duration lingerTime = currentLingerTime;
+        Duration lingerTime = config.getLingerTime();
         long lingerTimeNanos = lingerTime.toNanos();
         
         // Wait for first item with timeout based on linger time
@@ -673,7 +529,7 @@ public class MicroBatcher<T> implements AutoCloseable {
                 // Can't dispatch - too many concurrent batches
                 metrics.recordDispatchRejected();
                 if (debugMode) {
-                    logger.debug("Batch rejected: too many concurrent batches (limit: {})", maxConcurrentBatches);
+                    logger.debug("Batch rejected: too many concurrent batches (limit: {})", config.getMaxConcurrentBatches());
                 }
                 handleDispatchRejection(batch);
                 return;
@@ -803,7 +659,7 @@ public class MicroBatcher<T> implements AutoCloseable {
     private void handleDispatchRejection(List<PendingRequest<T>> batch) {
         int activeBatches = activeBatchCount != null ? activeBatchCount.get() : 0;
         ItemRejectedException rejectionError = ItemRejectedException.concurrentLimitReached(
-            activeBatches, maxConcurrentBatches);
+            activeBatches, config.getMaxConcurrentBatches());
         
         for (PendingRequest<T> request : batch) {
             CompletableFuture<BatchResult<T>> future = request.getFuture();
@@ -837,18 +693,9 @@ public class MicroBatcher<T> implements AutoCloseable {
         closed = true;
         
         retryManager.clearAll();
-        
-        // Wait for batch processor to finish processing queue (with timeout)
-        // NOTE: This is a best-effort wait. Items submitted after close() is called
-        // will be rejected, but items already in the queue will be processed.
-        long deadline = System.currentTimeMillis() + CLOSE_QUEUE_WAIT_TIMEOUT_MS;
-        long pollIntervalNanos = TimeUnit.MILLISECONDS.toNanos(CLOSE_POLL_INTERVAL_MS);
-        while (!queue.isEmpty() && System.currentTimeMillis() < deadline) {
-            LockSupport.parkNanos(pollIntervalNanos);
-            if (Thread.currentThread().isInterrupted()) {
-                break;
-            }
-        }
+
+        // Best-effort wait for the batch processor to drain the queue
+        waitForQueueToDrain(CLOSE_QUEUE_WAIT_TIMEOUT_MS, TimeUnit.MILLISECONDS);
         
         // Shutdown executor gracefully to allow in-flight batches to complete
         executor.shutdown();
@@ -863,16 +710,10 @@ public class MicroBatcher<T> implements AutoCloseable {
         }
         
         // Wait for all in-flight batches to complete (if concurrent limiting is enabled)
-        if (dispatchSemaphore != null && activeBatchCount != null) {
-            long batchWaitDeadline = System.currentTimeMillis() + (EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS * 1000);
-            while (activeBatchCount.get() > 0 && System.currentTimeMillis() < batchWaitDeadline) {
-                try {
-                    Thread.sleep(10);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    break;
-                }
-            }
+        try {
+            awaitInFlightBatches(EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
         
         // Process any remaining items synchronously after executor is done
@@ -930,22 +771,17 @@ public class MicroBatcher<T> implements AutoCloseable {
             // If already closed, just wait for in-flight batches
             return awaitInFlightBatches(timeout, unit);
         }
-        
-        long deadline = System.currentTimeMillis() + unit.toMillis(timeout);
-        
+
+        long timeoutMillis = unit.toMillis(timeout);
+
         // Wait for queue to drain
-        while (!queue.isEmpty() && System.currentTimeMillis() < deadline) {
-            Thread.sleep(10);
-            if (Thread.currentThread().isInterrupted()) {
-                throw new InterruptedException("Interrupted while waiting for queue to drain");
-            }
+        long remainingAfterQueue = waitForQueueToDrain(timeoutMillis, TimeUnit.MILLISECONDS);
+        if (remainingAfterQueue <= 0) {
+            return queue.isEmpty() && (activeBatchCount == null || activeBatchCount.get() == 0);
         }
-        
-        // Wait for in-flight batches
-        return awaitInFlightBatches(
-            deadline - System.currentTimeMillis(), 
-            TimeUnit.MILLISECONDS
-        );
+
+        // Wait for in-flight batches with remaining time
+        return awaitInFlightBatches(remainingAfterQueue, TimeUnit.MILLISECONDS);
     }
     
     /**
@@ -975,6 +811,29 @@ public class MicroBatcher<T> implements AutoCloseable {
         }
         
         return activeBatchCount.get() == 0;
+    }
+
+    /**
+     * Waits for the internal queue to drain, up to the given timeout.
+     *
+     * @param timeout the maximum time to wait
+     * @param unit the time unit of the timeout
+     * @return remaining time budget in milliseconds (may be zero or negative if timed out)
+     */
+    private long waitForQueueToDrain(long timeout, TimeUnit unit) {
+        long timeoutMillis = unit.toMillis(timeout);
+        long deadline = System.currentTimeMillis() + timeoutMillis;
+
+        while (!queue.isEmpty() && System.currentTimeMillis() < deadline) {
+            try {
+                Thread.sleep(CLOSE_POLL_INTERVAL_MS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+
+        return deadline - System.currentTimeMillis();
     }
     
     /**
@@ -1006,11 +865,6 @@ public class MicroBatcher<T> implements AutoCloseable {
      * <pre>{@code
      * MetricsProvider metrics = batcher.getMetricsProvider();
      * 
-     * // Adaptive batch sizing
-     * if (metrics.getFailureRate() > 0.1) {
-     *     batcher.updateBatchSize(5); // Reduce batch size
-     * }
-     * 
      * // Health check
      * boolean isHealthy = metrics.getFailureRate() < 0.05 
      *     && metrics.getQueueDepth() < 100;
@@ -1024,82 +878,6 @@ public class MicroBatcher<T> implements AutoCloseable {
      */
     public MetricsProvider getMetricsProvider() {
         return metrics.getMetricsProvider();
-    }
-    
-    /**
-     * Updates the batch size dynamically at runtime.
-     * The new batch size will be used for future batches (not the current batch being formed).
-     * 
-     * <p>Thread safety: This method is thread-safe. Updates to batch size are immediately visible
-     * to the batch processor, but may not affect a batch currently being formed.
-     * 
-     * @param newBatchSize the new batch size (must be positive)
-     * @throws IllegalArgumentException if newBatchSize is not positive
-     * @throws IllegalStateException if the batcher is closed
-     */
-    public void updateBatchSize(int newBatchSize) {
-        if (closed) {
-            throw new IllegalStateException(
-                String.format("MicroBatcher is closed. Queue depth: %d, Active batches: %d",
-                    queue.size(), activeBatchCount != null ? activeBatchCount.get() : 0)
-            );
-        }
-        if (newBatchSize <= 0) {
-            throw new IllegalArgumentException("Batch size must be positive");
-        }
-        
-        if (debugMode) {
-            logger.debug("Updating batch size from {} to {}", currentBatchSize, newBatchSize);
-        }
-        
-        this.currentBatchSize = newBatchSize;
-    }
-    
-    /**
-     * Updates the linger time dynamically at runtime.
-     * The new linger time will be used for future batches (not the current batch being formed).
-     * 
-     * <p>Thread safety: This method is thread-safe. Updates to linger time are immediately visible
-     * to the batch processor, but may not affect a batch currently being formed.
-     * 
-     * @param newLingerTime the new linger time (must be non-negative)
-     * @throws IllegalArgumentException if newLingerTime is null or negative
-     * @throws IllegalStateException if the batcher is closed
-     */
-    public void updateLingerTime(Duration newLingerTime) {
-        if (closed) {
-            throw new IllegalStateException(
-                String.format("MicroBatcher is closed. Queue depth: %d, Active batches: %d",
-                    queue.size(), activeBatchCount != null ? activeBatchCount.get() : 0)
-            );
-        }
-        if (newLingerTime == null || newLingerTime.isNegative()) {
-            throw new IllegalArgumentException("Linger time must be non-negative");
-        }
-        
-        if (debugMode) {
-            logger.debug("Updating linger time from {} to {}", currentLingerTime, newLingerTime);
-        }
-        
-        this.currentLingerTime = newLingerTime;
-    }
-    
-    /**
-     * Gets the current batch size (may differ from initial config if updated dynamically).
-     * 
-     * @return the current batch size
-     */
-    public int getCurrentBatchSize() {
-        return currentBatchSize;
-    }
-    
-    /**
-     * Gets the current linger time (may differ from initial config if updated dynamically).
-     * 
-     * @return the current linger time
-     */
-    public Duration getCurrentLingerTime() {
-        return currentLingerTime;
     }
     
     /**
@@ -1136,12 +914,12 @@ public class MicroBatcher<T> implements AutoCloseable {
 
             @Override
             public int getCurrentBatchSize() {
-                return currentBatchSize;
+                return config.getBatchSize();
             }
 
             @Override
             public Duration getCurrentLingerTime() {
-                return currentLingerTime;
+                return config.getLingerTime();
             }
 
             @Override
@@ -1155,8 +933,7 @@ public class MicroBatcher<T> implements AutoCloseable {
      * Gets the configuration used by this batcher.
      * 
      * <p>This method provides read-only access to the batcher's configuration.
-     * The returned config reflects the initial configuration and does not
-     * include dynamic updates (e.g., batch size changes via {@link #updateBatchSize(int)}).
+     * The returned config reflects the configuration used by this batcher.
      * 
      * @return the batcher configuration
      * @since 0.0.5

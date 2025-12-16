@@ -5,6 +5,82 @@ All notable changes to the Vortex Micro-Batching Library will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.10] - 2025-01-XX
+
+### Changed
+- **Simplified API**: Removed factory methods and dynamic configuration for cleaner API
+  - Removed `forHighThroughput()`, `forLowLatency()`, `forBalanced()`, `forResilient()` factory methods
+  - Removed `updateBatchSize()` and `updateLingerTime()` dynamic configuration methods
+  - Removed `getCurrentBatchSize()` and `getCurrentLingerTime()` getters
+  - Configuration is now immutable - use `BatcherConfig` presets with constructors
+  - Reduced API surface and complexity
+
+### Removed
+- **Factory Methods**: Removed all static factory methods from `MicroBatcher`
+  - `forHighThroughput(Backend<T>, MeterRegistry)`
+  - `forLowLatency(Backend<T>, MeterRegistry)`
+  - `forBalanced(Backend<T>, MeterRegistry)`
+  - `forResilient(Backend<T>, MeterRegistry, Predicate<Throwable>)`
+  - **Migration**: Use constructors with `BatcherConfig` presets:
+    ```java
+    // Old
+    MicroBatcher<String> batcher = MicroBatcher.forHighThroughput(backend, registry);
+    
+    // New
+    MicroBatcher<String> batcher = new MicroBatcher<>(
+        backend, 
+        BatcherConfig.highThroughputPreset(), 
+        registry
+    );
+    ```
+
+- **Dynamic Configuration Methods**: Removed runtime configuration updates
+  - `updateBatchSize(int)`
+  - `updateLingerTime(Duration)`
+  - `getCurrentBatchSize()`
+  - `getCurrentLingerTime()`
+  - **Migration**: Configuration is now immutable. Create a new `BatcherConfig` if you need different settings.
+
+- **Internal Fields**: Removed redundant internal fields
+  - `currentBatchSize` and `currentLingerTime` fields (now read directly from config)
+  - `maxConcurrentBatches` field (now read directly from config)
+
+### Added
+- **Configuration Presets**: Added preset factory methods to `BatcherConfig`
+  - `highThroughputPreset()` - Optimized for maximum throughput
+  - `lowLatencyPreset()` - Optimized for minimal latency
+  - `balancedPreset()` - Balanced latency and throughput
+  - `resilientPreset(Predicate<Throwable>)` - Optimized for resilience with retry
+  - Use with constructors: `new MicroBatcher<>(backend, BatcherConfig.highThroughputPreset(), registry)`
+
+- **Comprehensive User Guide**: Added complete user documentation
+  - Detailed guide covering all features, exception handling, backpressure, sync/async usage
+  - Best practices and troubleshooting sections
+  - Complete examples for all use cases
+  - Located at `documents/guides/USER_GUIDE.md`
+
+### Fixed
+- **Code Simplification**: Reduced `MicroBatcher` complexity
+  - Removed 260 lines of code (from 1,204 to 944 lines)
+  - Simplified internal field management
+  - Improved code maintainability
+
+- **Test Coverage**: Increased test coverage for `MicroBatcher` class
+  - Coverage increased to 82% (from 77%)
+  - Added 25+ new test cases covering edge cases, error handling, and shutdown scenarios
+  - All 252 tests passing
+
+### Documentation
+- **README Rewrite**: Completely rewritten README to reflect current API
+  - Removed references to removed factory methods and dynamic configuration
+  - Updated all examples to use current API
+  - Added references to comprehensive User Guide
+  - Simplified and clarified documentation
+
+- **Updated Examples**: All examples updated to use current API
+  - Removed factory method usage
+  - Updated to use `BatcherConfig` presets with constructors
+
 ## [0.0.9] - 2025-12-12
 
 ### Changed
