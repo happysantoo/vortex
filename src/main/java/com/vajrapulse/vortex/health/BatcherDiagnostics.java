@@ -22,20 +22,20 @@ public interface BatcherDiagnostics {
     boolean isClosed();
 
     /**
-     * Returns the current batch size used for forming batches.
+     * Returns the batch size used for forming batches.
      *
-     * <p>This reflects dynamic updates performed via {@link MicroBatcher#updateBatchSize(int)}.
+     * <p>This returns the batch size from the configuration.
      *
-     * @return current batch size
+     * @return batch size from configuration
      */
     int getCurrentBatchSize();
 
     /**
-     * Returns the current linger time used for forming batches.
+     * Returns the linger time used for forming batches.
      *
-     * <p>This reflects dynamic updates performed via {@link MicroBatcher#updateLingerTime(Duration)}.
+     * <p>This returns the linger time from the configuration.
      *
-     * @return current linger time
+     * @return linger time from configuration
      */
     Duration getCurrentLingerTime();
 
