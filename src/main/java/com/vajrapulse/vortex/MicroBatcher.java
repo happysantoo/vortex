@@ -777,7 +777,7 @@ public class MicroBatcher<T> implements AutoCloseable {
         // Wait for queue to drain
         long remainingAfterQueue = waitForQueueToDrain(timeoutMillis, TimeUnit.MILLISECONDS);
         if (remainingAfterQueue <= 0) {
-            return queue.isEmpty() && activeBatchCount == null || activeBatchCount.get() == 0;
+            return queue.isEmpty() && (activeBatchCount == null || activeBatchCount.get() == 0);
         }
 
         // Wait for in-flight batches with remaining time
