@@ -1646,6 +1646,8 @@ class MicroBatcherSpec extends Specification {
 
     def "should handle executor shutdown timeout during close"() {
         given:
+        // Use a backend that blocks for longer than EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS (5 seconds)
+        // to ensure awaitTermination times out and shutdownNow() is called
         def backendBlocked = new CountDownLatch(1)
         Backend<String> backend = blockingBackend(backendBlocked)
         def config = BatcherConfig.builder()
@@ -1656,9 +1658,16 @@ class MicroBatcherSpec extends Specification {
         when:
         def batcher = new MicroBatcher<>(backend, config)
         batcher.submit("item-1")
-        Thread.sleep(50) // Allow batch to start
-        // Close will timeout waiting for executor termination
-        batcher.close()
+        Thread.sleep(50) // Allow batch to start and be dispatched
+        // Close will call shutdown(), then awaitTermination will timeout after 5 seconds
+        // and shutdownNow() will be called (line 705)
+        def closeThread = Thread.start {
+            batcher.close()
+        }
+        Thread.sleep(100) // Allow close to start
+        // Don't unblock backend - let awaitTermination timeout
+        // Wait for close to complete (should timeout and call shutdownNow)
+        closeThread.join(6000) // Wait up to 6 seconds
 
         then:
         batcher.isClosed()
