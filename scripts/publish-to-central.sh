@@ -81,6 +81,7 @@ echo "Creating bundle: ${OUT}"
 rm -f "${OUT}"
 cd "${REPO_ROOT}"
 zip -r "${OUT}" "${GROUP_PATH}/${ARTIFACT}/${VERSION}" >/dev/null
+cd "${PROJECT_ROOT}"  # Return to project root for GitHub release creation
 echo "✓ Bundle created"
 echo ""
 
