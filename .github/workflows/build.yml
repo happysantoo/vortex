@@ -39,7 +39,7 @@ jobs:
   release:
     runs-on: ubuntu-latest
     needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release-'))
     permissions:
       contents: write  # Required for creating tags and releases
       id-token: write  # Required for OIDC if needed
@@ -80,6 +80,7 @@ jobs:
       env:
         GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
         GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
       run: |
         echo "Debug: Checking GPG_PRIVATE_KEY..."
         if [ -n "$GPG_PRIVATE_KEY" ]; then
@@ -100,12 +101,65 @@ jobs:
           exit 0
         fi
         
-        # Try to import the key
-        if echo "$GPG_PRIVATE_KEY" | gpg --batch --import 2>&1; then
-          echo "GPG key imported successfully"
+        # Create GPG directory and set permissions
+        mkdir -p ~/.gnupg
+        chmod 700 ~/.gnupg
+        
+        # Import the key
+        echo "Importing GPG key..."
+        if ! echo "$GPG_PRIVATE_KEY" | gpg --batch --import 2>&1; then
+          echo "ERROR: Failed to import GPG key"
+          exit 1
+        fi
+        
+        echo "GPG key imported successfully"
+        
+        # Get the key ID (either from secret or from imported key)
+        if [ -n "$GPG_KEY_ID" ]; then
+          KEY_ID="$GPG_KEY_ID"
+          echo "Using provided GPG_KEY_ID: $KEY_ID"
         else
-          echo "Warning: Failed to import GPG key, continuing without GPG signing"
-          exit 0
+          # Extract key ID from imported key
+          KEY_ID=$(gpg --list-secret-keys --keyid-format LONG 2>/dev/null | grep -E "^(sec|ssb)" | head -1 | sed -n 's/.*\/\([A-Z0-9]*\).*/\1/p')
+          if [ -z "$KEY_ID" ]; then
+            KEY_ID=$(gpg --list-secret-keys --keyid-format SHORT 2>/dev/null | grep -E "^(sec|ssb)" | head -1 | sed -n 's/.*\/\([A-Z0-9]*\).*/\1/p')
+          fi
+          echo "Extracted GPG key ID: $KEY_ID"
+        fi
+        
+        if [ -z "$KEY_ID" ]; then
+          echo "ERROR: Could not determine GPG key ID"
+          exit 1
+        fi
+        
+        # Trust the key (required for CI environments)
+        # Use trust model always to avoid interactive prompts
+        echo "Configuring GPG trust model..."
+        mkdir -p ~/.gnupg
+        echo "trust-model always" >> ~/.gnupg/gpg.conf
+        chmod 600 ~/.gnupg/gpg.conf
+        
+        # Also set trust level for the specific key
+        echo "Trusting GPG key $KEY_ID..."
+        (echo "trust"; echo "5"; echo "y"; echo "quit") | gpg --batch --command-fd 0 --edit-key "$KEY_ID" 2>&1 || {
+          echo "Note: Could not set trust interactively, using trust-model always"
+        }
+        
+        # Verify the key is available and can be used
+        echo "Verifying GPG key..."
+        if gpg --list-secret-keys --keyid-format LONG 2>&1 | grep -q "$KEY_ID"; then
+          echo "✓ GPG key $KEY_ID is available"
+          
+          # Test signing capability
+          echo "test" | gpg --batch --yes --passphrase "$GPG_PASSPHRASE" --pinentry-mode loopback --sign --local-user "$KEY_ID" -o /dev/null 2>&1 && {
+            echo "✓ GPG key $KEY_ID can sign successfully"
+          } || {
+            echo "⚠ Warning: GPG key signing test failed, but continuing..."
+          }
+        else
+          echo "ERROR: GPG key $KEY_ID not found after import"
+          gpg --list-secret-keys --keyid-format LONG
+          exit 1
         fi
     
     - name: Configure Maven Central credentials
