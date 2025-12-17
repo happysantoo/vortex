@@ -110,20 +110,46 @@ jobs:
         # Save to temp file first to handle any encoding/formatting issues
         echo "Importing GPG key..."
         TEMP_KEY_FILE=$(mktemp)
-        echo "$GPG_PRIVATE_KEY" > "$TEMP_KEY_FILE"
         
-        # Try importing from file
-        if ! gpg --batch --import "$TEMP_KEY_FILE" 2>&1; then
-          echo "ERROR: Failed to import GPG key"
-          echo "Debug: First 100 chars of key:"
-          head -c 100 "$TEMP_KEY_FILE" | cat -A
+        # Write key to file, preserving newlines
+        printf '%s\n' "$GPG_PRIVATE_KEY" > "$TEMP_KEY_FILE"
+        
+        # Verify the key file has the expected format
+        if ! grep -q "-----BEGIN PGP PRIVATE KEY BLOCK-----" "$TEMP_KEY_FILE" && \
+           ! grep -q "-----BEGIN PGP SECRET KEY BLOCK-----" "$TEMP_KEY_FILE"; then
+          echo "ERROR: GPG key does not contain valid PGP key block markers"
+          echo "Debug: First 200 chars of key:"
+          head -c 200 "$TEMP_KEY_FILE"
           echo ""
-          echo "Debug: Last 100 chars of key:"
-          tail -c 100 "$TEMP_KEY_FILE" | cat -A
+          echo "Expected: -----BEGIN PGP PRIVATE KEY BLOCK----- or -----BEGIN PGP SECRET KEY BLOCK-----"
           rm -f "$TEMP_KEY_FILE"
           exit 1
         fi
         
+        # Try importing from file
+        IMPORT_OUTPUT=$(gpg --batch --import "$TEMP_KEY_FILE" 2>&1)
+        IMPORT_EXIT_CODE=$?
+        
+        if [ $IMPORT_EXIT_CODE -ne 0 ]; then
+          echo "ERROR: Failed to import GPG key (exit code: $IMPORT_EXIT_CODE)"
+          echo "Import output:"
+          echo "$IMPORT_OUTPUT"
+          echo ""
+          echo "Debug: Key file info:"
+          echo "  File size: $(wc -c < "$TEMP_KEY_FILE") bytes"
+          echo "  First line: $(head -n 1 "$TEMP_KEY_FILE")"
+          echo "  Last line: $(tail -n 1 "$TEMP_KEY_FILE")"
+          echo ""
+          echo "Common issues:"
+          echo "  1. Key might be missing -----BEGIN and -----END markers"
+          echo "  2. Key might have extra whitespace or encoding issues"
+          echo "  3. Key might be corrupted in GitHub secret"
+          echo "  4. Key might need to be exported with: gpg --armor --export-secret-keys KEY_ID"
+          rm -f "$TEMP_KEY_FILE"
+          exit 1
+        fi
+        
+        echo "$IMPORT_OUTPUT"
         rm -f "$TEMP_KEY_FILE"
         
         echo "GPG key imported successfully"
