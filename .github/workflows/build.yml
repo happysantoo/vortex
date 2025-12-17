@@ -96,7 +96,7 @@ jobs:
         fi
         
         # Check if the key looks like valid GPG data (starts with -----BEGIN)
-        if ! echo "$GPG_PRIVATE_KEY" | grep -q "-----BEGIN"; then
+        if ! echo "$GPG_PRIVATE_KEY" | grep -q -- "-----BEGIN"; then
           echo "GPG_PRIVATE_KEY does not appear to be valid GPG data, skipping GPG setup"
           exit 0
         fi
