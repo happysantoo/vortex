@@ -107,11 +107,24 @@ jobs:
         chmod 700 ~/.gnupg
         
         # Import the key
+        # Save to temp file first to handle any encoding/formatting issues
         echo "Importing GPG key..."
-        if ! echo "$GPG_PRIVATE_KEY" | gpg --batch --import 2>&1; then
+        TEMP_KEY_FILE=$(mktemp)
+        echo "$GPG_PRIVATE_KEY" > "$TEMP_KEY_FILE"
+        
+        # Try importing from file
+        if ! gpg --batch --import "$TEMP_KEY_FILE" 2>&1; then
           echo "ERROR: Failed to import GPG key"
+          echo "Debug: First 100 chars of key:"
+          head -c 100 "$TEMP_KEY_FILE" | cat -A
+          echo ""
+          echo "Debug: Last 100 chars of key:"
+          tail -c 100 "$TEMP_KEY_FILE" | cat -A
+          rm -f "$TEMP_KEY_FILE"
           exit 1
         fi
+        
+        rm -f "$TEMP_KEY_FILE"
         
         echo "GPG key imported successfully"
         
