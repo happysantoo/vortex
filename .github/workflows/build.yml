@@ -115,12 +115,14 @@ jobs:
         printf '%s\n' "$GPG_PRIVATE_KEY" > "$TEMP_KEY_FILE"
         
         # Verify the key file has the expected format
-        # Use -- to properly separate grep options from pattern
-        if ! grep -q -- "-----BEGIN PGP PRIVATE KEY BLOCK-----" "$TEMP_KEY_FILE" && \
-           ! grep -q -- "-----BEGIN PGP SECRET KEY BLOCK-----" "$TEMP_KEY_FILE"; then
+        # Use -F for fixed string matching and -- to separate options from pattern
+        HAS_PRIVATE_BLOCK=$(grep -F -- "-----BEGIN PGP PRIVATE KEY BLOCK-----" "$TEMP_KEY_FILE" 2>/dev/null && echo "yes" || echo "no")
+        HAS_SECRET_BLOCK=$(grep -F -- "-----BEGIN PGP SECRET KEY BLOCK-----" "$TEMP_KEY_FILE" 2>/dev/null && echo "yes" || echo "no")
+        
+        if [ "$HAS_PRIVATE_BLOCK" != "yes" ] && [ "$HAS_SECRET_BLOCK" != "yes" ]; then
           echo "ERROR: GPG key does not contain valid PGP key block markers"
           echo "Debug: First 200 chars of key:"
-          head -c 200 "$TEMP_KEY_FILE"
+          head -c 200 "$TEMP_KEY_FILE" | cat -A
           echo ""
           echo "Expected: -----BEGIN PGP PRIVATE KEY BLOCK----- or -----BEGIN PGP SECRET KEY BLOCK-----"
           rm -f "$TEMP_KEY_FILE"
