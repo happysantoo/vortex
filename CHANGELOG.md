@@ -5,7 +5,7 @@ All notable changes to the Vortex Micro-Batching Library will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.0.11] - 2025-01-XX
+## [0.0.11] - 2025-12-24
 
 ### Added
 - **Asynchronous Submission API**: Added `submitAsync(T item)` method that returns `CompletableFuture<ItemResult<T>>`
@@ -28,11 +28,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
         });
     ```
 
+- **JMH Benchmarks for submitAsync**: Added comprehensive benchmarks for the new `submitAsync()` method
+  - Throughput benchmarks: `submitAsyncSingleRequest`, `submitAsyncConcurrentRequests`, `submitAsyncBatchWithCompletion`
+  - Latency benchmarks: `submitAsyncLatency`, `submitAsyncToCompletionLatency`, `submitAsyncRejectionLatency`
+  - Allows performance comparison between synchronous and asynchronous submission methods
+
+- **New Examples**: Added comprehensive examples demonstrating all submission methods
+  - `ThreeSubmissionMethodsExample.java` - Demonstrates all three ways to submit items
+  - `ErrorHandlingExample.java` - Comprehensive error handling patterns
+
 ### Changed
-- **Code Refactoring**: Extracted common submission logic into `submitCommon()` method
-  - Both `submit()` and `submitAsync()` now share the same queueing, validation, and metrics logic
-  - Reduced code duplication while maintaining simplicity
-  - No breaking changes to existing `submit()` API
+- **ItemCallback API Simplification**: Simplified `ItemCallback` interface signature
+  - Changed from `void onResult(T item, ItemResult<T> result)` to `void onResult(ItemResult<T> result)`
+  - The item is already available within `ItemResult<T>`, making the separate parameter redundant
+  - **Migration**: Update callback lambdas from `(item, result) ->` to `result ->`
+    ```java
+    // Old
+    batcher.submit("item", (item, result) -> {
+        System.out.println("Item: " + item);
+        // ...
+    });
+    
+    // New
+    batcher.submit("item", result -> {
+        System.out.println("Item: " + result.getItem());
+        // ...
+    });
+    ```
+
+- **Code Refactoring**: Extracted internal classes to separate files for better maintainability
+  - Extracted `EnqueueResult`, `SubmissionContext`, `BatchFormationStrategy`, `BatchDispatcher`, `SubmissionHandler`, `ShutdownManager`, `TracingHelper`, and `DefaultBatcherDiagnostics`
+  - Reduced `MicroBatcher` class size from 1,075 lines to 651 lines
+  - Improved code organization and testability
+  - No breaking changes to public API
+
+- **Dependencies**: Updated Micrometer to 1.16.1 (latest stable version)
+  - Fixed deprecation warnings in `DefaultMetricsProvider`
+  - Replaced deprecated `Timer.mean()` with `totalTime() / count()`
+  - Suppressed warnings for `Timer.percentile()` (no clear replacement API available)
+
+- **Build Configuration**: Improved examples dependency configuration
+  - Uses `extendsFrom` to automatically inherit all `implementation` dependencies
+  - Eliminates need to manually sync dependencies between main and examples sourceSets
+
+### Removed
+- **Redundant Examples**: Removed outdated and redundant example files
+  - `ExampleUsageSimplified.java` - Redundant with `ThreeSubmissionMethodsExample.java`
+  - `HttpBackendExample.java` - Low value, custom backend patterns already demonstrated
+  - `AdaptiveBatchingExample.java` - No longer relevant (dynamic batch size updates removed in 0.0.10)
+  - `BackpressureExample.java`, `KafkaConsumerBackpressureExample.java`, `ExampleUsageWithBackpressure.java` - Outdated backpressure examples
+
+### Fixed
+- **Examples Simplification**: Simplified all examples by extracting duplicated callbacks
+  - Reduced code duplication across all example files
+  - Improved maintainability and readability
+  - All examples now follow consistent patterns
+
+- **Benchmark Updates**: Fixed benchmarks to use current API
+  - Updated `ItemCallback` signature in all benchmark files
+  - All benchmarks compile and run successfully
 
 ## [0.0.10] - 2025-01-XX
 
