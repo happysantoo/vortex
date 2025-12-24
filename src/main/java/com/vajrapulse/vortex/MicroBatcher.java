@@ -61,6 +61,7 @@ public class MicroBatcher<T> implements AutoCloseable {
     private final BatchDispatcher<T> batchDispatcher;
     private final SubmissionHandler<T> submissionHandler;
     private final ShutdownManager<T> shutdownManager;
+    private final TracingHelper tracingHelper;
     
     /**
      * Creates a new MicroBatcher with a default SimpleMeterRegistry.
@@ -149,8 +150,8 @@ public class MicroBatcher<T> implements AutoCloseable {
         // Initialize batch formation strategy
         this.batchFormationStrategy = new BatchFormationStrategy<>(config, queue, debugMode);
         
-        // Initialize tracing helper
-        TracingHelper tracingHelper = new TracingHelper(tracingHook, debugMode);
+        // Initialize tracing helper (reused across components)
+        this.tracingHelper = new TracingHelper(tracingHook, debugMode);
         
         // Initialize batch dispatcher
         this.batchDispatcher = new BatchDispatcher<>(
@@ -389,7 +390,9 @@ public class MicroBatcher<T> implements AutoCloseable {
         // For accepted items, transform BatchResult to ItemResult
         return context.batchFuture.thenApply(batchResult -> {
             ItemResult<T> itemResult = batchResult.findItemResult(item)
-                .orElseThrow(() -> new IllegalStateException("Item result not found in batch"));
+                .orElseThrow(() -> new IllegalStateException(
+                    String.format("Item result not found in batch. Item: %s, Batch size: %d", 
+                        item, batchResult.getTotalCount())));
             return itemResult;
         });
     }
@@ -398,50 +401,18 @@ public class MicroBatcher<T> implements AutoCloseable {
      * Internal method for retries and replays that returns CompletableFuture<BatchResult<T>>.
      * This is used by RetryManager and ResultProcessor which need the old interface.
      * 
+     * <p>For internal retries/replays:
+     * - We do not apply the public rejection threshold (applyThreshold=false)
+     * - We use a timed offer to avoid blocking indefinitely (useTimeout=true)
+     * 
      * @param item the item to submit
      * @return a CompletableFuture that completes with the batch result
      */
     private CompletableFuture<BatchResult<T>> submitInternal(T item) {
-        if (closed) {
-            CompletableFuture<BatchResult<T>> future = new CompletableFuture<>();
-            future.completeExceptionally(newClosedException());
-            return future;
-        }
-        
-        // Tracing hook - use submission handler's tracing helper
-        // Note: This is a temporary workaround for submitInternal which needs tracing
-        // but doesn't go through submissionHandler. In a future refactor, we could
-        // extract this to a shared TracingHelper instance.
-        if (tracingHook != null && item != null) {
-            try {
-                tracingHook.onSubmit(item);
-            } catch (Exception e) {
-                if (debugMode) {
-                    logger.debug("Tracing hook onSubmit failed", e);
-                }
-            }
-        }
-
-        CompletableFuture<BatchResult<T>> future = new CompletableFuture<>();
-        PendingRequest<T> request = new PendingRequest<>(item, future);
-
-        // For internal retries/replays we do not apply the public rejection threshold,
-        // but we still use a timed offer to avoid blocking indefinitely.
-        EnqueueResult enqueueResult = submissionHandler.tryEnqueue(request, false, true);
-
-        if (enqueueResult == EnqueueResult.REJECTED_THRESHOLD || enqueueResult == EnqueueResult.REJECTED_FULL) {
-            metrics.recordRequestRejected();
-            int currentSize = queue.size();
-            int maxSize = config.getMaxQueueSize();
-            future.completeExceptionally(ItemRejectedException.queueFull(currentSize, maxSize));
-            return future;
-        } else if (enqueueResult == EnqueueResult.INTERRUPTED) {
-            future.completeExceptionally(new InterruptedException("Interrupted while queuing item"));
-            return future;
-        }
-
-        metrics.recordRequestSubmitted();
-        return future;
+        // Use SubmissionHandler.submitCommon() to eliminate code duplication
+        // For retries/replays: skip threshold check, use timeout
+        SubmissionContext<T> context = submissionHandler.submitCommon(item, false, true);
+        return context.batchFuture;
     }
     
     /**
@@ -495,12 +466,8 @@ public class MicroBatcher<T> implements AutoCloseable {
             if (debugMode) {
                 logger.debug("Dispatching batch of size: {}", batch.size());
             }
-            dispatchBatch(batch);
+            batchDispatcher.dispatchBatch(batch);
         }
-    }
-    
-    private void dispatchBatch(List<PendingRequest<T>> batch) {
-        batchDispatcher.dispatchBatch(batch);
     }
     
     /**
