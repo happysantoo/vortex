@@ -8,7 +8,7 @@
 
 A lightweight Java 21 library for micro-batching requests to any backend. Built with virtual threads, smart batching (size or time-based), comprehensive metrics, and production-ready features.
 
-**Current Version**: 0.0.10
+**Current Version**: 0.0.11
 
 ## Features
 
@@ -37,7 +37,7 @@ A lightweight Java 21 library for micro-batching requests to any backend. Built 
 <dependency>
     <groupId>com.vajrapulse</groupId>
     <artifactId>vortex</artifactId>
-    <version>0.0.10</version>
+    <version>0.0.11</version>
 </dependency>
 ```
 
@@ -45,7 +45,7 @@ A lightweight Java 21 library for micro-batching requests to any backend. Built 
 
 ```kotlin
 dependencies {
-    implementation("com.vajrapulse:vortex:0.0.10")
+    implementation("com.vajrapulse:vortex:0.0.11")
 }
 ```
 
@@ -95,14 +95,18 @@ try (MicroBatcher<String> batcher = new MicroBatcher<>(backend, config)) {
 
 ### Submission API
 
-The library provides a unified `submit(item, callback)` method:
+The library provides two submission methods:
+
+#### Synchronous Submission (`submit`)
+
+Returns `ItemResult` immediately for immediate acceptance/rejection feedback:
 
 ```java
 // With callback (async result handling)
-ItemResult<String> result = batcher.submit("item", (item, itemResult) -> {
+ItemResult<String> result = batcher.submit("item", itemResult -> {
     // Callback fires when item is processed (typically 10-50ms after submission)
-    if (itemResult instanceof ItemResult.Success<String>) {
-        System.out.println("Success: " + item);
+    if (itemResult instanceof ItemResult.Success<String> success) {
+        System.out.println("Success: " + success.getItem());
     } else if (itemResult instanceof ItemResult.Failure<String> failure) {
         System.err.println("Failed: " + failure.error().getMessage());
     }
@@ -123,6 +127,45 @@ if (result instanceof ItemResult.Failure<String> failure) {
 - Callback (if provided) fires asynchronously when item is processed
 - Callback receives individual item's result, not the full batch result
 - Thread-safe and can be called from multiple threads
+
+#### Asynchronous Submission (`submitAsync`)
+
+Returns `CompletableFuture<ItemResult<T>>` for async/await-style programming:
+
+```java
+// Chain operations with CompletableFuture
+CompletableFuture<ItemResult<String>> future = batcher.submitAsync("item");
+future
+    .thenApply(result -> {
+        if (result instanceof ItemResult.Success<String>) {
+            return processSuccess(result.getItem());
+        } else if (result instanceof ItemResult.Failure<String> failure) {
+            return handleFailure(failure.error());
+        }
+        return null;
+    })
+    .thenAccept(processed -> System.out.println("Processed: " + processed))
+    .exceptionally(throwable -> {
+        if (throwable instanceof ItemRejectedException) {
+            // Handle immediate rejection
+            handleRejection(throwable);
+        }
+        return null;
+    });
+
+// Or use with CompletableFuture.allOf() for batch operations
+List<CompletableFuture<ItemResult<String>>> futures = items.stream()
+    .map(batcher::submitAsync)
+    .toList();
+CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+    .thenRun(() -> System.out.println("All items processed"));
+```
+
+**Key Points:**
+- Returns `CompletableFuture<ItemResult<T>>` immediately (never blocks)
+- Completes exceptionally with `ItemRejectedException` if queue is full
+- Completes with `ItemResult` when batch processing finishes
+- Perfect for chaining operations and composing async workflows
 
 ### ItemResult Types
 

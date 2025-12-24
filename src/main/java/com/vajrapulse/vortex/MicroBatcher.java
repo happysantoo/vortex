@@ -2,9 +2,16 @@ package com.vajrapulse.vortex;
 
 import com.vajrapulse.vortex.results.BatchResult;
 import com.vajrapulse.vortex.results.ItemResult;
+import com.vajrapulse.vortex.internal.BatchDispatcher;
+import com.vajrapulse.vortex.internal.BatchFormationStrategy;
+import com.vajrapulse.vortex.internal.EnqueueResult;
 import com.vajrapulse.vortex.internal.PendingRequest;
 import com.vajrapulse.vortex.internal.RetryManager;
 import com.vajrapulse.vortex.internal.ResultProcessor;
+import com.vajrapulse.vortex.internal.ShutdownManager;
+import com.vajrapulse.vortex.internal.SubmissionContext;
+import com.vajrapulse.vortex.internal.SubmissionHandler;
+import com.vajrapulse.vortex.internal.TracingHelper;
 import com.vajrapulse.vortex.metrics.MetricsManager;
 import com.vajrapulse.vortex.metrics.MetricsProvider;
 import com.vajrapulse.vortex.health.BatcherDiagnostics;
@@ -32,9 +39,6 @@ public class MicroBatcher<T> implements AutoCloseable {
     
     // Configuration constants
     private static final int QUEUE_OFFER_TIMEOUT_MS = 100;
-    private static final int CLOSE_QUEUE_WAIT_TIMEOUT_MS = 2000;
-    private static final int CLOSE_POLL_INTERVAL_MS = 10;
-    private static final int EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS = 5;
     
     private final Backend<T> backend;
     private final BatcherConfig config;
@@ -57,6 +61,10 @@ public class MicroBatcher<T> implements AutoCloseable {
     private final MetricsManager metrics;
     private final RetryManager<T> retryManager;
     private final ResultProcessor<T> resultProcessor;
+    private final BatchFormationStrategy<T> batchFormationStrategy;
+    private final BatchDispatcher<T> batchDispatcher;
+    private final SubmissionHandler<T> submissionHandler;
+    private final ShutdownManager<T> shutdownManager;
     
     /**
      * Creates a new MicroBatcher with a default SimpleMeterRegistry.
@@ -143,6 +151,26 @@ public class MicroBatcher<T> implements AutoCloseable {
         this.retryManager = new RetryManager<>(config, executor, this::submitInternal, () -> closed, metrics, debugMode);
         this.resultProcessor = new ResultProcessor<>(config, backend, metrics, retryManager, this::submitInternal, debugMode);
         
+        // Initialize batch formation strategy
+        this.batchFormationStrategy = new BatchFormationStrategy<>(config, queue, debugMode);
+        
+        // Initialize tracing helper
+        TracingHelper tracingHelper = new TracingHelper(tracingHook, debugMode);
+        
+        // Initialize batch dispatcher
+        this.batchDispatcher = new BatchDispatcher<>(
+            config, backend, executor, metrics, resultProcessor,
+            dispatchSemaphore, activeBatchCount, tracingHelper, debugMode);
+        
+        // Initialize submission handler
+        this.submissionHandler = new SubmissionHandler<>(
+            config, queue, metrics, tracingHelper,
+            () -> closed, this::newClosedException);
+        
+        // Initialize shutdown manager
+        this.shutdownManager = new ShutdownManager<>(
+            queue, executor, activeBatchCount, backend, resultProcessor, retryManager);
+        
         // Start the batch processor
         startBatchProcessor();
     }
@@ -188,72 +216,6 @@ public class MicroBatcher<T> implements AutoCloseable {
         );
     }
 
-    /**
-     * Invokes tracing hook for submit events in a safe, centralized way.
-     * Any tracing errors are swallowed and optionally logged when debug mode
-     * is enabled. This ensures tracing never interferes with core batching.
-     */
-    private void safeOnSubmit(T item) {
-        if (tracingHook == null || item == null) {
-            return;
-        }
-        try {
-            tracingHook.onSubmit(item);
-        } catch (Exception e) {
-            if (debugMode) {
-                logger.debug("Tracing hook onSubmit failed", e);
-            }
-        }
-    }
-
-    /**
-     * Result of attempting to enqueue a pending request into the internal queue.
-     */
-    private enum EnqueueResult {
-        ACCEPTED,
-        REJECTED_THRESHOLD,
-        REJECTED_FULL,
-        INTERRUPTED
-    }
-
-    /**
-     * Attempts to enqueue the given request into the internal queue.
-     *
-     * @param request        the pending request to enqueue
-     * @param applyThreshold whether to apply the configured queue rejection threshold
-     * @param useTimeout     whether to use a timed offer when enqueuing
-     * @return the outcome of the enqueue attempt
-     */
-    private EnqueueResult tryEnqueue(PendingRequest<T> request, boolean applyThreshold, boolean useTimeout) {
-        int maxSize = config.getMaxQueueSize();
-
-        if (applyThreshold) {
-            double threshold = config.getQueueRejectionThreshold();
-            int rejectionThreshold = (int) Math.ceil(maxSize * threshold);
-            int currentSize = queue.size();
-            if (currentSize >= rejectionThreshold) {
-                return EnqueueResult.REJECTED_THRESHOLD;
-            }
-        }
-
-        boolean offered;
-        if (useTimeout) {
-            try {
-                offered = queue.offer(request, QUEUE_OFFER_TIMEOUT_MS, TimeUnit.MILLISECONDS);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return EnqueueResult.INTERRUPTED;
-            }
-        } else {
-            offered = queue.offer(request);
-        }
-
-        if (!offered) {
-            return EnqueueResult.REJECTED_FULL;
-        }
-
-        return EnqueueResult.ACCEPTED;
-    }
     
     /**
      * Submits an item with immediate rejection feedback and optional callback for batch processing result.
@@ -281,12 +243,14 @@ public class MicroBatcher<T> implements AutoCloseable {
      * // With callback for individual item result
      * ItemResult<MyItem> result = batcher.submit(item, new ItemCallback<MyItem>() {
      *     @Override
-     *     public void onResult(MyItem item, ItemResult<MyItem> result) {
-     *         if (result instanceof ItemResult.Success<MyItem>) {
+     *     public void onResult(ItemResult<MyItem> result) {
+     *         if (result instanceof ItemResult.Success<MyItem> success) {
      *             // This specific item processed successfully
+     *             MyItem processedItem = success.getItem();
      *             successCounter.increment();
      *         } else if (result instanceof ItemResult.Failure<MyItem> failure) {
      *             // This specific item failed during batch processing
+     *             MyItem failedItem = failure.getItem();
      *             failureCounter.increment();
      *             logger.error("Item failed: {}", failure.error().getMessage());
      *         }
@@ -294,8 +258,8 @@ public class MicroBatcher<T> implements AutoCloseable {
      * });
      * 
      * // Or using lambda (since ItemCallback is a functional interface)
-     * ItemResult<MyItem> result = batcher.submit(item, (submittedItem, itemResult) -> {
-     *     if (itemResult instanceof ItemResult.Success<MyItem>) {
+     * ItemResult<MyItem> result = batcher.submit(item, itemResult -> {
+     *     if (itemResult instanceof ItemResult.Success<MyItem> success) {
      *         successCounter.increment();
      *     } else if (itemResult instanceof ItemResult.Failure<MyItem> failure) {
      *         failureCounter.increment();
@@ -332,6 +296,7 @@ public class MicroBatcher<T> implements AutoCloseable {
      * @since 0.0.9
      */
     public ItemResult<T> submit(T item, ItemCallback<T> callback) {
+        // Synchronous validation - throw immediately for null/closed
         if (closed) {
             throw newClosedException();
         }
@@ -340,42 +305,99 @@ public class MicroBatcher<T> implements AutoCloseable {
             throw new NullPointerException("Item cannot be null");
         }
         
-        // Tracing hook
-        safeOnSubmit(item);
-
-        // Queueing
-        CompletableFuture<BatchResult<T>> future = new CompletableFuture<>();
-        PendingRequest<T> request = new PendingRequest<>(item, future);
-
-        EnqueueResult enqueueResult = tryEnqueue(request, true, false);
-
-        if (enqueueResult == EnqueueResult.REJECTED_THRESHOLD || enqueueResult == EnqueueResult.REJECTED_FULL) {
-            // Queue is full or reached threshold - reject immediately
-            metrics.recordRequestRejected();
+        SubmissionContext<T> context = submissionHandler.submitCommon(item, true, false);
+        
+        // Handle immediate rejections - return synchronously
+        if (context.enqueueResult == EnqueueResult.REJECTED_THRESHOLD || 
+            context.enqueueResult == EnqueueResult.REJECTED_FULL) {
             int currentSize = queue.size();
             int maxSize = config.getMaxQueueSize();
             return ItemResult.failure(item, ItemRejectedException.queueFull(currentSize, maxSize));
-        } else if (enqueueResult == EnqueueResult.INTERRUPTED) {
-            // Preserve interruption status and treat as rejection
-            metrics.recordRequestRejected();
+        } else if (context.enqueueResult == EnqueueResult.INTERRUPTED) {
             return ItemResult.failure(item, new InterruptedException("Interrupted while queuing item"));
         }
         
-        // Item accepted - queue it for batch processing
-        metrics.recordRequestSubmitted();
-        
-        // If callback provided, attach it to the future (fires when batch is processed with this item's result)
+        // Item accepted - attach callback if provided
         if (callback != null) {
-            future.thenAccept(batchResult -> {
-                // Extract this specific item's result from the batch
+            context.batchFuture.thenAccept(batchResult -> {
                 ItemResult<T> itemResult = batchResult.findItemResult(item)
                     .orElseThrow(() -> new IllegalStateException("Item result not found in batch"));
-                // Callback fires with individual item's result
-                callback.onResult(item, itemResult);
+                callback.onResult(itemResult);
             });
         }
         
         return ItemResult.success(item);
+    }
+    
+    /**
+     * Submits an item asynchronously, returning a CompletableFuture that completes
+     * with the item's processing result.
+     * 
+     * <p>This method provides an asynchronous API for submission, allowing users
+     * to chain CompletableFuture operations:
+     * <pre>{@code
+     * CompletableFuture<ItemResult<String>> future = batcher.submitAsync("item");
+     * future
+     *     .thenAccept(result -> {
+     *         if (result instanceof ItemResult.Success<String>) {
+     *             System.out.println("Success!");
+     *         }
+     *     })
+     *     .exceptionally(throwable -> {
+     *         if (throwable instanceof ItemRejectedException) {
+     *             // Handle rejection
+     *         }
+     *         return null;
+     *     });
+     * }</pre>
+     * 
+     * <p><strong>Behavior:</strong>
+     * <ul>
+     *   <li>Returns CompletableFuture immediately (never blocks)</li>
+     *   <li>If queue is full: Completes future exceptionally with ItemRejectedException</li>
+     *   <li>If item is accepted: Completes future with ItemResult when batch processing completes</li>
+     *   <li>The future completes on the batch processing thread</li>
+     * </ul>
+     * 
+     * <p><strong>Example Usage:</strong>
+     * <pre>{@code
+     * // Chain operations
+     * batcher.submitAsync(item)
+     *     .thenApply(result -> {
+     *         if (result instanceof ItemResult.Success<MyItem>) {
+     *             return processSuccess(result.getItem());
+     *         } else if (result instanceof ItemResult.Failure<MyItem> failure) {
+     *             return handleFailure(failure.error());
+     *         }
+     *         return null;
+     *     })
+     *     .thenAccept(processed -> System.out.println("Processed: " + processed));
+     * 
+     * // Or use with CompletableFuture.allOf()
+     * List<CompletableFuture<ItemResult<MyItem>>> futures = items.stream()
+     *     .map(batcher::submitAsync)
+     *     .toList();
+     * CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+     *     .thenRun(() -> System.out.println("All items processed"));
+     * }</pre>
+     * 
+     * @param item the item to submit
+     * @return a CompletableFuture that completes with ItemResult when the item is processed,
+     *         or completes exceptionally with ItemRejectedException if the item is rejected immediately
+     * @throws IllegalStateException if batcher is closed (synchronous check)
+     * @throws NullPointerException if item is null (synchronous check)
+     * @since 0.0.11
+     */
+    public CompletableFuture<ItemResult<T>> submitAsync(T item) {
+        SubmissionContext<T> context = submissionHandler.submitCommon(item, true, false);
+        
+        // For rejected items, the future is already completed exceptionally
+        // For accepted items, transform BatchResult to ItemResult
+        return context.batchFuture.thenApply(batchResult -> {
+            ItemResult<T> itemResult = batchResult.findItemResult(item)
+                .orElseThrow(() -> new IllegalStateException("Item result not found in batch"));
+            return itemResult;
+        });
     }
     
     /**
@@ -392,15 +414,26 @@ public class MicroBatcher<T> implements AutoCloseable {
             return future;
         }
         
-        // Tracing hook
-        safeOnSubmit(item);
+        // Tracing hook - use submission handler's tracing helper
+        // Note: This is a temporary workaround for submitInternal which needs tracing
+        // but doesn't go through submissionHandler. In a future refactor, we could
+        // extract this to a shared TracingHelper instance.
+        if (tracingHook != null && item != null) {
+            try {
+                tracingHook.onSubmit(item);
+            } catch (Exception e) {
+                if (debugMode) {
+                    logger.debug("Tracing hook onSubmit failed", e);
+                }
+            }
+        }
 
         CompletableFuture<BatchResult<T>> future = new CompletableFuture<>();
         PendingRequest<T> request = new PendingRequest<>(item, future);
 
         // For internal retries/replays we do not apply the public rejection threshold,
         // but we still use a timed offer to avoid blocking indefinitely.
-        EnqueueResult enqueueResult = tryEnqueue(request, false, true);
+        EnqueueResult enqueueResult = submissionHandler.tryEnqueue(request, false, true);
 
         if (enqueueResult == EnqueueResult.REJECTED_THRESHOLD || enqueueResult == EnqueueResult.REJECTED_FULL) {
             metrics.recordRequestRejected();
@@ -462,51 +495,7 @@ public class MicroBatcher<T> implements AutoCloseable {
     }
     
     private void processBatch() throws InterruptedException {
-        // Pre-size batch list to avoid resizing
-        int batchSize = config.getBatchSize();
-        List<PendingRequest<T>> batch = new ArrayList<>(batchSize);
-        
-        Duration lingerTime = config.getLingerTime();
-        long lingerTimeNanos = lingerTime.toNanos();
-        
-        // Wait for first item with timeout based on linger time
-        PendingRequest<T> first = queue.poll(lingerTime.toMillis(), TimeUnit.MILLISECONDS);
-        if (first == null) {
-            return;
-        }
-        
-        batch.add(first);
-        
-        if (debugMode) {
-            logger.debug("Starting batch formation, first item: {}", first.getData());
-        }
-        
-        // Collect up to batchSize items, respecting linger time
-        long deadline = System.nanoTime() + lingerTimeNanos;
-        while (batch.size() < batchSize) {
-            long remainingNanos = deadline - System.nanoTime();
-            if (remainingNanos <= 0) {
-                if (debugMode) {
-                    logger.debug("Linger time elapsed, batch size: {}", batch.size());
-                }
-                break;
-            }
-            
-            // Convert nanos to millis directly (optimization: avoid Duration object creation)
-            long remainingMillis = Math.max(1, remainingNanos / 1_000_000);
-            PendingRequest<T> next = queue.poll(remainingMillis, TimeUnit.MILLISECONDS);
-            if (next == null) {
-                if (debugMode) {
-                    logger.debug("Timeout waiting for next item, batch size: {}", batch.size());
-                }
-                break;
-            }
-            batch.add(next);
-            if (debugMode) {
-                logger.debug("Added item to batch, current size: {}, queue depth: {}", 
-                    batch.size(), queue.size());
-            }
-        }
+        List<PendingRequest<T>> batch = batchFormationStrategy.formBatch();
         
         if (!batch.isEmpty()) {
             if (debugMode) {
@@ -517,156 +506,7 @@ public class MicroBatcher<T> implements AutoCloseable {
     }
     
     private void dispatchBatch(List<PendingRequest<T>> batch) {
-        if (batch.isEmpty()) {
-            return;
-        }
-        
-        // Try to acquire permit if limit is configured
-        boolean acquired = true;
-        if (dispatchSemaphore != null) {
-            acquired = dispatchSemaphore.tryAcquire();
-            if (!acquired) {
-                // Can't dispatch - too many concurrent batches
-                metrics.recordDispatchRejected();
-                if (debugMode) {
-                    logger.debug("Batch rejected: too many concurrent batches (limit: {})", config.getMaxConcurrentBatches());
-                }
-                handleDispatchRejection(batch);
-                return;
-            }
-        }
-        
-        // Build data list once so it can be reused for dispatch, metrics, and tracing
-        List<T> dataList = new ArrayList<>(batch.size());
-        for (PendingRequest<T> req : batch) {
-            dataList.add(req.getData());
-        }
-        
-        if (tracingHook != null) {
-            try {
-                tracingHook.onBatchDispatchStart(dataList);
-            } catch (Exception e) {
-                if (debugMode) {
-                    logger.debug("Tracing hook onBatchDispatchStart failed", e);
-                }
-            }
-        }
-        
-        metrics.recordBatchDispatched();
-        
-        // Calculate average wait time inline (optimization: avoid stream overhead)
-        if (debugMode) {
-            long totalWait = 0;
-            long now = System.nanoTime();
-            for (PendingRequest<T> req : batch) {
-                totalWait += now - req.getTimestamp();
-            }
-            long avgWaitTime = totalWait / batch.size();
-            logger.debug("Dispatching batch: size={}, avgWaitTimeNs={}", batch.size(), avgWaitTime);
-        }
-        
-        metrics.recordBatchSize(batch.size());
-        
-        Timer.Sample sample = metrics.startBatchDispatchTimer();
-        
-        // Record per-item batch size and queue wait time if enabled
-        if (config.isPerItemMetrics()) {
-            metrics.recordItemBatchSize(batch.size());
-            
-            // Record queue wait time for each item (from submit to batch dispatch start)
-            long dispatchStartTime = System.nanoTime();
-            for (PendingRequest<T> req : batch) {
-                long queueWaitTime = dispatchStartTime - req.getTimestamp();
-                metrics.recordQueueWaitTime(queueWaitTime);
-            }
-        }
-        
-        // Execute backend dispatch on a virtual thread
-        try {
-            executor.submit(() -> {
-                // Update active batch count after successful submission
-                if (activeBatchCount != null) {
-                    activeBatchCount.incrementAndGet();
-                }
-                try {
-                    if (debugMode) {
-                        logger.debug("Calling backend.dispatch() for batch of size: {}", dataList.size());
-                    }
-                    BatchResult<T> result = backend.dispatch(dataList);
-                    metrics.recordBatchDispatchLatency(sample);
-                    if (tracingHook != null) {
-                        try {
-                            tracingHook.onBatchDispatchSuccess(dataList, result);
-                        } catch (Exception e) {
-                            if (debugMode) {
-                                logger.debug("Tracing hook onBatchDispatchSuccess failed", e);
-                            }
-                        }
-                    }
-                    if (debugMode) {
-                        logger.debug("Backend dispatch completed: successes={}, failures={}", 
-                            result.getSuccesses().size(), result.getFailures().size());
-                    }
-                    resultProcessor.processResults(batch, result);
-                } catch (Exception e) {
-                    metrics.recordBatchDispatchLatency(sample);
-                    if (tracingHook != null) {
-                        try {
-                            tracingHook.onBatchDispatchFailure(dataList, e);
-                        } catch (Exception hookError) {
-                            if (debugMode) {
-                                logger.debug("Tracing hook onBatchDispatchFailure failed", hookError);
-                            }
-                        }
-                    }
-                    if (debugMode) {
-                        logger.debug("Backend dispatch failed", e);
-                    }
-                    resultProcessor.processFailure(batch, e);
-                } finally {
-                    // Release permit when done
-                    if (dispatchSemaphore != null) {
-                        dispatchSemaphore.release();
-                    }
-                    // Update active batch count
-                    if (activeBatchCount != null) {
-                        activeBatchCount.decrementAndGet();
-                    }
-                }
-            });
-        } catch (RejectedExecutionException e) {
-            // Executor rejected - release permit (activeBatchCount was never incremented)
-            if (dispatchSemaphore != null) {
-                dispatchSemaphore.release();
-            }
-            if (debugMode) {
-                logger.debug("Executor rejected batch dispatch", e);
-            }
-            handleDispatchRejection(batch);
-        }
-    }
-    
-    /**
-     * Handles rejection of a batch due to concurrent dispatch limit.
-     * 
-     * <p>When a batch cannot be dispatched due to the concurrent batch limit,
-     * the items in the batch are rejected individually. Each item's future
-     * (if using submit() with callback) will
-     * be notified of the rejection.
-     * 
-     * @param batch the batch that was rejected
-     */
-    private void handleDispatchRejection(List<PendingRequest<T>> batch) {
-        int activeBatches = activeBatchCount != null ? activeBatchCount.get() : 0;
-        ItemRejectedException rejectionError = ItemRejectedException.concurrentLimitReached(
-            activeBatches, config.getMaxConcurrentBatches());
-        
-        for (PendingRequest<T> request : batch) {
-            CompletableFuture<BatchResult<T>> future = request.getFuture();
-            if (future != null && !future.isDone()) {
-                future.completeExceptionally(rejectionError);
-            }
-        }
+        batchDispatcher.dispatchBatch(batch);
     }
     
     /**
@@ -691,48 +531,7 @@ public class MicroBatcher<T> implements AutoCloseable {
     @Override
     public void close() {
         closed = true;
-        
-        retryManager.clearAll();
-
-        // Best-effort wait for the batch processor to drain the queue
-        waitForQueueToDrain(CLOSE_QUEUE_WAIT_TIMEOUT_MS, TimeUnit.MILLISECONDS);
-        
-        // Shutdown executor gracefully to allow in-flight batches to complete
-        executor.shutdown();
-        
-        try {
-            if (!executor.awaitTermination(EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-                executor.shutdownNow();
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            executor.shutdownNow();
-        }
-        
-        // Wait for all in-flight batches to complete (if concurrent limiting is enabled)
-        try {
-            awaitInFlightBatches(EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-        
-        // Process any remaining items synchronously after executor is done
-        List<PendingRequest<T>> remaining = new ArrayList<>();
-        queue.drainTo(remaining);
-        if (!remaining.isEmpty()) {
-            // Create data list with pre-sized ArrayList (optimization: avoid stream overhead)
-            List<T> dataList = new ArrayList<>(remaining.size());
-            for (PendingRequest<T> req : remaining) {
-                dataList.add(req.getData());
-            }
-            
-            try {
-                BatchResult<T> result = backend.dispatch(dataList);
-                resultProcessor.processResults(remaining, result);
-            } catch (Exception e) {
-                resultProcessor.processFailure(remaining, e);
-            }
-        }
+        shutdownManager.shutdown();
     }
     
     /**
@@ -767,73 +566,7 @@ public class MicroBatcher<T> implements AutoCloseable {
      * @since 0.0.7
      */
     public boolean awaitCompletion(long timeout, TimeUnit unit) throws InterruptedException {
-        if (closed) {
-            // If already closed, just wait for in-flight batches
-            return awaitInFlightBatches(timeout, unit);
-        }
-
-        long timeoutMillis = unit.toMillis(timeout);
-
-        // Wait for queue to drain
-        long remainingAfterQueue = waitForQueueToDrain(timeoutMillis, TimeUnit.MILLISECONDS);
-        if (remainingAfterQueue <= 0) {
-            return queue.isEmpty() && (activeBatchCount == null || activeBatchCount.get() == 0);
-        }
-
-        // Wait for in-flight batches with remaining time
-        return awaitInFlightBatches(remainingAfterQueue, TimeUnit.MILLISECONDS);
-    }
-    
-    /**
-     * Waits for all in-flight batches to complete.
-     * 
-     * @param timeout the maximum time to wait
-     * @param unit the time unit of the timeout
-     * @return true if all batches completed within the timeout, false otherwise
-     * @throws InterruptedException if the current thread is interrupted while waiting
-     */
-    private boolean awaitInFlightBatches(long timeout, TimeUnit unit) throws InterruptedException {
-        if (activeBatchCount == null) {
-            // No concurrent limiting - just wait for executor to finish
-            if (executor.isShutdown()) {
-                return executor.awaitTermination(timeout, unit);
-            }
-            // Executor not shut down yet - can't reliably wait
-            return true;
-        }
-        
-        long deadline = System.currentTimeMillis() + unit.toMillis(timeout);
-        while (activeBatchCount.get() > 0 && System.currentTimeMillis() < deadline) {
-            Thread.sleep(10);
-            if (Thread.currentThread().isInterrupted()) {
-                throw new InterruptedException("Interrupted while waiting for in-flight batches");
-            }
-        }
-        
-        return activeBatchCount.get() == 0;
-    }
-
-    /**
-     * Waits for the internal queue to drain, up to the given timeout.
-     *
-     * @param timeout the maximum time to wait
-     * @param unit the time unit of the timeout
-     * @return remaining time budget in milliseconds (may be zero or negative if timed out)
-     */
-    private long waitForQueueToDrain(long timeout, TimeUnit unit) {
-        long timeoutMillis = unit.toMillis(timeout);
-        long deadline = System.currentTimeMillis() + timeoutMillis;
-
-        while (!queue.isEmpty() && System.currentTimeMillis() < deadline) {
-            try {
-                Thread.sleep(CLOSE_POLL_INTERVAL_MS);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                break;
-            }
-        }
-
-        return deadline - System.currentTimeMillis();
+        return shutdownManager.awaitCompletion(timeout, unit, closed);
     }
     
     /**

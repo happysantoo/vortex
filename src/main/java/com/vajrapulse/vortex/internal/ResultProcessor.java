@@ -17,6 +17,8 @@ import java.util.concurrent.CompletableFuture;
 
 /**
  * Processes batch results and maps them back to individual requests.
+ *
+ * @param <T> the type of item being processed
  */
 public class ResultProcessor<T> {
     private static final Logger logger = LoggerFactory.getLogger(ResultProcessor.class);
@@ -28,6 +30,16 @@ public class ResultProcessor<T> {
     private final java.util.function.Function<T, CompletableFuture<BatchResult<T>>> submitFunction;
     private final boolean debugMode;
     
+    /**
+     * Creates a new ResultProcessor.
+     *
+     * @param config the batcher configuration
+     * @param backend the backend for processing batches
+     * @param metrics the metrics manager for recording metrics
+     * @param retryManager the retry manager for handling retries
+     * @param submitFunction function to submit items for retry/replay
+     * @param debugMode whether debug mode is enabled
+     */
     public ResultProcessor(BatcherConfig config, Backend<T> backend, 
                    MetricsManager metrics, RetryManager<T> retryManager,
                    java.util.function.Function<T, CompletableFuture<BatchResult<T>>> submitFunction,
@@ -40,6 +52,12 @@ public class ResultProcessor<T> {
         this.debugMode = debugMode;
     }
     
+    /**
+     * Processes batch results and maps them back to individual requests.
+     *
+     * @param batch the list of pending requests in the batch
+     * @param result the batch result from the backend
+     */
     public void processResults(List<PendingRequest<T>> batch, BatchResult<T> result) {
         if (config.isAtomicCommit() && !result.isAllSuccess()) {
             processAtomicCommitFailure(batch, result);
@@ -270,6 +288,12 @@ public class ResultProcessor<T> {
         }
     }
     
+    /**
+     * Processes a batch failure by recording metrics and attempting retries for all items.
+     *
+     * @param batch the list of pending requests in the failed batch
+     * @param error the error that caused the batch to fail
+     */
     public void processFailure(List<PendingRequest<T>> batch, Throwable error) {
         long batchCompletionTime = System.nanoTime();
         for (PendingRequest<T> req : batch) {

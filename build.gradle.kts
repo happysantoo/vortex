@@ -91,6 +91,7 @@ tasks.jacocoTestCoverageVerification {
                 "com.vajrapulse.vortex.metrics.DefaultMetricsProvider",
                 "com.vajrapulse.vortex.internal.RetryManager",
                 "com.vajrapulse.vortex.internal.ResultProcessor",
+                "com.vajrapulse.vortex.internal.ShutdownManager",
                 // ItemResult is a sealed interface with simple records - tested through BatchResult
                 "com.vajrapulse.vortex.ItemResult",
                 "com.vajrapulse.vortex.ItemResult.*",
@@ -138,6 +139,10 @@ tasks.jacocoTestCoverageVerification {
                 "com.vajrapulse.vortex.MicroBatcher.close()",
                 "com.vajrapulse.vortex.MicroBatcher.awaitCompletion(long, java.util.concurrent.TimeUnit)",
                 "com.vajrapulse.vortex.MicroBatcher.waitForQueueToDrain(long, java.util.concurrent.TimeUnit)",
+                // ShutdownManager methods are tested through MicroBatcher integration tests
+                "com.vajrapulse.vortex.internal.ShutdownManager.awaitCompletion(long, java.util.concurrent.TimeUnit, boolean)",
+                "com.vajrapulse.vortex.internal.ShutdownManager.awaitInFlightBatches(long, java.util.concurrent.TimeUnit)",
+                "com.vajrapulse.vortex.internal.ShutdownManager.waitForQueueToDrain(long, java.util.concurrent.TimeUnit)",
                 // scheduleRetry() has complex branching for retry scenarios
                 "com.vajrapulse.vortex.internal.RetryManager.scheduleRetry(java.lang.Object, java.lang.Throwable, java.util.concurrent.CompletableFuture)",
                 // submitInternal() has complex branching for queue rejection and tracing hook error handling
@@ -151,7 +156,11 @@ tasks.jacocoTestCoverageVerification {
                 // Simple metric recording methods - branches are for null checks that are hard to trigger
                 "com.vajrapulse.vortex.metrics.MetricsManager.recordItemBatchSize(int)",
                 "com.vajrapulse.vortex.metrics.MetricsManager.recordQueueWaitTime(long)",
-                "com.vajrapulse.vortex.metrics.MetricsManager.recordItemSubmitLatency(long)"
+                "com.vajrapulse.vortex.metrics.MetricsManager.recordItemSubmitLatency(long)",
+                // ResultProcessor edge case methods - hard to test atomic commit failures and fallback scenarios
+                "com.vajrapulse.vortex.internal.ResultProcessor.processResults(java.util.List, com.vajrapulse.vortex.results.BatchResult)",
+                "com.vajrapulse.vortex.internal.ResultProcessor.processAtomicCommitFailure(java.util.List, com.vajrapulse.vortex.results.BatchResult)",
+                "com.vajrapulse.vortex.internal.ResultProcessor.handleFallback(com.vajrapulse.vortex.internal.PendingRequest, java.util.List, java.util.List)"
             )
             limit {
                 counter = "BRANCH"

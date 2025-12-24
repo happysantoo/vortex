@@ -28,14 +28,30 @@ public record PendingRequest<T>(
     
     // Convenience getters for backward compatibility (Records generate data(), future(), timestamp() automatically)
     // These are optional but make the migration smoother
+    
+    /**
+     * Gets the request data.
+     *
+     * @return the request data
+     */
     public T getData() {
         return data;
     }
     
+    /**
+     * Gets the CompletableFuture that will be completed with the batch result.
+     *
+     * @return the CompletableFuture for the batch result
+     */
     public CompletableFuture<BatchResult<T>> getFuture() {
         return future;
     }
     
+    /**
+     * Gets the timestamp when the request was created.
+     *
+     * @return the timestamp in nanoseconds
+     */
     public long getTimestamp() {
         return timestamp;
     }
