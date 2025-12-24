@@ -1,7 +1,6 @@
 package com.vajrapulse.vortex;
 
 import com.vajrapulse.vortex.benchmark.BenchmarkBatcherFactory;
-import com.vajrapulse.vortex.results.ItemResult;
 import org.openjdk.jmh.annotations.*;
 import org.openjdk.jmh.infra.Blackhole;
 
@@ -59,7 +58,7 @@ public class SubmitSyncBenchmark {
      */
     @Benchmark
     public void submitWithCallback(Blackhole bh) {
-        var result = batcher.submit("item", (item, itemResult) -> {
+        var result = batcher.submit("item", itemResult -> {
             // Callback invoked when item is processed
             bh.consume(itemResult);
         });

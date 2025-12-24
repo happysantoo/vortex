@@ -9,6 +9,7 @@ import org.openjdk.jmh.runner.RunnerException;
 import org.openjdk.jmh.runner.options.Options;
 import org.openjdk.jmh.runner.options.OptionsBuilder;
 
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -72,7 +73,7 @@ public class LatencyBenchmark {
         CountDownLatch latch = new CountDownLatch(1);
         
         startTime[0] = System.nanoTime();
-        ItemResult<String> result = batcher.submit("test-item", (item, itemResult) -> {
+        ItemResult<String> result = batcher.submit("test-item", itemResult -> {
             long endTime = System.nanoTime();
             long latency = endTime - startTime[0];
             bh.consume(itemResult);
@@ -117,6 +118,56 @@ public class LatencyBenchmark {
         ItemResult<String> result = batcherSmallQueue.submit("item");
         long end = System.nanoTime();
         bh.consume(result);
+        return end - start;
+    }
+    
+    /**
+     * Measure latency of submitAsync() call (immediate return of CompletableFuture).
+     * This measures the overhead of the submitAsync() method itself.
+     */
+    @Benchmark
+    public long submitAsyncLatency(Blackhole bh) {
+        long start = System.nanoTime();
+        CompletableFuture<ItemResult<String>> future = batcher.submitAsync("test-item");
+        long end = System.nanoTime();
+        bh.consume(future);
+        return end - start;
+    }
+    
+    /**
+     * Measure latency from submitAsync to future completion (end-to-end).
+     * This measures the time from submission until the future completes.
+     */
+    @Benchmark
+    public long submitAsyncToCompletionLatency(Blackhole bh) {
+        long start = System.nanoTime();
+        CompletableFuture<ItemResult<String>> future = batcher.submitAsync("test-item");
+        try {
+            ItemResult<String> result = future.get(100, TimeUnit.MILLISECONDS);
+            long end = System.nanoTime();
+            bh.consume(result);
+            return end - start;
+        } catch (Exception e) {
+            // Best effort - return what we have
+            long end = System.nanoTime();
+            return end - start;
+        }
+    }
+    
+    /**
+     * Measure latency of submitAsync() rejection path (when queue is full).
+     */
+    @Benchmark
+    public long submitAsyncRejectionLatency(Blackhole bh) {
+        // Fill queue first
+        for (int i = 0; i < 10; i++) {
+            batcherSmallQueue.submitAsync("item-" + i);
+        }
+        
+        long start = System.nanoTime();
+        CompletableFuture<ItemResult<String>> future = batcherSmallQueue.submitAsync("item-rejected");
+        long end = System.nanoTime();
+        bh.consume(future);
         return end - start;
     }
     

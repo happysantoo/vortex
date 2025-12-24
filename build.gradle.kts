@@ -33,9 +33,16 @@ sourceSets {
     }
 }
 
+// Extend examplesImplementation from implementation to inherit all dependencies
+configurations {
+    named("examplesImplementation") {
+        extendsFrom(configurations["implementation"])
+    }
+}
+
 dependencies {
     // Micrometer for metrics
-    implementation("io.micrometer:micrometer-core:1.16.0")
+    implementation("io.micrometer:micrometer-core:1.16.1")
     
     // Micrometer Tracing for distributed tracing
     implementation("io.micrometer:micrometer-tracing:1.2.0")
@@ -54,10 +61,8 @@ dependencies {
     annotationProcessor("org.openjdk.jmh:jmh-generator-annprocess:1.37")
     
     // Examples sourceSet - add main sourceSet output
+    // Dependencies are inherited via extendsFrom above
     "examplesImplementation"(sourceSets["main"].output)
-    // Explicitly add implementation dependencies (examplesImplementation should inherit, but being explicit)
-    "examplesImplementation"("io.micrometer:micrometer-core:1.16.0")
-    "examplesImplementation"("org.slf4j:slf4j-api:2.0.9")
     "examplesRuntimeOnly"("org.slf4j:slf4j-simple:2.0.9")
 }
 

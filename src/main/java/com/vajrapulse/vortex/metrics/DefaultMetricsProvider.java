@@ -110,24 +110,40 @@ class DefaultMetricsProvider implements MetricsProvider {
 
     @Override
     public double getAverageDispatchLatency() {
-        double mean = batchDispatchLatency.mean(TimeUnit.MILLISECONDS);
+        long count = batchDispatchLatency.count();
+        if (count == 0) {
+            return 0.0;
+        }
+        double mean = batchDispatchLatency.totalTime(TimeUnit.MILLISECONDS) / count;
         return Double.isNaN(mean) ? 0.0 : mean;
     }
 
     @Override
     public double getAverageWaitLatency() {
-        double mean = requestWaitLatency.mean(TimeUnit.MILLISECONDS);
+        long count = requestWaitLatency.count();
+        if (count == 0) {
+            return 0.0;
+        }
+        double mean = requestWaitLatency.totalTime(TimeUnit.MILLISECONDS) / count;
         return Double.isNaN(mean) ? 0.0 : mean;
     }
 
     @Override
     public double getP95DispatchLatency() {
+        // Timer.percentile() is deprecated but still functional in 1.16.0
+        // The replacement API requires percentiles to be published at timer creation,
+        // which we can't change retroactively. Suppress warning for now.
+        @SuppressWarnings("deprecation")
         double percentile = batchDispatchLatency.percentile(0.95, TimeUnit.MILLISECONDS);
         return Double.isNaN(percentile) ? 0.0 : percentile;
     }
 
     @Override
     public double getP99DispatchLatency() {
+        // Timer.percentile() is deprecated but still functional in 1.16.0
+        // The replacement API requires percentiles to be published at timer creation,
+        // which we can't change retroactively. Suppress warning for now.
+        @SuppressWarnings("deprecation")
         double percentile = batchDispatchLatency.percentile(0.99, TimeUnit.MILLISECONDS);
         return Double.isNaN(percentile) ? 0.0 : percentile;
     }

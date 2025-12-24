@@ -9,6 +9,7 @@ import org.openjdk.jmh.runner.RunnerException;
 import org.openjdk.jmh.runner.options.Options;
 import org.openjdk.jmh.runner.options.OptionsBuilder;
 
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -72,7 +73,7 @@ public class MicroBatcherBenchmark {
         CountDownLatch latch = new CountDownLatch(10);
         for (int i = 0; i < 10; i++) {
             final int index = i;
-            ItemResult<String> result = batcher.submit("item-" + index, (item, itemResult) -> {
+            ItemResult<String> result = batcher.submit("item-" + index, itemResult -> {
                 bh.consume(itemResult);
                 latch.countDown();
             });
@@ -94,6 +95,52 @@ public class MicroBatcherBenchmark {
         for (int i = 0; i < 10; i++) {
             ItemResult<String> result = batcher.submit("item-" + i);
             bh.consume(result);
+        }
+    }
+    
+    /**
+     * Benchmark submitAsync() throughput - single request.
+     */
+    @Benchmark
+    public void submitAsyncSingleRequest(Blackhole bh) {
+        CompletableFuture<ItemResult<String>> future = batcher.submitAsync("test-item");
+        bh.consume(future);
+    }
+    
+    /**
+     * Benchmark submitAsync() throughput - concurrent requests.
+     */
+    @Benchmark
+    @Threads(4)
+    public void submitAsyncConcurrentRequests(Blackhole bh) {
+        String threadName = Thread.currentThread().getName();
+        CompletableFuture<ItemResult<String>> future = batcher.submitAsync("test-item-" + threadName);
+        bh.consume(future);
+    }
+    
+    /**
+     * Benchmark submitAsync() throughput - batch with completion waiting.
+     */
+    @Benchmark
+    @SuppressWarnings("unchecked")
+    public void submitAsyncBatchWithCompletion(Blackhole bh) {
+        CompletableFuture<ItemResult<String>>[] futures = new CompletableFuture[10];
+        for (int i = 0; i < 10; i++) {
+            futures[i] = batcher.submitAsync("item-" + i);
+        }
+        // Wait for all to complete (best effort - may timeout in benchmark)
+        try {
+            CompletableFuture.allOf(futures).get(100, TimeUnit.MILLISECONDS);
+            for (CompletableFuture<ItemResult<String>> future : futures) {
+                bh.consume(future.join());
+            }
+        } catch (Exception e) {
+            // Best effort - consume what we have
+            for (CompletableFuture<ItemResult<String>> future : futures) {
+                if (future.isDone()) {
+                    bh.consume(future.join());
+                }
+            }
         }
     }
     
