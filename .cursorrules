@@ -499,6 +499,53 @@ When reviewing code, check:
 
 ---
 
+## EXAMPLES MAINTENANCE REQUIREMENTS
+
+### When API Changes
+1. **Update all examples** that use the changed API
+2. **Verify examples compile** by running `./gradlew compileExamplesJava`
+3. **Test examples manually** to ensure they still demonstrate correct usage
+4. **Update examples/README.md** if new examples are added or removed
+
+### Before Every Release
+1. **Review all examples** for API compatibility
+2. **Run `./gradlew compileExamplesJava`** - MUST pass
+3. **Verify examples demonstrate current best practices**
+4. **Update examples/README.md** with any changes
+
+### Example File Standards
+- **One example per file** - Each example should focus on one concept
+- **Include error handling** - Show how to handle common errors
+- **Use current API** - Never use deprecated or removed methods
+- **Add JavaDoc** - Explain what the example demonstrates
+- **Include package declaration** - `package com.vajrapulse.vortex.example;`
+- **Include main method** - Examples should be runnable
+- **Use try-with-resources** - Always close batcher properly
+
+### Example Naming Conventions
+- **Descriptive names** - `ThreeSubmissionMethodsExample.java`
+- **PascalCase** - Follow Java class naming
+- **Suffix with Example** - All example files end with `Example.java`
+
+### Required Examples
+The following examples MUST exist and be kept up-to-date:
+1. **ThreeSubmissionMethodsExample.java** - All three submission methods
+2. **ErrorHandlingExample.java** - Comprehensive error handling
+3. **BasicUsageExample.java** - Simple getting started example
+4. **MetricsExample.java** - Metrics usage
+5. **TracingExample.java** - Tracing integration
+
+### Deprecated/Removed Examples
+- **AdaptiveBatchingExample.java** - Removed because dynamic batch size updates were removed in 0.0.10. Use MetricsExample.java for metrics monitoring instead.
+
+### Examples Build Integration
+- Examples are compiled as part of the build (`./gradlew build`)
+- Examples use a separate sourceSet (`examples`) that compiles but doesn't run automatically
+- Examples inherit all dependencies from the main sourceSet
+- If examples fail to compile, the build fails - this ensures examples stay current
+
+---
+
 ## EXCLUDED FROM COVERAGE
 
 The following are excluded from coverage requirements (see build.gradle.kts for full list):

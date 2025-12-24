@@ -1,11 +1,11 @@
 package com.vajrapulse.vortex.example;
 
 import com.vajrapulse.vortex.*;
+import com.vajrapulse.vortex.results.*;
 
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 
 /**
@@ -53,49 +53,38 @@ public class ExampleUsage {
         // Create the micro-batcher
         try (MicroBatcher<String> batcher = new MicroBatcher<>(backend, config)) {
             
-            // OPTION 1: Use submitWithCallback (RECOMMENDED - Cleanest)
+            // OPTION 1: Use submit(item, callback) (RECOMMENDED - Cleanest)
             // No need to track futures - callback handles each item's result
             // 
-            // BACKPRESSURE HANDLING:
-            // - Queue size is limited to 2x batch size (e.g., batchSize=5 → queue=10 items)
-            // - If queue is full, submit() waits up to 100ms, then rejects with ItemRejectedException
-            // - As of 0.0.8, all rejections (queue full, concurrent limit, backpressure) throw ItemRejectedException
-            // - Always handle exceptions to detect backpressure!
-            List<CompletableFuture<Void>> callbacks = new ArrayList<>();
+            // ERROR HANDLING:
+            // - Queue size is limited (default: 2x batch size, or custom maxQueueSize)
+            // - If queue is full, submit() returns ItemResult.Failure immediately with ItemRejectedException
+            // - Always check ItemResult to detect rejections!
+            ItemCallback<String> callback = result -> {
+                // Callback fires when item is processed
+                if (result instanceof ItemResult.Success<String> success) {
+                    System.out.println("Request " + success.getItem() + " succeeded");
+                } else if (result instanceof ItemResult.Failure<String> failure) {
+                    System.out.println("Request " + failure.getItem() + " failed: " + failure.error().getMessage());
+                }
+            };
+            
             for (int requestIndex = 0; requestIndex < 15; requestIndex++) {
                 final int requestId = requestIndex;
-                CompletableFuture<Void> callback = batcher.submitWithCallback(
-                    "Request-" + requestId,
-                    (item, result) -> {
-                        if (result instanceof ItemResult.Success) {
-                            System.out.println("Request " + requestId + " succeeded: " + item);
-                        } else if (result instanceof ItemResult.Failure) {
-                            System.out.println("Request " + requestId + " failed: " + 
-                                ((ItemResult.Failure<String>) result).error().getMessage());
-                        }
-                    }
-                );
+                ItemResult<String> result = batcher.submit("Request-" + requestId, callback);
                 
-                // Handle backpressure: queue full, concurrent limit, or backpressure threshold
-                callback.exceptionally(throwable -> {
-                    Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
-                    if (cause instanceof com.vajrapulse.vortex.backpressure.ItemRejectedException) {
-                        com.vajrapulse.vortex.backpressure.ItemRejectedException bpEx = 
-                            (com.vajrapulse.vortex.backpressure.ItemRejectedException) cause;
-                        System.err.println("⚠ Request " + requestId + " REJECTED: " + bpEx.getMessage() +
-                            " (level: " + bpEx.getBackpressureLevel() + ", source: " + bpEx.getSourceName() + ")");
+                // Check immediate rejection (queue full, etc.)
+                if (result instanceof ItemResult.Failure<String> failure) {
+                    if (failure.error() instanceof ItemRejectedException) {
+                        System.err.println("⚠ Request " + requestId + " REJECTED: " + failure.error().getMessage());
                         // Options: retry, log, send to dead letter queue, or fail fast
                     } else {
-                        System.err.println("⚠ Request " + requestId + " ERROR: " + throwable.getMessage());
+                        System.err.println("⚠ Request " + requestId + " ERROR: " + failure.error().getMessage());
                     }
-                    return null; // Complete exceptionally handled
-                });
-                
-                callbacks.add(callback);
+                }
             }
             
-            // Wait for all callbacks to complete
-            CompletableFuture.allOf(callbacks.toArray(new CompletableFuture[0])).get();
+            Thread.sleep(500); // Wait for processing
             
             // Print metrics
             System.out.println("\n=== Metrics ===");

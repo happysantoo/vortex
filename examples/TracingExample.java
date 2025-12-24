@@ -1,12 +1,12 @@
 package com.vajrapulse.vortex.example;
 
 import com.vajrapulse.vortex.*;
+import com.vajrapulse.vortex.results.*;
 import com.vajrapulse.vortex.tracing.LoggingTracingHook;
 
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 
 /**
  * Example demonstrating the BatchTracingHook interface for observability.
@@ -75,11 +75,16 @@ public class TracingExample {
         try (MicroBatcher<String> batcher = new MicroBatcher<>(backend, config)) {
             System.out.println("Submitting 5 items...\n");
             
+            ItemCallback<String> callback = result -> {
+                if (result instanceof ItemResult.Success<String>) {
+                    System.out.println("Result: Item processed successfully\n");
+                } else if (result instanceof ItemResult.Failure<String>) {
+                    System.out.println("Result: Item failed\n");
+                }
+            };
+            
             for (int itemIndex = 0; itemIndex < 5; itemIndex++) {
-                CompletableFuture<BatchResult<String>> future = batcher.submit("Item-" + itemIndex);
-                future.thenAccept(result -> 
-                    System.out.println("Result: " + result.getSuccesses().size() + " successes\n")
-                );
+                batcher.submit("Item-" + itemIndex, callback);
             }
             
             Thread.sleep(500); // Wait for processing

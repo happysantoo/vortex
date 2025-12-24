@@ -1,11 +1,11 @@
 package com.vajrapulse.vortex.example;
 
 import com.vajrapulse.vortex.*;
+import com.vajrapulse.vortex.results.*;
 
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 
 /**
  * Example demonstrating atomic commit mode where all items fail if any fails.
@@ -36,21 +36,23 @@ public class AtomicCommitExample {
             .build();
         
         try (MicroBatcher<String> batcher = new MicroBatcher<>(backend, config)) {
-            List<CompletableFuture<BatchResult<String>>> futures = new ArrayList<>();
+            // Reusable callback that extracts item name from result
+            ItemCallback<String> callback = result -> {
+                String itemName = result.getItem();
+                String status = result instanceof ItemResult.Success<String> 
+                    ? "SUCCESS" 
+                    : "FAILED - " + ((ItemResult.Failure<String>) result).error().getMessage();
+                System.out.println(itemName + ": " + status);
+            };
             
-            futures.add(batcher.submit("item-1"));
-            futures.add(batcher.submit("item-2"));
-            futures.add(batcher.submit("fail-item")); // This will cause all to fail
-            futures.add(batcher.submit("item-4"));
-            futures.add(batcher.submit("item-5"));
+            // Submit items - the fail-item will cause all items in the batch to fail due to atomic commit
+            batcher.submit("item-1", callback);
+            batcher.submit("item-2", callback);
+            batcher.submit("fail-item", callback);
+            batcher.submit("item-4", callback);
+            batcher.submit("item-5", callback);
             
-            for (CompletableFuture<BatchResult<String>> future : futures) {
-                BatchResult<String> result = future.get();
-                System.out.println("Result: " + 
-                    (result.isAllSuccess() ? "SUCCESS" : "FAILED") + 
-                    " (Successes: " + result.getSuccesses().size() + 
-                    ", Failures: " + result.getFailures().size() + ")");
-            }
+            Thread.sleep(500); // Wait for batch processing
         }
     }
 }

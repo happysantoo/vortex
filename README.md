@@ -439,24 +439,30 @@ int queueDepth = batcher.getQueueDepth();
 
 ## Examples
 
-See the `examples/` directory for comprehensive examples:
+See the `examples/` directory for comprehensive examples. **Examples are automatically compiled as part of the build** to ensure they stay current with the API.
 
-- **BasicUsageExample.java** - Simple batching demonstration
-- **AtomicCommitExample.java** - Atomic commit mode
-- **AutoReplayExample.java** - Automatic replay of successful items
+### Key Examples
+
+- **ThreeSubmissionMethodsExample.java** - Demonstrates all three submission methods (`submit()`, `submit(item, callback)`, `submitAsync()`)
+- **ErrorHandlingExample.java** - Comprehensive error handling (queue full, backend errors, retries)
+- **BasicUsageExample.java** - Simple getting started example
 - **MetricsExample.java** - Metrics collection and monitoring
-- **HttpBackendExample.java** - HTTP backend integration
+- **TracingExample.java** - Tracing integration for observability
 
 ### Running Examples
 
-```bash
-# Compile examples
-javac -cp "$(./gradlew -q printClasspath)" examples/*.java
+Examples are compiled automatically during build:
 
-# Run an example
-java -cp "$(./gradlew -q printClasspath):examples" \
-    com.vajrapulse.vortex.example.BasicUsageExample
+```bash
+# Compile examples (runs automatically during build)
+./gradlew compileExamplesJava
+
+# Run an example manually (after compilation)
+java -cp "build/classes/java/main:build/classes/examples:$(./gradlew -q printClasspath)" \
+  com.vajrapulse.vortex.example.BasicUsageExample
 ```
+
+For more examples and details, see [examples/README.md](examples/README.md).
 
 ## Benchmarks
 

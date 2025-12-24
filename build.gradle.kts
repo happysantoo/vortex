@@ -24,6 +24,15 @@ repositories {
     mavenCentral()
 }
 
+// Examples sourceSet configuration
+sourceSets {
+    create("examples") {
+        java {
+            srcDir("examples")
+        }
+    }
+}
+
 dependencies {
     // Micrometer for metrics
     implementation("io.micrometer:micrometer-core:1.16.0")
@@ -43,6 +52,13 @@ dependencies {
     // JMH for benchmarking
     implementation("org.openjdk.jmh:jmh-core:1.37")
     annotationProcessor("org.openjdk.jmh:jmh-generator-annprocess:1.37")
+    
+    // Examples sourceSet - add main sourceSet output
+    "examplesImplementation"(sourceSets["main"].output)
+    // Explicitly add implementation dependencies (examplesImplementation should inherit, but being explicit)
+    "examplesImplementation"("io.micrometer:micrometer-core:1.16.0")
+    "examplesImplementation"("org.slf4j:slf4j-api:2.0.9")
+    "examplesRuntimeOnly"("org.slf4j:slf4j-simple:2.0.9")
 }
 
 tasks.test {
@@ -253,5 +269,18 @@ tasks.jmhReport {
     doFirst {
         file("${layout.buildDirectory.get()}/reports/jmh/html").mkdirs()
     }
+}
+
+// Examples compilation task - use standard Java compilation
+tasks.named<JavaCompile>("compileExamplesJava") {
+    group = "build"
+    description = "Compiles all example files to verify they are up-to-date with the API"
+    // Ensure main classes are compiled first
+    dependsOn(tasks.named("compileJava"))
+}
+
+// Ensure examples compile during build
+tasks.build {
+    dependsOn("compileExamplesJava")
 }
 
