@@ -3,7 +3,6 @@ package com.vajrapulse.vortex.internal;
 import com.vajrapulse.vortex.BatcherConfig;
 import com.vajrapulse.vortex.results.BatchResult;
 import com.vajrapulse.vortex.results.FailureEvent;
-import com.vajrapulse.vortex.results.SuccessEvent;
 import com.vajrapulse.vortex.metrics.MetricsManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

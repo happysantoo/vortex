@@ -4,6 +4,7 @@ import com.vajrapulse.vortex.results.BatchResult;
 import com.vajrapulse.vortex.results.ItemResult;
 import com.vajrapulse.vortex.internal.BatchDispatcher;
 import com.vajrapulse.vortex.internal.BatchFormationStrategy;
+import com.vajrapulse.vortex.internal.DefaultBatcherDiagnostics;
 import com.vajrapulse.vortex.internal.EnqueueResult;
 import com.vajrapulse.vortex.internal.PendingRequest;
 import com.vajrapulse.vortex.internal.RetryManager;
@@ -16,14 +17,12 @@ import com.vajrapulse.vortex.metrics.MetricsManager;
 import com.vajrapulse.vortex.metrics.MetricsProvider;
 import com.vajrapulse.vortex.health.BatcherDiagnostics;
 import io.micrometer.core.instrument.MeterRegistry;
-import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -36,9 +35,6 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public class MicroBatcher<T> implements AutoCloseable {
     private static final Logger logger = LoggerFactory.getLogger(MicroBatcher.class);
-    
-    // Configuration constants
-    private static final int QUEUE_OFFER_TIMEOUT_MS = 100;
     
     private final Backend<T> backend;
     private final BatcherConfig config;
@@ -126,7 +122,6 @@ public class MicroBatcher<T> implements AutoCloseable {
         // Queue size is configurable via BatcherConfig.maxQueueSize (defaults to 2x batch size)
         this.queue = new LinkedBlockingQueue<>(config.getMaxQueueSize());
         
-        
         // Cached configuration for performance / observability
         this.debugMode = config.isDebugMode();
         this.tracingHook = config.getTracingHook();
@@ -149,7 +144,7 @@ public class MicroBatcher<T> implements AutoCloseable {
         // RetryManager and ResultProcessor need CompletableFuture<BatchResult<T>> for retries/replays
         // Use internal method that provides this interface
         this.retryManager = new RetryManager<>(config, executor, this::submitInternal, () -> closed, metrics, debugMode);
-        this.resultProcessor = new ResultProcessor<>(config, backend, metrics, retryManager, this::submitInternal, debugMode);
+        this.resultProcessor = new ResultProcessor<>(config, backend, metrics, retryManager, this::submitInternal);
         
         // Initialize batch formation strategy
         this.batchFormationStrategy = new BatchFormationStrategy<>(config, queue, debugMode);
@@ -215,7 +210,6 @@ public class MicroBatcher<T> implements AutoCloseable {
                 queueDepth, activeBatches)
         );
     }
-
     
     /**
      * Submits an item with immediate rejection feedback and optional callback for batch processing result.
@@ -527,7 +521,6 @@ public class MicroBatcher<T> implements AutoCloseable {
      * 
      * <p>Thread safety: This method is thread-safe and can be called from any thread.
      */
-    
     @Override
     public void close() {
         closed = true;
@@ -639,27 +632,7 @@ public class MicroBatcher<T> implements AutoCloseable {
      * @since 0.0.3
      */
     public BatcherDiagnostics diagnostics() {
-        return new BatcherDiagnostics() {
-            @Override
-            public boolean isClosed() {
-                return closed;
-            }
-
-            @Override
-            public int getCurrentBatchSize() {
-                return config.getBatchSize();
-            }
-
-            @Override
-            public Duration getCurrentLingerTime() {
-                return config.getLingerTime();
-            }
-
-            @Override
-            public int getQueueDepth() {
-                return queue.size();
-            }
-        };
+        return new DefaultBatcherDiagnostics<>(closed, config, queue);
     }
     
     /**

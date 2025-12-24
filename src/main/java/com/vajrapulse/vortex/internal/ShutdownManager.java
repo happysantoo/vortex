@@ -2,7 +2,6 @@ package com.vajrapulse.vortex.internal;
 
 import com.vajrapulse.vortex.Backend;
 import com.vajrapulse.vortex.results.BatchResult;
-import com.vajrapulse.vortex.internal.ResultProcessor;
 
 import java.util.ArrayList;
 import java.util.List;

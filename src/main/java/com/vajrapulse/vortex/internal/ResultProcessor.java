@@ -28,7 +28,6 @@ public class ResultProcessor<T> {
     private final MetricsManager metrics;
     private final RetryManager<T> retryManager;
     private final java.util.function.Function<T, CompletableFuture<BatchResult<T>>> submitFunction;
-    private final boolean debugMode;
     
     /**
      * Creates a new ResultProcessor.
@@ -38,18 +37,15 @@ public class ResultProcessor<T> {
      * @param metrics the metrics manager for recording metrics
      * @param retryManager the retry manager for handling retries
      * @param submitFunction function to submit items for retry/replay
-     * @param debugMode whether debug mode is enabled
      */
     public ResultProcessor(BatcherConfig config, Backend<T> backend, 
                    MetricsManager metrics, RetryManager<T> retryManager,
-                   java.util.function.Function<T, CompletableFuture<BatchResult<T>>> submitFunction,
-                   boolean debugMode) {
+                   java.util.function.Function<T, CompletableFuture<BatchResult<T>>> submitFunction) {
         this.config = config;
         this.backend = backend;
         this.metrics = metrics;
         this.retryManager = retryManager;
         this.submitFunction = submitFunction;
-        this.debugMode = debugMode;
     }
     
     /**
