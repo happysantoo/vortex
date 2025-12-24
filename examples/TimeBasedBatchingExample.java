@@ -1,11 +1,11 @@
 package com.vajrapulse.vortex.example;
 
 import com.vajrapulse.vortex.*;
+import com.vajrapulse.vortex.results.*;
 
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 
 /**
  * Example demonstrating time-based batching (linger time).
@@ -32,7 +32,10 @@ public class TimeBasedBatchingExample {
         try (MicroBatcher<String> batcher = new MicroBatcher<>(backend, config)) {
             // Submit items slowly - they'll batch by time, not size
             for (int itemIndex = 0; itemIndex < 5; itemIndex++) {
-                batcher.submit("Item-" + itemIndex);
+                ItemResult<String> result = batcher.submit("Item-" + itemIndex);
+                if (result instanceof ItemResult.Success<String>) {
+                    System.out.println("Submitted: Item-" + itemIndex);
+                }
                 Thread.sleep(100); // Submit every 100ms
             }
             

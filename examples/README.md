@@ -6,14 +6,27 @@ This directory contains example code demonstrating various features of the Vorte
 
 ### Using Gradle
 
-You can compile and run examples using Gradle:
+Examples are automatically compiled as part of the build to ensure they stay current with the API:
 
 ```bash
-# Compile examples
-javac -cp "$(./gradlew -q printClasspath)" examples/*.java
+# Compile examples (runs automatically during build)
+./gradlew compileExamplesJava
+
+# Or compile everything
+./gradlew build
+```
+
+### Running Examples Manually
+
+You can run examples using the compiled classes:
+
+```bash
+# Compile examples first
+./gradlew compileExamplesJava
 
 # Run an example
-java -cp "$(./gradlew -q printClasspath):examples" com.vajrapulse.vortex.example.BasicUsageExample
+java -cp "build/classes/java/main:build/classes/examples:$(./gradlew -q printClasspath)" \
+  com.vajrapulse.vortex.example.BasicUsageExample
 ```
 
 ### Using IDE
@@ -24,37 +37,65 @@ java -cp "$(./gradlew -q printClasspath):examples" com.vajrapulse.vortex.example
 
 ## Available Examples
 
-- **BasicUsageExample.java** - Simple batching demonstration
+### Core Submission Methods
+
+- **ThreeSubmissionMethodsExample.java** - Demonstrates all three ways to submit items:
+  - `submit(item)` - Synchronous, returns ItemResult immediately
+  - `submit(item, callback)` - Synchronous return + async callback for result
+  - `submitAsync(item)` - Returns CompletableFuture for async processing
+
+### Error Handling
+
+- **ErrorHandlingExample.java** - Comprehensive error handling:
+  - Queue full handling (ItemRejectedException)
+  - Backend error processing
+  - Retry configuration and behavior
+
+### Basic Usage
+
+- **BasicUsageExample.java** - Simple getting started example
+- **ExampleUsage.java** - Comprehensive usage patterns
+
+### Advanced Features
+
 - **AtomicCommitExample.java** - Atomic commit mode (all-or-nothing)
 - **AutoReplayExample.java** - Automatic replay of successful items
 - **TimeBasedBatchingExample.java** - Time-based batching (linger time)
+- **CustomBackendReplayExample.java** - Custom backend with replay logic
+
+### Observability
+
 - **MetricsExample.java** - Metrics collection and monitoring
-- **TracingExample.java** - BatchTracingHook integration for observability (NEW in 0.0.3)
+- **TracingExample.java** - BatchTracingHook integration for observability
   - Logging-based tracing hook
   - OpenTelemetry-style integration pattern
   - Retry event tracing
-- **AdaptiveBatchingExample.java** - Adaptive batching using MetricsProvider (NEW in 0.0.3)
-- **BackpressureExample.java** - Comprehensive backpressure handling examples (NEW in 0.0.3)
-  - Basic backpressure detection
-  - Proactive monitoring
-  - Retry with exponential backoff
-  - Circuit breaker pattern
-  - Rate limiting strategy
-- **KafkaConsumerBackpressureExample.java** - Kafka consumer integration with backpressure (NEW in 0.0.4)
-  - Spring Kafka consumer integration
-  - OverflowStrategy for backpressure handling
-  - Automatic consumer pause/resume
-  - Overflow storage and replay
-  - Clear separation of application vs library responsibilities
-  - See [README_KAFKA_BACKPRESSURE.md](README_KAFKA_BACKPRESSURE.md) for detailed documentation
-- **HttpBackendExample.java** - HTTP backend integration
-- **CustomBackendReplayExample.java** - Custom backend with replay logic
-- **ExampleUsage.java** - Comprehensive usage example with submitWithCallback
-- **ExampleUsageSimplified.java** - Multiple usage patterns (fire-and-forget, callbacks, etc.)
+
+
+## Example Comparison Table
+
+| Example | Demonstrates | Submission Method |
+|---------|-------------|-------------------|
+| **ThreeSubmissionMethodsExample** | All three submission methods | All three |
+| **ErrorHandlingExample** | Error handling patterns | All three |
+| **BasicUsageExample** | Simple usage | `submit(item)` |
+| **ExampleUsage** | Comprehensive patterns | `submit(item, callback)` |
+| **AtomicCommitExample** | Atomic commit mode | `submit(item, callback)` |
+| **AutoReplayExample** | Auto-replay feature | `submit(item, callback)` |
+| **TimeBasedBatchingExample** | Time-based batching | `submit(item)` |
+| **MetricsExample** | Metrics usage | `submitAsync(item)` |
+| **TracingExample** | Tracing integration | `submit(item, callback)` |
+| **CustomBackendReplayExample** | Custom backend | `submit(item, callback)` |
 
 ## Prerequisites
 
 - Java 21 or higher
-- Vortex library on classpath
+- Vortex library on classpath (automatically included when using Gradle)
 - Micrometer (for metrics examples)
+- SLF4J (for logging examples)
 
+## Example Maintenance
+
+Examples are automatically compiled as part of the build process to ensure they stay current with the API. If an example fails to compile, it indicates that the API has changed and the example needs to be updated.
+
+See `.cursorrules` for maintenance requirements when the API changes.

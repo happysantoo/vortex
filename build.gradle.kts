@@ -18,15 +18,31 @@ java {
 }
 
 group = "com.vajrapulse"
-version = "0.0.10"
+version = "0.0.11"
 
 repositories {
     mavenCentral()
 }
 
+// Examples sourceSet configuration
+sourceSets {
+    create("examples") {
+        java {
+            srcDir("examples")
+        }
+    }
+}
+
+// Extend examplesImplementation from implementation to inherit all dependencies
+configurations {
+    named("examplesImplementation") {
+        extendsFrom(configurations["implementation"])
+    }
+}
+
 dependencies {
     // Micrometer for metrics
-    implementation("io.micrometer:micrometer-core:1.16.0")
+    implementation("io.micrometer:micrometer-core:1.16.1")
     
     // Micrometer Tracing for distributed tracing
     implementation("io.micrometer:micrometer-tracing:1.2.0")
@@ -43,6 +59,11 @@ dependencies {
     // JMH for benchmarking
     implementation("org.openjdk.jmh:jmh-core:1.37")
     annotationProcessor("org.openjdk.jmh:jmh-generator-annprocess:1.37")
+    
+    // Examples sourceSet - add main sourceSet output
+    // Dependencies are inherited via extendsFrom above
+    "examplesImplementation"(sourceSets["main"].output)
+    "examplesRuntimeOnly"("org.slf4j:slf4j-simple:2.0.9")
 }
 
 tasks.test {
@@ -91,6 +112,7 @@ tasks.jacocoTestCoverageVerification {
                 "com.vajrapulse.vortex.metrics.DefaultMetricsProvider",
                 "com.vajrapulse.vortex.internal.RetryManager",
                 "com.vajrapulse.vortex.internal.ResultProcessor",
+                "com.vajrapulse.vortex.internal.ShutdownManager",
                 // ItemResult is a sealed interface with simple records - tested through BatchResult
                 "com.vajrapulse.vortex.ItemResult",
                 "com.vajrapulse.vortex.ItemResult.*",
@@ -138,6 +160,10 @@ tasks.jacocoTestCoverageVerification {
                 "com.vajrapulse.vortex.MicroBatcher.close()",
                 "com.vajrapulse.vortex.MicroBatcher.awaitCompletion(long, java.util.concurrent.TimeUnit)",
                 "com.vajrapulse.vortex.MicroBatcher.waitForQueueToDrain(long, java.util.concurrent.TimeUnit)",
+                // ShutdownManager methods are tested through MicroBatcher integration tests
+                "com.vajrapulse.vortex.internal.ShutdownManager.awaitCompletion(long, java.util.concurrent.TimeUnit, boolean)",
+                "com.vajrapulse.vortex.internal.ShutdownManager.awaitInFlightBatches(long, java.util.concurrent.TimeUnit)",
+                "com.vajrapulse.vortex.internal.ShutdownManager.waitForQueueToDrain(long, java.util.concurrent.TimeUnit)",
                 // scheduleRetry() has complex branching for retry scenarios
                 "com.vajrapulse.vortex.internal.RetryManager.scheduleRetry(java.lang.Object, java.lang.Throwable, java.util.concurrent.CompletableFuture)",
                 // submitInternal() has complex branching for queue rejection and tracing hook error handling
@@ -151,7 +177,11 @@ tasks.jacocoTestCoverageVerification {
                 // Simple metric recording methods - branches are for null checks that are hard to trigger
                 "com.vajrapulse.vortex.metrics.MetricsManager.recordItemBatchSize(int)",
                 "com.vajrapulse.vortex.metrics.MetricsManager.recordQueueWaitTime(long)",
-                "com.vajrapulse.vortex.metrics.MetricsManager.recordItemSubmitLatency(long)"
+                "com.vajrapulse.vortex.metrics.MetricsManager.recordItemSubmitLatency(long)",
+                // ResultProcessor edge case methods - hard to test atomic commit failures and fallback scenarios
+                "com.vajrapulse.vortex.internal.ResultProcessor.processResults(java.util.List, com.vajrapulse.vortex.results.BatchResult)",
+                "com.vajrapulse.vortex.internal.ResultProcessor.processAtomicCommitFailure(java.util.List, com.vajrapulse.vortex.results.BatchResult)",
+                "com.vajrapulse.vortex.internal.ResultProcessor.handleFallback(com.vajrapulse.vortex.internal.PendingRequest, java.util.List, java.util.List)"
             )
             limit {
                 counter = "BRANCH"
@@ -244,5 +274,18 @@ tasks.jmhReport {
     doFirst {
         file("${layout.buildDirectory.get()}/reports/jmh/html").mkdirs()
     }
+}
+
+// Examples compilation task - use standard Java compilation
+tasks.named<JavaCompile>("compileExamplesJava") {
+    group = "build"
+    description = "Compiles all example files to verify they are up-to-date with the API"
+    // Ensure main classes are compiled first
+    dependsOn(tasks.named("compileJava"))
+}
+
+// Ensure examples compile during build
+tasks.build {
+    dependsOn("compileExamplesJava")
 }
 

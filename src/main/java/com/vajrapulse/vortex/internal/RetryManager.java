@@ -3,7 +3,6 @@ package com.vajrapulse.vortex.internal;
 import com.vajrapulse.vortex.BatcherConfig;
 import com.vajrapulse.vortex.results.BatchResult;
 import com.vajrapulse.vortex.results.FailureEvent;
-import com.vajrapulse.vortex.results.SuccessEvent;
 import com.vajrapulse.vortex.metrics.MetricsManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,6 +23,8 @@ import java.util.function.Function;
  * <p>This class tracks retry counts for items and schedules retries with configurable delays.
  * To prevent memory leaks, the retry counts map is periodically cleaned up based on the
  * configured {@code maxRetries} value.
+ *
+ * @param <T> the type of item being retried
  */
 public class RetryManager<T> {
     private static final Logger logger = LoggerFactory.getLogger(RetryManager.class);
@@ -40,6 +41,16 @@ public class RetryManager<T> {
     private final ScheduledExecutorService cleanupExecutor;
     private final boolean debugMode;
     
+    /**
+     * Creates a new RetryManager.
+     *
+     * @param config the batcher configuration
+     * @param executor the executor service for scheduling retries
+     * @param submitFunction function to submit items for retry
+     * @param isClosedSupplier supplier to check if the batcher is closed
+     * @param metrics the metrics manager for recording retry metrics
+     * @param debugMode whether debug mode is enabled
+     */
     public RetryManager(BatcherConfig config, ExecutorService executor,
                  Function<T, CompletableFuture<BatchResult<T>>> submitFunction,
                  java.util.function.Supplier<Boolean> isClosedSupplier,
@@ -176,6 +187,10 @@ public class RetryManager<T> {
         retryCounts.remove(item);
     }
     
+    /**
+     * Clears all retry counts and shuts down the cleanup executor.
+     * This method should be called when the batcher is closed.
+     */
     public void clearAll() {
         retryCounts.clear();
         if (cleanupExecutor != null) {

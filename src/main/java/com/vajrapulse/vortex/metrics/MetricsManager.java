@@ -24,7 +24,6 @@ public class MetricsManager {
     private final Counter requestsReplayed;
     private final Counter requestsRetried;
     private final Counter requestsRejected;
-    private final Counter queueOfferFailures;
     private final Counter dispatchRejected;
     private final Timer batchDispatchLatency;
     private final Timer requestWaitLatency;
@@ -36,6 +35,13 @@ public class MetricsManager {
     private final Timer itemWaitTime;
     private final DistributionSummary itemBatchSize;
     
+    /**
+     * Creates a new MetricsManager.
+     *
+     * @param meterRegistry the Micrometer meter registry
+     * @param config the batcher configuration
+     * @param queue the blocking queue for queue depth metrics
+     */
     public MetricsManager(MeterRegistry meterRegistry, BatcherConfig config, BlockingQueue<?> queue) {
         this.meterRegistry = meterRegistry;
         this.config = config;
@@ -69,10 +75,6 @@ public class MetricsManager {
         
         this.requestsRejected = Counter.builder("vortex.requests.rejected")
             .description("Total number of requests rejected due to queue being full")
-            .register(meterRegistry);
-        
-        this.queueOfferFailures = Counter.builder("vortex.queue.offer.failures")
-            .description("Total number of queue offer failures (race condition occurrences)")
             .register(meterRegistry);
         
         this.dispatchRejected = Counter.builder("vortex.dispatch.rejected")
@@ -119,60 +121,105 @@ public class MetricsManager {
             .register(meterRegistry);
     }
     
+    /**
+     * Records that a request was submitted.
+     */
     public void recordRequestSubmitted() {
         requestsSubmitted.increment();
     }
     
+    /**
+     * Records that a batch was dispatched.
+     */
     public void recordBatchDispatched() {
         batchesDispatched.increment();
     }
     
+    /**
+     * Records that a request succeeded.
+     */
     public void recordRequestSucceeded() {
         requestsSucceeded.increment();
     }
     
+    /**
+     * Records that a request failed.
+     */
     public void recordRequestFailed() {
         requestsFailed.increment();
     }
     
+    /**
+     * Records that a request was replayed (successful item re-submitted).
+     */
     public void recordRequestReplayed() {
         requestsReplayed.increment();
     }
     
+    /**
+     * Records that a request was retried.
+     */
     public void recordRequestRetried() {
         requestsRetried.increment();
     }
     
+    /**
+     * Records that a request was rejected (queue full or threshold reached).
+     */
     public void recordRequestRejected() {
         requestsRejected.increment();
     }
     
-    public void recordQueueOfferFailure() {
-        queueOfferFailures.increment();
-    }
-    
+    /**
+     * Records that a batch dispatch was rejected (concurrent dispatch limit reached).
+     */
     public void recordDispatchRejected() {
         dispatchRejected.increment();
     }
     
+    /**
+     * Starts a timer for measuring batch dispatch latency.
+     *
+     * @return a Timer.Sample that should be stopped when the batch dispatch completes
+     */
     public Timer.Sample startBatchDispatchTimer() {
         return Timer.start(meterRegistry);
     }
     
+    /**
+     * Records the batch dispatch latency by stopping the timer sample.
+     *
+     * @param sample the timer sample started by {@link #startBatchDispatchTimer()}
+     */
     public void recordBatchDispatchLatency(Timer.Sample sample) {
         sample.stop(batchDispatchLatency);
     }
     
+    /**
+     * Records the size of a batch.
+     *
+     * @param size the batch size
+     */
     public void recordBatchSize(int size) {
         batchSizeHistogram.record(size);
     }
     
+    /**
+     * Records the batch size for per-item metrics (if enabled).
+     *
+     * @param batchSize the batch size when the item was processed
+     */
     public void recordItemBatchSize(int batchSize) {
         if (perItemMetricsEnabled && itemBatchSize != null) {
             itemBatchSize.record(batchSize);
         }
     }
     
+    /**
+     * Records the wait time for a request (time spent in queue before batching).
+     *
+     * @param waitTimeNanos the wait time in nanoseconds
+     */
     public void recordWaitTime(long waitTimeNanos) {
         requestWaitLatency.record(waitTimeNanos, TimeUnit.NANOSECONDS);
         queueWaitTime.record(waitTimeNanos, TimeUnit.NANOSECONDS);

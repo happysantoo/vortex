@@ -1,6 +1,8 @@
 package com.vajrapulse.vortex.example;
 
 import com.vajrapulse.vortex.*;
+import com.vajrapulse.vortex.results.*;
+import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 import java.time.Duration;
@@ -34,10 +36,11 @@ public class MetricsExample {
             .build();
         
         try (MicroBatcher<String> batcher = new MicroBatcher<>(backend, config, registry)) {
-            List<CompletableFuture<BatchResult<String>>> futures = new ArrayList<>();
+            // Submit items using submitAsync to track completion
+            List<CompletableFuture<ItemResult<String>>> futures = new ArrayList<>();
             
             for (int itemIndex = 0; itemIndex < 20; itemIndex++) {
-                futures.add(batcher.submit("Item-" + itemIndex));
+                futures.add(batcher.submitAsync("Item-" + itemIndex));
             }
             
             // Wait for all to complete

@@ -1,6 +1,5 @@
 package com.vajrapulse.vortex;
 
-import com.vajrapulse.vortex.BatchTracingHook;
 import java.time.Duration;
 import java.util.function.Predicate;
 

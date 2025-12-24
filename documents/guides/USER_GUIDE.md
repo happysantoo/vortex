@@ -191,6 +191,124 @@ try (MicroBatcher<String> batcher = new MicroBatcher<>(backend, config)) {
 }
 ```
 
+### Using submitAsync for CompletableFuture-Based Workflows
+
+The `submitAsync` method returns `CompletableFuture<ItemResult<T>>`, making it ideal for async/await-style programming and composing complex async workflows:
+
+```java
+try (MicroBatcher<String> batcher = new MicroBatcher<>(backend, config)) {
+    // Chain operations with CompletableFuture
+    CompletableFuture<ItemResult<String>> future = batcher.submitAsync("item");
+    
+    future
+        .thenApply(result -> {
+            if (result instanceof ItemResult.Success<String>) {
+                return processSuccess(result.getItem());
+            } else if (result instanceof ItemResult.Failure<String> failure) {
+                return handleFailure(failure.error());
+            }
+            return null;
+        })
+        .thenAccept(processed -> System.out.println("Processed: " + processed))
+        .exceptionally(throwable -> {
+            if (throwable instanceof ItemRejectedException) {
+                // Handle immediate rejection (queue full)
+                handleRejection(throwable);
+            }
+            return null;
+        });
+}
+```
+
+**Key Differences from `submit`:**
+
+| Feature | `submit` | `submitAsync` |
+|---------|----------|--------------|
+| Return Type | `ItemResult<T>` (synchronous) | `CompletableFuture<ItemResult<T>>` (async) |
+| Immediate Rejections | Returns `ItemResult.Failure` | Completes future exceptionally |
+| Chaining | Limited (callback-based) | Full CompletableFuture API |
+| Best For | Simple fire-and-forget, callbacks | Complex async workflows, composition |
+
+**Example: Batch Processing with CompletableFuture.allOf()**
+
+```java
+try (MicroBatcher<String> batcher = new MicroBatcher<>(backend, config)) {
+    List<String> items = List.of("item-1", "item-2", "item-3", "item-4", "item-5");
+    
+    // Submit all items asynchronously
+    List<CompletableFuture<ItemResult<String>>> futures = items.stream()
+        .map(batcher::submitAsync)
+        .toList();
+    
+    // Wait for all items to complete
+    CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+        .thenRun(() -> {
+            System.out.println("All items processed!");
+            
+            // Process results
+            futures.forEach(future -> {
+                try {
+                    ItemResult<String> result = future.get();
+                    if (result instanceof ItemResult.Success<String>) {
+                        System.out.println("Success: " + result.getItem());
+                    } else if (result instanceof ItemResult.Failure<String> failure) {
+                        System.err.println("Failed: " + failure.error().getMessage());
+                    }
+                } catch (Exception e) {
+                    // Handle exceptions (e.g., ItemRejectedException)
+                    System.err.println("Exception: " + e.getMessage());
+                }
+            });
+        })
+        .get(10, TimeUnit.SECONDS); // Wait with timeout
+}
+```
+
+**Example: Error Handling with submitAsync**
+
+```java
+try (MicroBatcher<String> batcher = new MicroBatcher<>(backend, config)) {
+    batcher.submitAsync("item")
+        .thenAccept(result -> {
+            if (result instanceof ItemResult.Success<String>) {
+                System.out.println("Success: " + result.getItem());
+            } else if (result instanceof ItemResult.Failure<String> failure) {
+                System.err.println("Processing failed: " + failure.error().getMessage());
+            }
+        })
+        .exceptionally(throwable -> {
+            if (throwable instanceof ItemRejectedException rejected) {
+                // Item was rejected immediately (queue full)
+                System.err.println("Item rejected: " + rejected.getMessage());
+                System.err.println("Source: " + rejected.getSourceName());
+                System.err.println("Current/Max: " + rejected.getCurrentLevel() + "/" + rejected.getMaxLevel());
+            } else if (throwable.getCause() instanceof IllegalStateException) {
+                // Batcher is closed
+                System.err.println("Batcher is closed");
+            } else {
+                // Unexpected error
+                System.err.println("Unexpected error: " + throwable.getMessage());
+            }
+            return null;
+        });
+}
+```
+
+**When to Use `submitAsync`:**
+
+- ✅ You need to compose multiple async operations
+- ✅ You want to use `CompletableFuture.allOf()` or `anyOf()`
+- ✅ You prefer async/await-style programming
+- ✅ You need to chain transformations with `thenApply()`, `thenCompose()`, etc.
+- ✅ You're building reactive pipelines
+
+**When to Use `submit`:**
+
+- ✅ You need immediate acceptance/rejection feedback
+- ✅ You prefer callback-based async handling
+- ✅ You want simpler, more straightforward code
+- ✅ You're building request/response systems
+
 ---
 
 ## Exception Handling
@@ -298,10 +416,10 @@ batcher.submit("item", (item, result) -> {
 try (MicroBatcher<String> batcher = new MicroBatcher<>(backend, config)) {
     for (String item : items) {
         try {
-            ItemResult<String> result = batcher.submit(item, (submittedItem, itemResult) -> {
+            ItemResult<String> result = batcher.submit(item, itemResult -> {
                 try {
-                    if (itemResult instanceof ItemResult.Success<String>) {
-                        handleSuccess(submittedItem);
+                    if (itemResult instanceof ItemResult.Success<String> success) {
+                        handleSuccess(success.getItem());
                     } else if (itemResult instanceof ItemResult.Failure<String> failure) {
                         handleFailure(submittedItem, failure.error());
                     }
@@ -961,12 +1079,12 @@ public class CompleteExample {
                 String item = "item-" + i;
                 
                 try {
-                    ItemResult<String> result = batcher.submit(item, (submittedItem, itemResult) -> {
+                    ItemResult<String> result = batcher.submit(item, itemResult -> {
                         // Async callback - fires when item is processed
                         processed.incrementAndGet();
                         
-                        if (itemResult instanceof ItemResult.Success<String>) {
-                            System.out.println("✓ " + submittedItem + " succeeded");
+                        if (itemResult instanceof ItemResult.Success<String> success) {
+                            System.out.println("✓ " + success.getItem() + " succeeded");
                         } else if (itemResult instanceof ItemResult.Failure<String> failure) {
                             failed.incrementAndGet();
                             System.err.println("✗ " + submittedItem + " failed: " + 

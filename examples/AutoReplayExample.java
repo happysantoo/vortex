@@ -1,11 +1,11 @@
 package com.vajrapulse.vortex.example;
 
 import com.vajrapulse.vortex.*;
+import com.vajrapulse.vortex.results.*;
 
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 
 /**
  * Example demonstrating auto-replay of successful items when batch has mixed results.
@@ -36,13 +36,19 @@ public class AutoReplayExample {
             .build();
         
         try (MicroBatcher<String> batcher = new MicroBatcher<>(backend, config)) {
-            List<CompletableFuture<BatchResult<String>>> futures = new ArrayList<>();
+            // Reusable callback that extracts item name from result
+            ItemCallback<String> callback = result -> {
+                String itemName = result.getItem();
+                String status = result instanceof ItemResult.Success<String> ? "SUCCESS" : "FAILED";
+                System.out.println(itemName + " result: " + status);
+            };
             
-            futures.add(batcher.submit("success-1"));
-            futures.add(batcher.submit("success-2"));
-            futures.add(batcher.submit("fail-1")); // Mixed batch
-            futures.add(batcher.submit("success-3"));
-            futures.add(batcher.submit("fail-2"));
+            // Submit items - mixed batch with successful items will be replayed
+            batcher.submit("success-1", callback);
+            batcher.submit("success-2", callback);
+            batcher.submit("fail-1", callback);
+            batcher.submit("success-3", callback);
+            batcher.submit("fail-2", callback);
             
             Thread.sleep(1000); // Wait for processing and replay
             

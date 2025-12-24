@@ -13,11 +13,14 @@ import com.vajrapulse.vortex.results.ItemResult;
  * 
  * <p>This is a functional interface, so it can be used with lambda expressions:
  * <pre>{@code
- * batcher.submit(item, (submittedItem, itemResult) -> {
- *     if (itemResult instanceof ItemResult.Success<MyItem>) {
- *         // Handle success
+ * batcher.submit(item, itemResult -> {
+ *     if (itemResult instanceof ItemResult.Success<MyItem> success) {
+ *         // Handle success - access item via success.getItem()
+ *         MyItem processedItem = success.getItem();
  *     } else if (itemResult instanceof ItemResult.Failure<MyItem> failure) {
- *         // Handle failure
+ *         // Handle failure - access item via failure.getItem()
+ *         MyItem failedItem = failure.getItem();
+ *         Throwable error = failure.error();
  *     }
  * });
  * }</pre>
@@ -26,14 +29,16 @@ import com.vajrapulse.vortex.results.ItemResult;
  * <pre>{@code
  * class MyItemCallback implements ItemCallback<MyItem> {
  *     @Override
- *     public void onResult(MyItem item, ItemResult<MyItem> result) {
+ *     public void onResult(ItemResult<MyItem> result) {
+ *         // Access item via result.getItem()
+ *         MyItem item = result.getItem();
  *         // Complex logic here
  *     }
  * }
  * }</pre>
  * 
  * @param <T> the type of item
- * @since 0.0.9
+ * @since 0.0.11
  */
 @FunctionalInterface
 public interface ItemCallback<T> {
@@ -49,11 +54,12 @@ public interface ItemCallback<T> {
      *   <li>The callback may fire on a different thread (batch processing thread)</li>
      *   <li>The callback only fires if the item was accepted (not rejected immediately)</li>
      *   <li>The callback receives the individual item's result, not the full batch result</li>
+     *   <li>The item can be accessed via {@link ItemResult#getItem()}</li>
      * </ul>
      * 
-     * @param item the item that was submitted
      * @param result the result of processing this specific item (Success or Failure)
+     *               The item can be accessed via {@code result.getItem()}
      */
-    void onResult(T item, ItemResult<T> result);
+    void onResult(ItemResult<T> result);
 }
 
