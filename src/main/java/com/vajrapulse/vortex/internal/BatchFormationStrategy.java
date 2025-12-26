@@ -70,13 +70,15 @@ public class BatchFormationStrategy<T> {
         // Collect up to batchSize items, respecting linger time
         long deadline = System.currentTimeMillis() + lingerTimeMillis;
         while (batch.size() < batchSize) {
-            long remainingMillis = Math.max(1, deadline - System.currentTimeMillis());
+            long remainingMillis = deadline - System.currentTimeMillis();
             if (remainingMillis <= 0) {
                 logger.debug("Linger time elapsed, batch size: {}", batch.size());
                 break;
             }
             
-            PendingRequest<T> next = queue.poll(remainingMillis, TimeUnit.MILLISECONDS);
+            // Ensure at least 1ms for poll() to avoid immediate timeout
+            long pollTimeout = Math.max(1, remainingMillis);
+            PendingRequest<T> next = queue.poll(pollTimeout, TimeUnit.MILLISECONDS);
             if (next == null) {
                 logger.debug("Timeout waiting for next item, batch size: {}", batch.size());
                 break;
