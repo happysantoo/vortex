@@ -88,7 +88,7 @@ public sealed interface ItemResult<T>
      * @return a Success result
      */
     static <T> ItemResult<T> success(SuccessEvent<T> event) {
-        return new Success<>(event.getData());
+        return new Success<>(event.data());
     }
     
     /**
@@ -99,7 +99,7 @@ public sealed interface ItemResult<T>
      * @return a Failure result
      */
     static <T> ItemResult<T> failure(FailureEvent<T> event) {
-        return new Failure<>(event.getData(), event.getError());
+        return new Failure<>(event.data(), event.error());
     }
 }
 

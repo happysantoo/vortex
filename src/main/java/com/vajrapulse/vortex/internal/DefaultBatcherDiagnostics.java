@@ -5,6 +5,7 @@ import com.vajrapulse.vortex.health.BatcherDiagnostics;
 
 import java.time.Duration;
 import java.util.concurrent.BlockingQueue;
+import java.util.function.Supplier;
 
 /**
  * Default implementation of {@link BatcherDiagnostics} that provides
@@ -21,26 +22,26 @@ import java.util.concurrent.BlockingQueue;
  * @param <T> the type of items being processed
  */
 public class DefaultBatcherDiagnostics<T> implements BatcherDiagnostics {
-    private final boolean closed;
+    private final Supplier<Boolean> closedSupplier;
     private final BatcherConfig config;
     private final BlockingQueue<PendingRequest<T>> queue;
 
     /**
      * Creates a new DefaultBatcherDiagnostics instance.
      *
-     * @param closed whether the batcher is closed
+     * @param closedSupplier supplier to check if the batcher is closed
      * @param config the batcher configuration
      * @param queue the internal queue for pending requests
      */
-    public DefaultBatcherDiagnostics(boolean closed, BatcherConfig config, BlockingQueue<PendingRequest<T>> queue) {
-        this.closed = closed;
+    public DefaultBatcherDiagnostics(Supplier<Boolean> closedSupplier, BatcherConfig config, BlockingQueue<PendingRequest<T>> queue) {
+        this.closedSupplier = closedSupplier;
         this.config = config;
         this.queue = queue;
     }
 
     @Override
     public boolean isClosed() {
-        return closed;
+        return closedSupplier.get();
     }
 
     @Override

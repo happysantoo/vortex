@@ -17,6 +17,12 @@ public class TracingHelper {
     private final BatchTracingHook tracingHook;
     private final boolean debugMode;
     
+    /**
+     * Creates a new TracingHelper.
+     *
+     * @param tracingHook the tracing hook to invoke (may be null)
+     * @param debugMode whether debug mode is enabled
+     */
     public TracingHelper(BatchTracingHook tracingHook, boolean debugMode) {
         this.tracingHook = tracingHook;
         this.debugMode = debugMode;
@@ -37,9 +43,7 @@ public class TracingHelper {
         try {
             tracingHook.onSubmit(item);
         } catch (Exception e) {
-            if (debugMode) {
-                logger.debug("Tracing hook onSubmit failed", e);
-            }
+            logger.debug("Tracing hook onSubmit failed", e);
         }
     }
     
@@ -56,9 +60,7 @@ public class TracingHelper {
         try {
             tracingHook.onBatchDispatchStart(dataList);
         } catch (Exception e) {
-            if (debugMode) {
-                logger.debug("Tracing hook onBatchDispatchStart failed", e);
-            }
+            logger.debug("Tracing hook onBatchDispatchStart failed", e);
         }
     }
     
@@ -76,9 +78,7 @@ public class TracingHelper {
         try {
             tracingHook.onBatchDispatchSuccess(dataList, result);
         } catch (Exception e) {
-            if (debugMode) {
-                logger.debug("Tracing hook onBatchDispatchSuccess failed", e);
-            }
+            logger.debug("Tracing hook onBatchDispatchSuccess failed", e);
         }
     }
     
@@ -96,9 +96,7 @@ public class TracingHelper {
         try {
             tracingHook.onBatchDispatchFailure(dataList, error);
         } catch (Exception e) {
-            if (debugMode) {
-                logger.debug("Tracing hook onBatchDispatchFailure failed", e);
-            }
+            logger.debug("Tracing hook onBatchDispatchFailure failed", e);
         }
     }
 }

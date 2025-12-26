@@ -83,6 +83,7 @@ public class MetricsManager {
         
         this.batchDispatchLatency = Timer.builder("vortex.batch.dispatch.latency")
             .description("Time taken to dispatch a batch")
+            .publishPercentiles(0.5, 0.95, 0.99)
             .register(meterRegistry);
         
         this.requestWaitLatency = Timer.builder("vortex.request.wait.latency")

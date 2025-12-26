@@ -29,6 +29,17 @@ public class ShutdownManager<T> {
     private final ResultProcessor<T> resultProcessor;
     private final RetryManager<T> retryManager;
     
+    /**
+     * Creates a new ShutdownManager.
+     *
+     * @param queue the blocking queue of pending requests
+     * @param dispatchExecutor the executor service for dispatch operations
+     * @param retryExecutor the executor service for retry operations
+     * @param activeBatchCount the atomic integer tracking active batches (may be null)
+     * @param backend the backend for processing remaining items
+     * @param resultProcessor the result processor for processing batch results
+     * @param retryManager the retry manager for clearing retry state
+     */
     public ShutdownManager(
             BlockingQueue<PendingRequest<T>> queue,
             ExecutorService dispatchExecutor,
@@ -96,7 +107,7 @@ public class ShutdownManager<T> {
             // Create data list with pre-sized ArrayList (optimization: avoid stream overhead)
             List<T> dataList = new ArrayList<>(remaining.size());
             for (PendingRequest<T> req : remaining) {
-                dataList.add(req.getData());
+                dataList.add(req.data());
             }
             
             try {

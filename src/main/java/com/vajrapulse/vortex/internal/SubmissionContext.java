@@ -8,14 +8,11 @@ import java.util.concurrent.CompletableFuture;
  * and enqueue result for use by both submit() and submitAsync().
  *
  * @param <T> the type of item being submitted
+ * @param batchFuture the CompletableFuture that will complete with the batch result
+ * @param enqueueResult the result of the enqueue operation
  */
-public class SubmissionContext<T> {
-    public final CompletableFuture<BatchResult<T>> batchFuture;
-    public final EnqueueResult enqueueResult;
-    
-    public SubmissionContext(CompletableFuture<BatchResult<T>> batchFuture, EnqueueResult enqueueResult) {
-        this.batchFuture = batchFuture;
-        this.enqueueResult = enqueueResult;
-    }
+public record SubmissionContext<T>(
+    CompletableFuture<BatchResult<T>> batchFuture,
+    EnqueueResult enqueueResult
+) {
 }
-

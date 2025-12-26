@@ -75,6 +75,7 @@ public class MicroBatcher<T> implements AutoCloseable {
     private final SubmissionHandler<T> submissionHandler;
     private final ShutdownManager<T> shutdownManager;
     private final TracingHelper tracingHelper;
+    private final BatcherDiagnostics diagnosticsView;
     
     /**
      * Creates a new MicroBatcher with a default SimpleMeterRegistry.
@@ -195,6 +196,9 @@ public class MicroBatcher<T> implements AutoCloseable {
         // Initialize shutdown manager with both executors
         this.shutdownManager = new ShutdownManager<>(
             queue, dispatchExecutor, retryExecutor, activeBatchCount, backend, resultProcessor, retryManager);
+        
+        // Cache diagnostics instance to avoid allocations on repeated calls
+        this.diagnosticsView = new DefaultBatcherDiagnostics<>(this::isClosed, config, queue);
         
         // Start the batch processor
         startBatchProcessor();
@@ -332,18 +336,18 @@ public class MicroBatcher<T> implements AutoCloseable {
         SubmissionContext<T> context = submissionHandler.submitCommon(item, true, false);
         
         // Handle immediate rejections - return synchronously
-        if (context.enqueueResult == EnqueueResult.REJECTED_THRESHOLD || 
-            context.enqueueResult == EnqueueResult.REJECTED_FULL) {
+        if (context.enqueueResult() == EnqueueResult.REJECTED_THRESHOLD || 
+            context.enqueueResult() == EnqueueResult.REJECTED_FULL) {
             int currentSize = queue.size();
             int maxSize = config.getMaxQueueSize();
             return ItemResult.failure(item, ItemRejectedException.queueFull(currentSize, maxSize));
-        } else if (context.enqueueResult == EnqueueResult.INTERRUPTED) {
+        } else if (context.enqueueResult() == EnqueueResult.INTERRUPTED) {
             return ItemResult.failure(item, new InterruptedException("Interrupted while queuing item"));
         }
         
         // Item accepted - attach callback if provided
         if (callback != null) {
-            context.batchFuture.thenAccept(batchResult -> {
+            context.batchFuture().thenAccept(batchResult -> {
                 ItemResult<T> itemResult = batchResult.findItemResult(item)
                     .orElseThrow(() -> new IllegalStateException("Item result not found in batch"));
                 callback.onResult(itemResult);
@@ -417,7 +421,7 @@ public class MicroBatcher<T> implements AutoCloseable {
         
         // For rejected items, the future is already completed exceptionally
         // For accepted items, transform BatchResult to ItemResult
-        return context.batchFuture.thenApply(batchResult -> {
+        return context.batchFuture().thenApply(batchResult -> {
             ItemResult<T> itemResult = batchResult.findItemResult(item)
                 .orElseThrow(() -> new IllegalStateException(
                     String.format("Item result not found in batch. Item: %s, Batch size: %d", 
@@ -441,7 +445,7 @@ public class MicroBatcher<T> implements AutoCloseable {
         // Use SubmissionHandler.submitCommon() to eliminate code duplication
         // For retries/replays: skip threshold check, use timeout
         SubmissionContext<T> context = submissionHandler.submitCommon(item, false, true);
-        return context.batchFuture;
+        return context.batchFuture();
     }
     
     /**
@@ -495,9 +499,7 @@ public class MicroBatcher<T> implements AutoCloseable {
         List<PendingRequest<T>> batch = batchFormationStrategy.formBatch();
         
         if (!batch.isEmpty()) {
-            if (debugMode) {
-                logger.debug("Dispatching batch of size: {}", batch.size());
-            }
+            logger.debug("Dispatching batch of size: {}", batch.size());
             batchDispatcher.dispatchBatch(batch);
         }
     }
@@ -631,7 +633,7 @@ public class MicroBatcher<T> implements AutoCloseable {
      * @since 0.0.3
      */
     public BatcherDiagnostics diagnostics() {
-        return new DefaultBatcherDiagnostics<>(closed, config, queue);
+        return diagnosticsView;
     }
     
     /**

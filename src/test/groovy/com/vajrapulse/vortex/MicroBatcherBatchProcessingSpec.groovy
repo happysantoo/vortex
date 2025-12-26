@@ -151,7 +151,7 @@ class MicroBatcherBatchProcessingSpec extends Specification {
         then:
         batches.size() >= 1
         def batch = batches[0]
-        def items = batch.getSuccesses().collect { successEvent -> successEvent.getData() }
+        def items = batch.getSuccesses().collect { successEvent -> successEvent.data() }
         items.contains("item-A")
         items.contains("item-B")
         items.contains("item-C")

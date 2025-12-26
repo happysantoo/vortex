@@ -32,6 +32,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Batch processor runs on a dedicated named virtual thread
   - No performance impact (virtual threads share the same carrier thread pool)
 
+- **Code Simplification**: Significant code quality improvements and simplifications
+  - Converted `SuccessEvent`, `FailureEvent`, `SubmissionContext`, and `PendingRequest` to Java records
+  - Removed redundant getter methods (records provide accessors automatically)
+  - Consolidated duplicate map building methods in `ResultProcessor` into a single generic method
+  - Cached `DefaultBatcherDiagnostics` instance in `MicroBatcher` to avoid repeated creation
+  - Simplified Duration handling in `BatchFormationStrategy` using `System.currentTimeMillis()` instead of `System.nanoTime()`
+  - Repurposed `debugMode` flag to guard only expensive computations, removed from simple logging statements
+  - Reduced codebase by ~100+ lines of boilerplate
+
+- **Performance Optimizations**: Memory and performance improvements
+  - Pre-sized HashMaps in `ResultProcessor` using `HashMap.newHashMap(initialCapacity)` to avoid rehashing
+  - Cached unmodifiable list views in `BatchResult` to eliminate repeated `Collections.unmodifiableList()` allocations
+  - Optimized empty list allocation in `BatchResult` using `List.of()` instead of `new ArrayList<>()`
+  - Migrated from deprecated Micrometer `Timer.percentile()` API to publishing percentiles at timer creation
+
 ## [0.0.11] - 2025-12-24
 
 ### Added
