@@ -39,7 +39,7 @@ public class CustomBackendReplayExample {
             public boolean shouldReplaySuccesses(BatchResult<String> result) {
                 // Custom logic: replay if we have successes with "retry" in them
                 return result.getSuccesses().stream()
-                    .anyMatch(s -> s.getData().contains("retry"));
+                    .anyMatch(s -> s.data().contains("retry"));
             }
         };
         

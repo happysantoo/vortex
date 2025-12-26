@@ -25,6 +25,16 @@ public class SubmissionHandler<T> {
     private final Supplier<Boolean> isClosedSupplier;
     private final Supplier<IllegalStateException> closedExceptionSupplier;
     
+    /**
+     * Creates a new SubmissionHandler.
+     *
+     * @param config the batcher configuration
+     * @param queue the blocking queue to enqueue requests to
+     * @param metrics the metrics manager for recording metrics
+     * @param tracingHelper the tracing helper for invoking tracing hooks
+     * @param isClosedSupplier supplier to check if the batcher is closed
+     * @param closedExceptionSupplier supplier to create exception when batcher is closed
+     */
     public SubmissionHandler(
             BatcherConfig config,
             BlockingQueue<PendingRequest<T>> queue,

@@ -130,20 +130,14 @@ class DefaultMetricsProvider implements MetricsProvider {
 
     @Override
     public double getP95DispatchLatency() {
-        // Timer.percentile() is deprecated but still functional in 1.16.0
-        // The replacement API requires percentiles to be published at timer creation,
-        // which we can't change retroactively. Suppress warning for now.
-        @SuppressWarnings("deprecation")
+        // Percentiles are published at timer creation, so percentile() is available
         double percentile = batchDispatchLatency.percentile(0.95, TimeUnit.MILLISECONDS);
         return Double.isNaN(percentile) ? 0.0 : percentile;
     }
 
     @Override
     public double getP99DispatchLatency() {
-        // Timer.percentile() is deprecated but still functional in 1.16.0
-        // The replacement API requires percentiles to be published at timer creation,
-        // which we can't change retroactively. Suppress warning for now.
-        @SuppressWarnings("deprecation")
+        // Percentiles are published at timer creation, so percentile() is available
         double percentile = batchDispatchLatency.percentile(0.99, TimeUnit.MILLISECONDS);
         return Double.isNaN(percentile) ? 0.0 : percentile;
     }

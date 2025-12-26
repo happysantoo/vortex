@@ -22,21 +22,35 @@ public class ShutdownManager<T> {
     private static final int EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS = 5;
     
     private final BlockingQueue<PendingRequest<T>> queue;
-    private final ExecutorService executor;
+    private final ExecutorService dispatchExecutor;
+    private final ExecutorService retryExecutor;
     private final AtomicInteger activeBatchCount;
     private final Backend<T> backend;
     private final ResultProcessor<T> resultProcessor;
     private final RetryManager<T> retryManager;
     
+    /**
+     * Creates a new ShutdownManager.
+     *
+     * @param queue the blocking queue of pending requests
+     * @param dispatchExecutor the executor service for dispatch operations
+     * @param retryExecutor the executor service for retry operations
+     * @param activeBatchCount the atomic integer tracking active batches (may be null)
+     * @param backend the backend for processing remaining items
+     * @param resultProcessor the result processor for processing batch results
+     * @param retryManager the retry manager for clearing retry state
+     */
     public ShutdownManager(
             BlockingQueue<PendingRequest<T>> queue,
-            ExecutorService executor,
+            ExecutorService dispatchExecutor,
+            ExecutorService retryExecutor,
             AtomicInteger activeBatchCount,
             Backend<T> backend,
             ResultProcessor<T> resultProcessor,
             RetryManager<T> retryManager) {
         this.queue = queue;
-        this.executor = executor;
+        this.dispatchExecutor = dispatchExecutor;
+        this.retryExecutor = retryExecutor;
         this.activeBatchCount = activeBatchCount;
         this.backend = backend;
         this.resultProcessor = resultProcessor;
@@ -60,16 +74,23 @@ public class ShutdownManager<T> {
         // Best-effort wait for the batch processor to drain the queue
         waitForQueueToDrain(CLOSE_QUEUE_WAIT_TIMEOUT_MS, TimeUnit.MILLISECONDS);
         
-        // Shutdown executor gracefully to allow in-flight batches to complete
-        executor.shutdown();
+        // Shutdown both executors gracefully to allow in-flight operations to complete
+        dispatchExecutor.shutdown();
+        retryExecutor.shutdown();
         
         try {
-            if (!executor.awaitTermination(EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-                executor.shutdownNow();
+            // Wait for dispatch executor
+            if (!dispatchExecutor.awaitTermination(EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                dispatchExecutor.shutdownNow();
+            }
+            // Wait for retry executor
+            if (!retryExecutor.awaitTermination(EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                retryExecutor.shutdownNow();
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            executor.shutdownNow();
+            dispatchExecutor.shutdownNow();
+            retryExecutor.shutdownNow();
         }
         
         // Wait for all in-flight batches to complete (if concurrent limiting is enabled)
@@ -79,14 +100,14 @@ public class ShutdownManager<T> {
             Thread.currentThread().interrupt();
         }
         
-        // Process any remaining items synchronously after executor is done
+        // Process any remaining items synchronously after executors are done
         List<PendingRequest<T>> remaining = new ArrayList<>();
         queue.drainTo(remaining);
         if (!remaining.isEmpty()) {
             // Create data list with pre-sized ArrayList (optimization: avoid stream overhead)
             List<T> dataList = new ArrayList<>(remaining.size());
             for (PendingRequest<T> req : remaining) {
-                dataList.add(req.getData());
+                dataList.add(req.data());
             }
             
             try {
@@ -142,9 +163,9 @@ public class ShutdownManager<T> {
      */
     private boolean awaitInFlightBatches(long timeout, TimeUnit unit) throws InterruptedException {
         if (activeBatchCount == null) {
-            // No concurrent limiting - just wait for executor to finish
-            if (executor.isShutdown()) {
-                return executor.awaitTermination(timeout, unit);
+            // No concurrent limiting - just wait for dispatch executor to finish
+            if (dispatchExecutor.isShutdown()) {
+                return dispatchExecutor.awaitTermination(timeout, unit);
             }
             // Executor not shut down yet - can't reliably wait
             return true;

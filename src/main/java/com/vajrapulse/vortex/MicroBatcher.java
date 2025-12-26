@@ -26,6 +26,7 @@ import org.slf4j.LoggerFactory;
 import java.util.List;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * A lightweight micro-batcher that groups requests and dispatches them to a backend.
@@ -36,12 +37,24 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class MicroBatcher<T> implements AutoCloseable {
     private static final Logger logger = LoggerFactory.getLogger(MicroBatcher.class);
     
+    /**
+     * Counter for generating unique instance IDs for thread naming.
+     * Each MicroBatcher instance gets a unique ID used in thread names.
+     */
+    private static final AtomicLong INSTANCE_COUNTER = new AtomicLong(0);
+    
     private final Backend<T> backend;
     private final BatcherConfig config;
     private final MeterRegistry meterRegistry;
     
+    /**
+     * Unique identifier for this batcher instance, used in thread naming.
+     */
+    private final long instanceId;
+    
     private final BlockingQueue<PendingRequest<T>> queue;
-    private final ExecutorService executor;
+    private final ExecutorService dispatchExecutor;
+    private final ExecutorService retryExecutor;
     
     // Concurrent dispatch limiting (optional)
     private final Semaphore dispatchSemaphore;
@@ -62,6 +75,7 @@ public class MicroBatcher<T> implements AutoCloseable {
     private final SubmissionHandler<T> submissionHandler;
     private final ShutdownManager<T> shutdownManager;
     private final TracingHelper tracingHelper;
+    private final BatcherDiagnostics diagnosticsView;
     
     /**
      * Creates a new MicroBatcher with a default SimpleMeterRegistry.
@@ -117,8 +131,23 @@ public class MicroBatcher<T> implements AutoCloseable {
             this.activeBatchCount = null;
         }
         
-        // Use virtual threads for executor
-        this.executor = Executors.newVirtualThreadPerTaskExecutor();
+        // Generate unique instance ID for thread naming
+        this.instanceId = INSTANCE_COUNTER.incrementAndGet();
+        
+        // Create named virtual thread executors for better observability
+        // Dispatch executor: handles backend dispatch operations
+        this.dispatchExecutor = Executors.newThreadPerTaskExecutor(
+            Thread.ofVirtual()
+                .name("vortex-" + instanceId + "-dispatch-", 0)
+                .factory()
+        );
+        
+        // Retry executor: handles retry operations
+        this.retryExecutor = Executors.newThreadPerTaskExecutor(
+            Thread.ofVirtual()
+                .name("vortex-" + instanceId + "-retry-", 0)
+                .factory()
+        );
         
         // Queue size is configurable via BatcherConfig.maxQueueSize (defaults to 2x batch size)
         this.queue = new LinkedBlockingQueue<>(config.getMaxQueueSize());
@@ -144,7 +173,8 @@ public class MicroBatcher<T> implements AutoCloseable {
         
         // RetryManager and ResultProcessor need CompletableFuture<BatchResult<T>> for retries/replays
         // Use internal method that provides this interface
-        this.retryManager = new RetryManager<>(config, executor, this::submitInternal, () -> closed, metrics, debugMode);
+        // RetryManager uses dedicated retry executor for named threads (vortex-{id}-retry-N)
+        this.retryManager = new RetryManager<>(config, retryExecutor, this::submitInternal, () -> closed, metrics, debugMode);
         this.resultProcessor = new ResultProcessor<>(config, backend, metrics, retryManager, this::submitInternal);
         
         // Initialize batch formation strategy
@@ -153,9 +183,9 @@ public class MicroBatcher<T> implements AutoCloseable {
         // Initialize tracing helper (reused across components)
         this.tracingHelper = new TracingHelper(tracingHook, debugMode);
         
-        // Initialize batch dispatcher
+        // Initialize batch dispatcher with dedicated dispatch executor (vortex-{id}-dispatch-N)
         this.batchDispatcher = new BatchDispatcher<>(
-            config, backend, executor, metrics, resultProcessor,
+            config, backend, dispatchExecutor, metrics, resultProcessor,
             dispatchSemaphore, activeBatchCount, tracingHelper, debugMode);
         
         // Initialize submission handler
@@ -163,9 +193,12 @@ public class MicroBatcher<T> implements AutoCloseable {
             config, queue, metrics, tracingHelper,
             () -> closed, this::newClosedException);
         
-        // Initialize shutdown manager
+        // Initialize shutdown manager with both executors
         this.shutdownManager = new ShutdownManager<>(
-            queue, executor, activeBatchCount, backend, resultProcessor, retryManager);
+            queue, dispatchExecutor, retryExecutor, activeBatchCount, backend, resultProcessor, retryManager);
+        
+        // Cache diagnostics instance to avoid allocations on repeated calls
+        this.diagnosticsView = new DefaultBatcherDiagnostics<>(this::isClosed, config, queue);
         
         // Start the batch processor
         startBatchProcessor();
@@ -303,18 +336,18 @@ public class MicroBatcher<T> implements AutoCloseable {
         SubmissionContext<T> context = submissionHandler.submitCommon(item, true, false);
         
         // Handle immediate rejections - return synchronously
-        if (context.enqueueResult == EnqueueResult.REJECTED_THRESHOLD || 
-            context.enqueueResult == EnqueueResult.REJECTED_FULL) {
+        if (context.enqueueResult() == EnqueueResult.REJECTED_THRESHOLD || 
+            context.enqueueResult() == EnqueueResult.REJECTED_FULL) {
             int currentSize = queue.size();
             int maxSize = config.getMaxQueueSize();
             return ItemResult.failure(item, ItemRejectedException.queueFull(currentSize, maxSize));
-        } else if (context.enqueueResult == EnqueueResult.INTERRUPTED) {
+        } else if (context.enqueueResult() == EnqueueResult.INTERRUPTED) {
             return ItemResult.failure(item, new InterruptedException("Interrupted while queuing item"));
         }
         
         // Item accepted - attach callback if provided
         if (callback != null) {
-            context.batchFuture.thenAccept(batchResult -> {
+            context.batchFuture().thenAccept(batchResult -> {
                 ItemResult<T> itemResult = batchResult.findItemResult(item)
                     .orElseThrow(() -> new IllegalStateException("Item result not found in batch"));
                 callback.onResult(itemResult);
@@ -388,7 +421,7 @@ public class MicroBatcher<T> implements AutoCloseable {
         
         // For rejected items, the future is already completed exceptionally
         // For accepted items, transform BatchResult to ItemResult
-        return context.batchFuture.thenApply(batchResult -> {
+        return context.batchFuture().thenApply(batchResult -> {
             ItemResult<T> itemResult = batchResult.findItemResult(item)
                 .orElseThrow(() -> new IllegalStateException(
                     String.format("Item result not found in batch. Item: %s, Batch size: %d", 
@@ -412,7 +445,7 @@ public class MicroBatcher<T> implements AutoCloseable {
         // Use SubmissionHandler.submitCommon() to eliminate code duplication
         // For retries/replays: skip threshold check, use timeout
         SubmissionContext<T> context = submissionHandler.submitCommon(item, false, true);
-        return context.batchFuture;
+        return context.batchFuture();
     }
     
     /**
@@ -445,27 +478,28 @@ public class MicroBatcher<T> implements AutoCloseable {
     }
     
     private void startBatchProcessor() {
-        executor.submit(() -> {
-            while (!closed || !queue.isEmpty()) {
-                try {
-                    processBatch();
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    break;
-                } catch (Exception e) {
-                    logger.error("Error in batch processor", e);
+        // Start batch processor on a named virtual thread (vortex-{id}-batch-processor)
+        Thread.ofVirtual()
+            .name("vortex-" + instanceId + "-batch-processor")
+            .start(() -> {
+                while (!closed || !queue.isEmpty()) {
+                    try {
+                        processBatch();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    } catch (Exception e) {
+                        logger.error("Error in batch processor", e);
+                    }
                 }
-            }
-        });
+            });
     }
     
     private void processBatch() throws InterruptedException {
         List<PendingRequest<T>> batch = batchFormationStrategy.formBatch();
         
         if (!batch.isEmpty()) {
-            if (debugMode) {
-                logger.debug("Dispatching batch of size: {}", batch.size());
-            }
+            logger.debug("Dispatching batch of size: {}", batch.size());
             batchDispatcher.dispatchBatch(batch);
         }
     }
@@ -599,7 +633,7 @@ public class MicroBatcher<T> implements AutoCloseable {
      * @since 0.0.3
      */
     public BatcherDiagnostics diagnostics() {
-        return new DefaultBatcherDiagnostics<>(closed, config, queue);
+        return diagnosticsView;
     }
     
     /**

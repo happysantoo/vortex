@@ -36,6 +36,19 @@ public class BatchDispatcher<T> {
     private final TracingHelper tracingHelper;
     private final boolean debugMode;
     
+    /**
+     * Creates a new BatchDispatcher.
+     *
+     * @param config the batcher configuration
+     * @param backend the backend for dispatching batches
+     * @param executor the executor service for dispatching batches
+     * @param metrics the metrics manager for recording metrics
+     * @param resultProcessor the result processor for processing batch results
+     * @param dispatchSemaphore the semaphore for limiting concurrent dispatches (may be null)
+     * @param activeBatchCount the atomic integer for tracking active batches (may be null)
+     * @param tracingHelper the tracing helper for invoking tracing hooks
+     * @param debugMode whether debug mode is enabled
+     */
     public BatchDispatcher(
             BatcherConfig config,
             Backend<T> backend,
@@ -84,9 +97,7 @@ public class BatchDispatcher<T> {
             if (!acquired) {
                 // Can't dispatch - too many concurrent batches
                 metrics.recordDispatchRejected();
-                if (debugMode) {
-                    logger.debug("Batch rejected: too many concurrent batches (limit: {})", config.getMaxConcurrentBatches());
-                }
+                logger.debug("Batch rejected: too many concurrent batches (limit: {})", config.getMaxConcurrentBatches());
                 handleDispatchRejection(batch);
                 return;
             }
@@ -95,7 +106,7 @@ public class BatchDispatcher<T> {
         // Build data list once so it can be reused for dispatch, metrics, and tracing
         List<T> dataList = new ArrayList<>(batch.size());
         for (PendingRequest<T> req : batch) {
-            dataList.add(req.getData());
+            dataList.add(req.data());
         }
         
         tracingHelper.safeOnBatchDispatchStart(dataList);
@@ -107,7 +118,7 @@ public class BatchDispatcher<T> {
             long totalWait = 0;
             long now = System.nanoTime();
             for (PendingRequest<T> req : batch) {
-                totalWait += now - req.getTimestamp();
+                totalWait += now - req.timestamp();
             }
             long avgWaitTime = totalWait / batch.size();
             logger.debug("Dispatching batch: size={}, avgWaitTimeNs={}", batch.size(), avgWaitTime);
@@ -124,7 +135,7 @@ public class BatchDispatcher<T> {
             // Record queue wait time for each item (from submit to batch dispatch start)
             long dispatchStartTime = System.nanoTime();
             for (PendingRequest<T> req : batch) {
-                long queueWaitTime = dispatchStartTime - req.getTimestamp();
+                long queueWaitTime = dispatchStartTime - req.timestamp();
                 metrics.recordQueueWaitTime(queueWaitTime);
             }
         }
@@ -137,23 +148,17 @@ public class BatchDispatcher<T> {
                     activeBatchCount.incrementAndGet();
                 }
                 try {
-                    if (debugMode) {
-                        logger.debug("Calling backend.dispatch() for batch of size: {}", dataList.size());
-                    }
+                    logger.debug("Calling backend.dispatch() for batch of size: {}", dataList.size());
                     BatchResult<T> result = backend.dispatch(dataList);
                     metrics.recordBatchDispatchLatency(sample);
                     tracingHelper.safeOnBatchDispatchSuccess(dataList, result);
-                    if (debugMode) {
-                        logger.debug("Backend dispatch completed: successes={}, failures={}", 
-                            result.getSuccesses().size(), result.getFailures().size());
-                    }
+                    logger.debug("Backend dispatch completed: successes={}, failures={}", 
+                        result.getSuccesses().size(), result.getFailures().size());
                     resultProcessor.processResults(batch, result);
                 } catch (Exception e) {
                     metrics.recordBatchDispatchLatency(sample);
                     tracingHelper.safeOnBatchDispatchFailure(dataList, e);
-                    if (debugMode) {
-                        logger.debug("Backend dispatch failed", e);
-                    }
+                    logger.debug("Backend dispatch failed", e);
                     resultProcessor.processFailure(batch, e);
                 } finally {
                     // Release permit when done
@@ -171,9 +176,7 @@ public class BatchDispatcher<T> {
             if (dispatchSemaphore != null) {
                 dispatchSemaphore.release();
             }
-            if (debugMode) {
-                logger.debug("Executor rejected batch dispatch", e);
-            }
+            logger.debug("Executor rejected batch dispatch", e);
             handleDispatchRejection(batch);
         }
     }
@@ -193,7 +196,7 @@ public class BatchDispatcher<T> {
             activeBatches, config.getMaxConcurrentBatches());
         
         for (PendingRequest<T> request : batch) {
-            CompletableFuture<BatchResult<T>> future = request.getFuture();
+            CompletableFuture<BatchResult<T>> future = request.future();
             if (future != null && !future.isDone()) {
                 future.completeExceptionally(rejectionError);
             }

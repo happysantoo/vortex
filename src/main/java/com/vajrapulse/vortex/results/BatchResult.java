@@ -17,6 +17,8 @@ import java.util.stream.Collectors;
 public class BatchResult<T> {
     private final List<SuccessEvent<T>> successes;
     private final List<FailureEvent<T>> failures;
+    private final List<SuccessEvent<T>> unmodifiableSuccesses;
+    private final List<FailureEvent<T>> unmodifiableFailures;
     
     /**
      * Creates a new BatchResult.
@@ -25,8 +27,17 @@ public class BatchResult<T> {
      * @param failures the list of failure events (may be null)
      */
     public BatchResult(List<SuccessEvent<T>> successes, List<FailureEvent<T>> failures) {
-        this.successes = successes != null ? new ArrayList<>(successes) : new ArrayList<>();
-        this.failures = failures != null ? new ArrayList<>(failures) : new ArrayList<>();
+        // Use immutable empty list for null/empty inputs to avoid unnecessary allocations
+        this.successes = (successes == null || successes.isEmpty()) 
+            ? List.of() 
+            : new ArrayList<>(successes);
+        this.failures = (failures == null || failures.isEmpty())
+            ? List.of()
+            : new ArrayList<>(failures);
+        
+        // Cache unmodifiable views at construction to avoid allocations on repeated getter calls
+        this.unmodifiableSuccesses = Collections.unmodifiableList(this.successes);
+        this.unmodifiableFailures = Collections.unmodifiableList(this.failures);
     }
     
     /**
@@ -35,7 +46,7 @@ public class BatchResult<T> {
      * @return an unmodifiable list of successful events
      */
     public List<SuccessEvent<T>> getSuccesses() {
-        return Collections.unmodifiableList(successes);
+        return unmodifiableSuccesses;
     }
     
     /**
@@ -44,7 +55,7 @@ public class BatchResult<T> {
      * @return an unmodifiable list of failure events
      */
     public List<FailureEvent<T>> getFailures() {
-        return Collections.unmodifiableList(failures);
+        return unmodifiableFailures;
     }
     
     /**
@@ -93,7 +104,7 @@ public class BatchResult<T> {
     public Map<Class<? extends Throwable>, List<FailureEvent<T>>> getFailuresByType() {
         return failures.stream()
             .collect(Collectors.groupingBy(
-                f -> f.getError().getClass().asSubclass(Throwable.class)));
+                f -> f.error().getClass().asSubclass(Throwable.class)));
     }
     
     /**
@@ -125,7 +136,7 @@ public class BatchResult<T> {
     public Optional<ItemResult<T>> findItemResult(T item, BiPredicate<T, T> equalityComparator) {
         // Check successes first
         for (SuccessEvent<T> success : successes) {
-            T successData = success.getData();
+            T successData = success.data();
             if (successData != null && equalityComparator.test(successData, item)) {
                 return Optional.of(ItemResult.success(success));
             } else if (successData == null && item == null) {
@@ -135,7 +146,7 @@ public class BatchResult<T> {
         
         // Check failures
         for (FailureEvent<T> failure : failures) {
-            T failureData = failure.getData();
+            T failureData = failure.data();
             if (failureData != null && equalityComparator.test(failureData, item)) {
                 return Optional.of(ItemResult.failure(failure));
             } else if (failureData == null && item == null) {

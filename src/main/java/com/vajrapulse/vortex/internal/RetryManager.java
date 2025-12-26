@@ -104,10 +104,8 @@ public class RetryManager<T> {
         int currentRetries = retryCount.incrementAndGet();
         metrics.recordRequestRetried();
         
-        if (debugMode) {
-            logger.debug("Scheduling retry {} for item: {}, error: {}", 
-                currentRetries, item, error.getClass().getSimpleName());
-        }
+        logger.debug("Scheduling retry {} for item: {}, error: {}", 
+            currentRetries, item, error.getClass().getSimpleName());
         
         Runnable retryTask = () -> {
             try {
@@ -130,9 +128,7 @@ public class RetryManager<T> {
                     }
                 });
             } catch (IllegalStateException e) {
-                if (debugMode) {
-                    logger.debug("Cannot retry item {} - batcher is closed", item);
-                }
+                logger.debug("Cannot retry item {} - batcher is closed", item);
                 retryCounts.remove(item);
                 originalFuture.complete(new BatchResult<>(
                     List.of(),
@@ -237,7 +233,7 @@ public class RetryManager<T> {
         });
         
         int removed = removedCount.get();
-        if (debugMode && removed > 0) {
+        if (removed > 0) {
             logger.debug("Cleaned up {} stale retry count entries", removed);
         }
     }

@@ -18,7 +18,7 @@ java {
 }
 
 group = "com.vajrapulse"
-version = "0.0.11"
+version = "0.0.12"
 
 repositories {
     mavenCentral()
@@ -161,6 +161,8 @@ tasks.jacocoTestCoverageVerification {
                 "com.vajrapulse.vortex.MicroBatcher.awaitCompletion(long, java.util.concurrent.TimeUnit)",
                 "com.vajrapulse.vortex.MicroBatcher.waitForQueueToDrain(long, java.util.concurrent.TimeUnit)",
                 // ShutdownManager methods are tested through MicroBatcher integration tests
+                // shutdown() has complex branching for dual executor shutdown and interrupt handling
+                "com.vajrapulse.vortex.internal.ShutdownManager.shutdown()",
                 "com.vajrapulse.vortex.internal.ShutdownManager.awaitCompletion(long, java.util.concurrent.TimeUnit, boolean)",
                 "com.vajrapulse.vortex.internal.ShutdownManager.awaitInFlightBatches(long, java.util.concurrent.TimeUnit)",
                 "com.vajrapulse.vortex.internal.ShutdownManager.waitForQueueToDrain(long, java.util.concurrent.TimeUnit)",

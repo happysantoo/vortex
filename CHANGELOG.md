@@ -5,6 +5,48 @@ All notable changes to the Vortex Micro-Batching Library will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.12] - 2025-12-26
+
+### Added
+- **Named Virtual Threads**: All virtual threads now have descriptive names with "vortex-" prefix for improved observability
+  - Thread naming pattern: `vortex-{instanceId}-{type}-{N}`
+  - Batch processor thread: `vortex-{id}-batch-processor`
+  - Dispatch worker threads: `vortex-{id}-dispatch-0`, `vortex-{id}-dispatch-1`, etc.
+  - Retry worker threads: `vortex-{id}-retry-0`, `vortex-{id}-retry-1`, etc.
+  - Each MicroBatcher instance gets a unique ID for thread naming
+  - Improves debugging with clear thread identification in thread dumps
+  - Better APM/monitoring tool integration
+  - Example thread dump:
+    ```
+    "vortex-1-batch-processor" #42 virtual
+    "vortex-1-dispatch-0" #43 virtual
+    "vortex-1-dispatch-1" #44 virtual
+    "vortex-1-retry-0" #45 virtual
+    "vortex-retry-cleanup" #46
+    ```
+
+### Changed
+- **Separate Executors**: Internal architecture now uses separate executors for dispatch and retry operations
+  - `dispatchExecutor`: Handles backend dispatch operations with named threads
+  - `retryExecutor`: Handles retry operations with named threads
+  - Batch processor runs on a dedicated named virtual thread
+  - No performance impact (virtual threads share the same carrier thread pool)
+
+- **Code Simplification**: Significant code quality improvements and simplifications
+  - Converted `SuccessEvent`, `FailureEvent`, `SubmissionContext`, and `PendingRequest` to Java records
+  - Removed redundant getter methods (records provide accessors automatically)
+  - Consolidated duplicate map building methods in `ResultProcessor` into a single generic method
+  - Cached `DefaultBatcherDiagnostics` instance in `MicroBatcher` to avoid repeated creation
+  - Simplified Duration handling in `BatchFormationStrategy` using `System.currentTimeMillis()` instead of `System.nanoTime()`
+  - Repurposed `debugMode` flag to guard only expensive computations, removed from simple logging statements
+  - Reduced codebase by ~100+ lines of boilerplate
+
+- **Performance Optimizations**: Memory and performance improvements
+  - Pre-sized HashMaps in `ResultProcessor` using `HashMap.newHashMap(initialCapacity)` to avoid rehashing
+  - Cached unmodifiable list views in `BatchResult` to eliminate repeated `Collections.unmodifiableList()` allocations
+  - Optimized empty list allocation in `BatchResult` using `List.of()` instead of `new ArrayList<>()`
+  - Migrated from deprecated Micrometer `Timer.percentile()` API to publishing percentiles at timer creation
+
 ## [0.0.11] - 2025-12-24
 
 ### Added

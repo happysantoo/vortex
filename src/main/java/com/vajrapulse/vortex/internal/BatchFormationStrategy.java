@@ -23,6 +23,13 @@ public class BatchFormationStrategy<T> {
     private final BlockingQueue<PendingRequest<T>> queue;
     private final boolean debugMode;
     
+    /**
+     * Creates a new BatchFormationStrategy.
+     *
+     * @param config the batcher configuration
+     * @param queue the blocking queue to poll items from
+     * @param debugMode whether debug mode is enabled
+     */
     public BatchFormationStrategy(BatcherConfig config, BlockingQueue<PendingRequest<T>> queue, boolean debugMode) {
         this.config = config;
         this.queue = queue;
@@ -48,48 +55,40 @@ public class BatchFormationStrategy<T> {
         List<PendingRequest<T>> batch = new ArrayList<>(batchSize);
         
         Duration lingerTime = config.getLingerTime();
-        long lingerTimeNanos = lingerTime.toNanos();
+        long lingerTimeMillis = lingerTime.toMillis();
         
         // Wait for first item with timeout based on linger time
-        PendingRequest<T> first = queue.poll(lingerTime.toMillis(), TimeUnit.MILLISECONDS);
+        PendingRequest<T> first = queue.poll(lingerTimeMillis, TimeUnit.MILLISECONDS);
         if (first == null) {
             return batch; // Empty batch
         }
         
         batch.add(first);
         
-        if (debugMode) {
-            logger.debug("Starting batch formation, first item: {}", first.getData());
-        }
+        logger.debug("Starting batch formation, first item: {}", first.data());
         
         // Collect up to batchSize items, respecting linger time
-        long deadline = System.nanoTime() + lingerTimeNanos;
+        long deadline = System.currentTimeMillis() + lingerTimeMillis;
         while (batch.size() < batchSize) {
-            long remainingNanos = deadline - System.nanoTime();
-            if (remainingNanos <= 0) {
-                if (debugMode) {
-                    logger.debug("Linger time elapsed, batch size: {}", batch.size());
-                }
+            long remainingMillis = deadline - System.currentTimeMillis();
+            if (remainingMillis <= 0) {
+                logger.debug("Linger time elapsed, batch size: {}", batch.size());
                 break;
             }
             
-            // Convert nanos to millis directly (optimization: avoid Duration object creation)
-            long remainingMillis = Math.max(1, remainingNanos / 1_000_000);
-            PendingRequest<T> next = queue.poll(remainingMillis, TimeUnit.MILLISECONDS);
+            // Ensure at least 1ms for poll() to avoid immediate timeout
+            long pollTimeout = Math.max(1, remainingMillis);
+            PendingRequest<T> next = queue.poll(pollTimeout, TimeUnit.MILLISECONDS);
             if (next == null) {
-                if (debugMode) {
-                    logger.debug("Timeout waiting for next item, batch size: {}", batch.size());
-                }
+                logger.debug("Timeout waiting for next item, batch size: {}", batch.size());
                 break;
             }
             batch.add(next);
-            if (debugMode) {
-                logger.debug("Added item to batch, current size: {}, queue depth: {}", 
-                    batch.size(), queue.size());
-            }
+            logger.debug("Added item to batch, current size: {}, queue depth: {}", 
+                batch.size(), queue.size());
         }
         
-        if (debugMode && !batch.isEmpty()) {
+        if (!batch.isEmpty()) {
             logger.debug("Formed batch of size: {}", batch.size());
         }
         
