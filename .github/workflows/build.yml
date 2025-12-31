@@ -8,27 +8,28 @@ on:
   workflow_dispatch:  # Allow manual triggering for testing
 
 jobs:
+  # Run tests and build for PRs and main branch pushes
   build:
     runs-on: ubuntu-latest
-    
+
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Set up JDK 21
       uses: actions/setup-java@v4
       with:
         java-version: '21'
         distribution: 'temurin'
-    
+
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
-    
+
     - name: Build with Gradle
       run: ./gradlew build --no-daemon
-    
+
     - name: Generate test coverage report
       run: ./gradlew jacocoTestReport --no-daemon
-    
+
     - name: Upload test coverage reports
       uses: actions/upload-artifact@v4
       if: always()
@@ -37,46 +38,118 @@ jobs:
         path: build/reports/jacoco/test/html/index.html
         retention-days: 30
 
-  release:
+  # Run benchmarks and generate reports
+  benchmarks:
     runs-on: ubuntu-latest
     needs: build
+    # Only run benchmarks on main branch pushes (after PR merges) or manual dispatch
     if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
+    timeout-minutes: 30
     permissions:
-      contents: write  # Required for creating tags and releases
-      id-token: write  # Required for OIDC if needed
-    
+      contents: read
+
     steps:
-    - uses: actions/checkout@v4
-      with:
-        fetch-depth: 0  # Fetch full history for tagging
-    
+    - name: Checkout code
+      uses: actions/checkout@v4
+
     - name: Set up JDK 21
       uses: actions/setup-java@v4
       with:
         java-version: '21'
         distribution: 'temurin'
-    
+
+    - name: Grant execute permission for gradlew
+      run: chmod +x gradlew
+
+    - name: Cache Gradle dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+        key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+        restore-keys: |
+          ${{ runner.os }}-gradle-
+
+    - name: Build project for benchmarks
+      run: ./gradlew build --no-daemon -x test -x jacocoTestReport -x jacocoTestCoverageVerification
+
+    - name: Run JMH benchmarks
+      run: ./gradlew jmh --no-daemon
+      continue-on-error: true # Don't fail the workflow if benchmarks have issues
+
+    - name: Generate JMH HTML report
+      run: ./gradlew jmhReport --no-daemon
+      continue-on-error: true
+
+    - name: Upload benchmark results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: benchmark-results
+        path: |
+          build/reports/jmh/results.json
+          build/reports/jmh/html/**
+        retention-days: 90
+
+    - name: Display benchmark summary
+      if: always()
+      run: |
+        if [ -f build/reports/jmh/results.json ]; then
+          echo "## 📊 JMH Benchmark Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Benchmark results have been generated and will be attached to the release." >> $GITHUB_STEP_SUMMARY
+        else
+          echo "⚠️ Warning: JMH results file not found" >> $GITHUB_STEP_SUMMARY
+        fi
+
+  # Full release pipeline - only on main branch pushes (PR merges)
+  release:
+    runs-on: ubuntu-latest
+    needs: [build, benchmarks]
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: write  # Required for creating tags and releases
+      id-token: write  # Required for OIDC if needed
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Fetch full history for tagging
+
+    - name: Set up JDK 21
+      uses: actions/setup-java@v4
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+
     - name: Configure Git
       run: |
         git config user.name "GitHub Actions"
         git config user.email "actions@github.com"
-    
+
     - name: Extract version from build.gradle.kts
       id: version
       run: |
         VERSION=$(grep 'version =' build.gradle.kts | sed 's/.*version = "\(.*\)".*/\1/')
         echo "version=${VERSION}" >> $GITHUB_OUTPUT
         echo "Extracted version: ${VERSION}"
-    
+
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
-    
+
     - name: Build and test
       run: ./gradlew clean build jacocoTestCoverageVerification --no-daemon
-    
+
     - name: Publish to Maven Local
       run: ./gradlew publishToMavenLocal --no-daemon
-    
+
+    - name: Download benchmark results
+      uses: actions/download-artifact@v4
+      with:
+        name: benchmark-results
+        path: benchmark-artifacts
+
     - name: Set up GPG for signing
       env:
         GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
@@ -90,35 +163,35 @@ jobs:
         else
           echo "GPG_PRIVATE_KEY is not set or empty"
         fi
-        
+
         if [ -z "$GPG_PRIVATE_KEY" ] || [ "$GPG_PRIVATE_KEY" = "" ]; then
           echo "GPG_PRIVATE_KEY not set, skipping GPG setup"
           exit 0
         fi
-        
+
         # Check if the key looks like valid GPG data (starts with -----BEGIN)
         if ! echo "$GPG_PRIVATE_KEY" | grep -q -- "-----BEGIN"; then
           echo "GPG_PRIVATE_KEY does not appear to be valid GPG data, skipping GPG setup"
           exit 0
         fi
-        
+
         # Create GPG directory and set permissions
         mkdir -p ~/.gnupg
         chmod 700 ~/.gnupg
-        
+
         # Import the key
         # Save to temp file first to handle any encoding/formatting issues
         echo "Importing GPG key..."
         TEMP_KEY_FILE=$(mktemp)
-        
+
         # Write key to file, preserving newlines
         printf '%s\n' "$GPG_PRIVATE_KEY" > "$TEMP_KEY_FILE"
-        
+
         # Verify the key file has the expected format
         # Use -F for fixed string matching and -- to separate options from pattern
         HAS_PRIVATE_BLOCK=$(grep -F -- "-----BEGIN PGP PRIVATE KEY BLOCK-----" "$TEMP_KEY_FILE" 2>/dev/null && echo "yes" || echo "no")
         HAS_SECRET_BLOCK=$(grep -F -- "-----BEGIN PGP SECRET KEY BLOCK-----" "$TEMP_KEY_FILE" 2>/dev/null && echo "yes" || echo "no")
-        
+
         if [ "$HAS_PRIVATE_BLOCK" != "yes" ] && [ "$HAS_SECRET_BLOCK" != "yes" ]; then
           echo "ERROR: GPG key does not contain valid PGP key block markers"
           echo "Debug: First 200 chars of key:"
@@ -128,11 +201,11 @@ jobs:
           rm -f "$TEMP_KEY_FILE"
           exit 1
         fi
-        
+
         # Try importing from file
         IMPORT_OUTPUT=$(gpg --batch --import "$TEMP_KEY_FILE" 2>&1)
         IMPORT_EXIT_CODE=$?
-        
+
         if [ $IMPORT_EXIT_CODE -ne 0 ]; then
           echo "ERROR: Failed to import GPG key (exit code: $IMPORT_EXIT_CODE)"
           echo "Import output:"
@@ -151,12 +224,12 @@ jobs:
           rm -f "$TEMP_KEY_FILE"
           exit 1
         fi
-        
+
         echo "$IMPORT_OUTPUT"
         rm -f "$TEMP_KEY_FILE"
-        
+
         echo "GPG key imported successfully"
-        
+
         # Get the key ID (either from secret or from imported key)
         if [ -n "$GPG_KEY_ID" ]; then
           KEY_ID="$GPG_KEY_ID"
@@ -169,30 +242,30 @@ jobs:
           fi
           echo "Extracted GPG key ID: $KEY_ID"
         fi
-        
+
         if [ -z "$KEY_ID" ]; then
           echo "ERROR: Could not determine GPG key ID"
           exit 1
         fi
-        
+
         # Trust the key (required for CI environments)
         # Use trust model always to avoid interactive prompts
         echo "Configuring GPG trust model..."
         mkdir -p ~/.gnupg
         echo "trust-model always" >> ~/.gnupg/gpg.conf
         chmod 600 ~/.gnupg/gpg.conf
-        
+
         # Also set trust level for the specific key
         echo "Trusting GPG key $KEY_ID..."
         (echo "trust"; echo "5"; echo "y"; echo "quit") | gpg --batch --command-fd 0 --edit-key "$KEY_ID" 2>&1 || {
           echo "Note: Could not set trust interactively, using trust-model always"
         }
-        
+
         # Verify the key is available and can be used
         echo "Verifying GPG key..."
         if gpg --list-secret-keys --keyid-format LONG 2>&1 | grep -q "$KEY_ID"; then
           echo "✓ GPG key $KEY_ID is available"
-          
+
           # Test signing capability
           echo "test" | gpg --batch --yes --passphrase "$GPG_PASSPHRASE" --pinentry-mode loopback --sign --local-user "$KEY_ID" -o /dev/null 2>&1 && {
             echo "✓ GPG key $KEY_ID can sign successfully"
@@ -204,7 +277,7 @@ jobs:
           gpg --list-secret-keys --keyid-format LONG
           exit 1
         fi
-    
+
     - name: Configure Maven Central credentials
       env:
         GPG_KEY_ID: ${{ secrets.GPG_KEY_ID }}
@@ -220,7 +293,7 @@ jobs:
         else
           echo "MAVEN_CENTRAL_TOKEN is not set or empty"
         fi
-        
+
         if [ -z "$MAVEN_CENTRAL_TOKEN" ] || [ "$MAVEN_CENTRAL_TOKEN" = "" ]; then
           echo "ERROR: MAVEN_CENTRAL_TOKEN secret is not set"
           exit 1
@@ -239,7 +312,7 @@ jobs:
         if [ -n "$GPG_PASSPHRASE" ]; then
           echo "signingPassword=$GPG_PASSPHRASE" >> ~/.gradle/gradle.properties
         fi
-    
+
     - name: Create git tag
       id: tag
       env:
@@ -258,7 +331,7 @@ jobs:
           echo "tag_exists=false" >> $GITHUB_OUTPUT
         fi
         echo "tag=${TAG}" >> $GITHUB_OUTPUT
-    
+
     - name: Install GitHub CLI
       run: |
         type -p curl >/dev/null || sudo apt update && sudo apt install curl -y
@@ -267,24 +340,71 @@ jobs:
         && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
         && sudo apt update \
         && sudo apt install gh -y
-    
+
     - name: Authenticate GitHub CLI
       run: |
         echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
-    
+
     - name: Publish to Maven Central and create GitHub release
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         VERSION="${{ steps.version.outputs.version }}"
         chmod +x scripts/publish-to-central.sh
-        
+
         # Run publish script (it will create GitHub release at the end)
         ./scripts/publish-to-central.sh "$VERSION" || {
           echo "Publishing failed, but continuing..."
           exit 1
         }
-    
+
+    - name: Upload JAR artifacts to GitHub release
+      if: steps.tag.outputs.tag_exists == 'false'
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        VERSION="${{ steps.version.outputs.version }}"
+        TAG="${{ steps.tag.outputs.tag }}"
+
+        # Wait for release to be created
+        sleep 5
+
+        # Upload JAR files to the release
+        LOCAL_REPO="$HOME/.m2/repository/com/vajrapulse/vortex/${VERSION}"
+
+        echo "Uploading JAR artifacts to release $TAG..."
+        gh release upload "$TAG" \
+          "${LOCAL_REPO}/vortex-${VERSION}.jar" \
+          "${LOCAL_REPO}/vortex-${VERSION}-sources.jar" \
+          "${LOCAL_REPO}/vortex-${VERSION}-javadoc.jar" \
+          --clobber || {
+          echo "Warning: Failed to upload some JAR artifacts"
+        }
+
+    - name: Upload benchmark results to GitHub release
+      if: steps.tag.outputs.tag_exists == 'false'
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        TAG="${{ steps.tag.outputs.tag }}"
+
+        echo "Uploading benchmark results to release $TAG..."
+
+        # Create a zip file with benchmark results
+        cd benchmark-artifacts
+        zip -r "benchmark-results-${TAG}.zip" . || {
+          echo "Warning: Failed to create benchmark results archive"
+          exit 0
+        }
+        cd ..
+
+        # Upload benchmark results
+        gh release upload "$TAG" \
+          "benchmark-artifacts/benchmark-results-${TAG}.zip" \
+          --clobber || {
+          echo "Warning: Failed to upload benchmark results"
+        }
+
     - name: Verify GitHub release
       if: steps.tag.outputs.tag_exists == 'false'
       env:
@@ -292,14 +412,24 @@ jobs:
       run: |
         VERSION="${{ steps.version.outputs.version }}"
         TAG="${{ steps.tag.outputs.tag }}"
-        
-        # Wait a moment for release to be created
-        sleep 5
-        
+
+        # Wait a moment for release to be fully processed
+        sleep 10
+
         # Verify release exists
         if gh release view "$TAG" >/dev/null 2>&1; then
           echo "✓ GitHub release created successfully: $TAG"
-          gh release view "$TAG"
+          echo ""
+          echo "## 📦 Release Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version**: $VERSION" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tag**: $TAG" >> $GITHUB_STEP_SUMMARY
+          echo "- **Maven Central**: Publishing in progress" >> $GITHUB_STEP_SUMMARY
+          echo "- **GitHub Release**: ✅ Created with JAR artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "- **Benchmarks**: ✅ Results attached to release" >> $GITHUB_STEP_SUMMARY
+          echo ""
+          echo "🔗 **Links:**" >> $GITHUB_STEP_SUMMARY
+          echo "- [GitHub Release](https://github.com/${GITHUB_REPOSITORY}/releases/tag/$TAG)" >> $GITHUB_STEP_SUMMARY
+          echo "- [Maven Central](https://central.sonatype.com/)" >> $GITHUB_STEP_SUMMARY
         else
           echo "⚠ Warning: GitHub release may not have been created"
           echo "This is non-fatal - Maven Central upload may have succeeded"

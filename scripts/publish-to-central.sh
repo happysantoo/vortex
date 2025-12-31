@@ -152,7 +152,7 @@ if [[ "${HTTP_CODE}" == "200" ]] || [[ "${HTTP_CODE}" == "201" ]]; then
         }
     fi
     
-    echo "✓ GitHub release created: https://github.com/happysantoo/vortex/releases/tag/v${VERSION}"
+    echo "✓ GitHub release created: https://github.com/${GITHUB_REPOSITORY}/releases/tag/v${VERSION}"
     echo ""
 else
     echo "✗ Upload failed with HTTP ${HTTP_CODE}"
