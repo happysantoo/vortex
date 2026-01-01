@@ -187,9 +187,9 @@ jobs:
         # Write key to file, preserving newlines
         printf '%s\n' "$GPG_PRIVATE_KEY" > "$TEMP_KEY_FILE"
 
-        # Verify the key file has the expected format
+        # Verify the key file has the expected format - Updated for GPG fix
         # Use -F for fixed string matching and -- to separate options from pattern
-        # Fixed: Ensure proper PGP block detection
+        # Fixed: Ensure proper PGP block detection (Jan 1, 2026)
         HAS_PRIVATE_BLOCK=$(grep -F -- "-----BEGIN PGP PRIVATE KEY BLOCK-----" "$TEMP_KEY_FILE" 2>/dev/null && echo "yes" || echo "no")
         HAS_SECRET_BLOCK=$(grep -F -- "-----BEGIN PGP SECRET KEY BLOCK-----" "$TEMP_KEY_FILE" 2>/dev/null && echo "yes" || echo "no")
 
