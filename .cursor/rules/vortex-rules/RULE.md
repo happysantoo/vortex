@@ -1,3 +1,8 @@
+---
+description: "Vortex Micro-Batching Library - Comprehensive coding standards, testing requirements, code review process, and AI assistant guidelines"
+alwaysApply: true
+---
+
 # Vortex Micro-Batching Library - Cursor Rules & Copilot Instructions
 
 ## Code Quality Standards
@@ -195,7 +200,7 @@ Before committing ANY code, verify:
 ### Code Review Focus Areas
 
 #### 1. Test Quality Review
-- **Test coverage**: Verify adequate coverage for new code
+- **Test coverage**: Verify adequate test coverage for new code
 - **Test clarity**: Tests should be easy to understand
 - **Test maintainability**: Tests should be maintainable and not brittle
 - **Test performance**: Tests should run quickly (< 1 second per test)
