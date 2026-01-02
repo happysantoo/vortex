@@ -187,21 +187,20 @@ jobs:
         # Write key to file, preserving newlines
         printf '%s\n' "$GPG_PRIVATE_KEY" > "$TEMP_KEY_FILE"
 
-        # Verify the key file has the expected format - Updated for GPG fix
-        # Use -F for fixed string matching and -- to separate options from pattern
-        # Fixed: Ensure proper PGP block detection (Jan 1, 2026)
-        HAS_PRIVATE_BLOCK=$(grep -F -- "-----BEGIN PGP PRIVATE KEY BLOCK-----" "$TEMP_KEY_FILE" 2>/dev/null && echo "yes" || echo "no")
-        HAS_SECRET_BLOCK=$(grep -F -- "-----BEGIN PGP SECRET KEY BLOCK-----" "$TEMP_KEY_FILE" 2>/dev/null && echo "yes" || echo "no")
-
-        if [ "$HAS_PRIVATE_BLOCK" != "yes" ] && [ "$HAS_SECRET_BLOCK" != "yes" ]; then
-          echo "ERROR: GPG key does not contain valid PGP key block markers"
-          echo "Debug: First 200 chars of key:"
-          head -c 200 "$TEMP_KEY_FILE" | cat -A
-          echo ""
-          echo "Expected: -----BEGIN PGP PRIVATE KEY BLOCK----- or -----BEGIN PGP SECRET KEY BLOCK-----"
-          rm -f "$TEMP_KEY_FILE"
-          exit 1
+        # IMPORTANT: Check if key has proper PGP format - v2024.1
+        echo "Validating PGP key format..."
+        if ! grep -q "-----BEGIN PGP PRIVATE KEY BLOCK-----" "$TEMP_KEY_FILE"; then
+          if ! grep -q "-----BEGIN PGP SECRET KEY BLOCK-----" "$TEMP_KEY_FILE"; then
+            echo "ERROR: GPG key does not contain valid PGP key block markers"
+            echo "Debug: First 200 chars of key:"
+            head -c 200 "$TEMP_KEY_FILE" | cat -A
+            echo ""
+            echo "Expected: -----BEGIN PGP PRIVATE KEY BLOCK----- or -----BEGIN PGP SECRET KEY BLOCK-----"
+            rm -f "$TEMP_KEY_FILE"
+            exit 1
+          fi
         fi
+        echo "✓ GPG key format validation passed"
 
         # Try importing from file
         IMPORT_OUTPUT=$(gpg --batch --import "$TEMP_KEY_FILE" 2>&1)
