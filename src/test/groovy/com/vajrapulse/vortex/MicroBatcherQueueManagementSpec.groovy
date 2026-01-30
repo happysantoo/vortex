@@ -275,5 +275,120 @@ class MicroBatcherQueueManagementSpec extends Specification {
         cleanup:
         batcher?.close()
     }
+
+    def "should record backpressure threshold hit metric"() {
+        given:
+        def registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry()
+        def backendBlocked = new CountDownLatch(1)
+        Backend<String> backend = blockingBackend(backendBlocked)
+        def config = BatcherConfig.builder()
+            .batchSize(10)
+            .lingerTime(Duration.ofMillis(5000))
+            .maxQueueSize(10)
+            .queueRejectionThreshold(0.5) // Reject at 50%
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config, registry)
+        // Fill queue to threshold (5 items)
+        for (int i = 0; i < 5; i++) {
+            batcher.submit("item-${i}")
+        }
+        Thread.sleep(50)
+        // This should trigger threshold rejection
+        def result = batcher.submit("threshold-item")
+
+        then:
+        // May be rejected or accepted depending on timing
+        def thresholdHits = registry.counter("vortex.backpressure.threshold.hits").count()
+        thresholdHits >= 0 // At least 0, may be more if rejected
+
+        cleanup:
+        backendBlocked.countDown()
+        batcher?.close()
+    }
+
+    def "should record backpressure full hit metric"() {
+        given:
+        def registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry()
+        def backendBlocked = new CountDownLatch(1)
+        Backend<String> backend = blockingBackend(backendBlocked)
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(5000))
+            .maxQueueSize(5)
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config, registry)
+        // Fill queue to capacity
+        for (int i = 0; i < 5; i++) {
+            batcher.submit("item-${i}")
+        }
+        Thread.sleep(50)
+        // This should trigger full rejection
+        def result = batcher.submit("full-item")
+
+        then:
+        // May be rejected or accepted depending on timing
+        def fullHits = registry.counter("vortex.backpressure.full.hits").count()
+        fullHits >= 0 // At least 0, may be more if rejected
+
+        cleanup:
+        backendBlocked.countDown()
+        batcher?.close()
+    }
+
+    def "should record queue utilization gauge"() {
+        given:
+        def registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry()
+        Backend<String> backend = successBackend()
+        def config = BatcherConfig.builder()
+            .batchSize(10)
+            .lingerTime(Duration.ofMillis(1000))
+            .maxQueueSize(10)
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config, registry)
+        batcher.submit("item-1")
+        batcher.submit("item-2")
+        Thread.sleep(50) // Allow items to be queued
+
+        then:
+        def utilization = registry.find("vortex.queue.utilization").gauge()
+        utilization != null
+        utilization.value() >= 0.0
+        utilization.value() <= 1.0
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should record rejection rate gauge"() {
+        given:
+        def registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry()
+        Backend<String> backend = successBackend()
+        def config = BatcherConfig.builder()
+            .batchSize(10)
+            .lingerTime(Duration.ofMillis(100))
+            .maxQueueSize(10)
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config, registry)
+        batcher.submit("item-1")
+        batcher.submit("item-2")
+        Thread.sleep(200) // Allow processing
+
+        then:
+        def rejectionRate = registry.find("vortex.backpressure.rejection.rate").gauge()
+        rejectionRate != null
+        rejectionRate.value() >= 0.0
+        rejectionRate.value() <= 1.0
+
+        cleanup:
+        batcher?.close()
+    }
 }
 

@@ -1,9 +1,11 @@
 package com.vajrapulse.vortex
 
+import com.vajrapulse.vortex.internal.CircuitBreaker
 import com.vajrapulse.vortex.results.BatchResult
 import com.vajrapulse.vortex.results.ItemResult
 import com.vajrapulse.vortex.results.SuccessEvent
 import com.vajrapulse.vortex.results.FailureEvent
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import spock.lang.Specification
 
 import java.time.Duration
@@ -185,6 +187,48 @@ class MicroBatcherErrorHandlingSpec extends Specification {
         then:
         futureResult instanceof ItemResult.Failure
         futureResult.error == error
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should open circuit after consecutive backend failures and reject batches"() {
+        given:
+        def callCount = 0
+        def error = new RuntimeException("backend error")
+        Backend<String> backend = { batch ->
+            callCount++
+            if (callCount <= 2) throw error
+            return successBackend().dispatch(batch)
+        }
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(50))
+            .circuitBreakerEnabled(true)
+            .circuitBreakerFailureThreshold(2)
+            .circuitBreakerOpenDuration(Duration.ofMillis(300))
+            .build()
+        def registry = new SimpleMeterRegistry()
+        def batcher = new MicroBatcher<>(backend, config, registry)
+
+        when:
+        def r1 = batcher.submitAsync("item-1").get(5, TimeUnit.SECONDS)
+        def r2 = batcher.submitAsync("item-2").get(5, TimeUnit.SECONDS)
+        def r3 = batcher.submitAsync("item-3").get(5, TimeUnit.SECONDS)
+
+        then:
+        r1 instanceof ItemResult.Failure
+        r2 instanceof ItemResult.Failure
+        (r3 instanceof ItemResult.Failure && r3.error instanceof ItemRejectedException && r3.error.sourceName == "Circuit Breaker") ||
+            (r3 instanceof ItemResult.Failure && r3.error == error)
+        registry.counter("vortex.circuit.open.events").count() >= 1
+
+        when:
+        Thread.sleep(400)
+        def r4 = batcher.submitAsync("item-4").get(5, TimeUnit.SECONDS)
+
+        then:
+        r4 instanceof ItemResult.Success
 
         cleanup:
         batcher?.close()

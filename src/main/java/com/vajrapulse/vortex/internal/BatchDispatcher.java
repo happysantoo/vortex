@@ -35,7 +35,8 @@ public class BatchDispatcher<T> {
     private final AtomicInteger activeBatchCount;
     private final TracingHelper tracingHelper;
     private final boolean debugMode;
-    
+    private final CircuitBreaker circuitBreaker;
+
     /**
      * Creates a new BatchDispatcher.
      *
@@ -48,6 +49,7 @@ public class BatchDispatcher<T> {
      * @param activeBatchCount the atomic integer for tracking active batches (may be null)
      * @param tracingHelper the tracing helper for invoking tracing hooks
      * @param debugMode whether debug mode is enabled
+     * @param circuitBreaker optional circuit breaker for backend resilience (may be null)
      */
     public BatchDispatcher(
             BatcherConfig config,
@@ -58,7 +60,8 @@ public class BatchDispatcher<T> {
             Semaphore dispatchSemaphore,
             AtomicInteger activeBatchCount,
             TracingHelper tracingHelper,
-            boolean debugMode) {
+            boolean debugMode,
+            CircuitBreaker circuitBreaker) {
         this.config = config;
         this.backend = backend;
         this.executor = executor;
@@ -68,6 +71,7 @@ public class BatchDispatcher<T> {
         this.activeBatchCount = activeBatchCount;
         this.tracingHelper = tracingHelper;
         this.debugMode = debugMode;
+        this.circuitBreaker = circuitBreaker;
     }
     
     /**
@@ -97,6 +101,10 @@ public class BatchDispatcher<T> {
             if (!acquired) {
                 // Can't dispatch - too many concurrent batches
                 metrics.recordDispatchRejected();
+                // Record backpressure metric for each item in the batch
+                for (int i = 0; i < batch.size(); i++) {
+                    metrics.recordBackpressureConcurrentHit();
+                }
                 logger.debug("Batch rejected: too many concurrent batches (limit: {})", config.getMaxConcurrentBatches());
                 handleDispatchRejection(batch);
                 return;
@@ -107,6 +115,15 @@ public class BatchDispatcher<T> {
         List<T> dataList = new ArrayList<>(batch.size());
         for (PendingRequest<T> req : batch) {
             dataList.add(req.data());
+        }
+
+        // Circuit breaker: reject batch if circuit is open (before submitting to executor)
+        if (circuitBreaker != null && !circuitBreaker.allowRequest()) {
+            if (dispatchSemaphore != null) {
+                dispatchSemaphore.release();
+            }
+            handleCircuitOpen(batch);
+            return;
         }
         
         tracingHelper.safeOnBatchDispatchStart(dataList);
@@ -148,14 +165,25 @@ public class BatchDispatcher<T> {
                     activeBatchCount.incrementAndGet();
                 }
                 try {
+                    // Re-check circuit inside the task; it may have opened since we submitted
+                    if (circuitBreaker != null && !circuitBreaker.allowRequest()) {
+                        handleCircuitOpen(batch);
+                        return; // finally block below releases semaphore and decrements activeBatchCount
+                    }
                     logger.debug("Calling backend.dispatch() for batch of size: {}", dataList.size());
                     BatchResult<T> result = backend.dispatch(dataList);
+                    if (circuitBreaker != null) {
+                        circuitBreaker.recordSuccess();
+                    }
                     metrics.recordBatchDispatchLatency(sample);
                     tracingHelper.safeOnBatchDispatchSuccess(dataList, result);
                     logger.debug("Backend dispatch completed: successes={}, failures={}", 
                         result.getSuccesses().size(), result.getFailures().size());
                     resultProcessor.processResults(batch, result);
                 } catch (Exception e) {
+                    if (circuitBreaker != null) {
+                        circuitBreaker.recordFailure();
+                    }
                     metrics.recordBatchDispatchLatency(sample);
                     tracingHelper.safeOnBatchDispatchFailure(dataList, e);
                     logger.debug("Backend dispatch failed", e);
@@ -199,6 +227,19 @@ public class BatchDispatcher<T> {
             CompletableFuture<BatchResult<T>> future = request.future();
             if (future != null && !future.isDone()) {
                 future.completeExceptionally(rejectionError);
+            }
+        }
+    }
+
+    /**
+     * Handles rejection of a batch because the circuit breaker is open.
+     */
+    private void handleCircuitOpen(List<PendingRequest<T>> batch) {
+        ItemRejectedException error = ItemRejectedException.circuitOpen();
+        for (PendingRequest<T> request : batch) {
+            CompletableFuture<BatchResult<T>> future = request.future();
+            if (future != null && !future.isDone()) {
+                future.completeExceptionally(error);
             }
         }
     }

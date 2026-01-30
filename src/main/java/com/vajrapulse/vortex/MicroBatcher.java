@@ -4,6 +4,7 @@ import com.vajrapulse.vortex.results.BatchResult;
 import com.vajrapulse.vortex.results.ItemResult;
 import com.vajrapulse.vortex.internal.BatchDispatcher;
 import com.vajrapulse.vortex.internal.BatchFormationStrategy;
+import com.vajrapulse.vortex.internal.CircuitBreaker;
 import com.vajrapulse.vortex.internal.DefaultBatcherDiagnostics;
 import com.vajrapulse.vortex.internal.EnqueueResult;
 import com.vajrapulse.vortex.internal.PendingRequest;
@@ -62,6 +63,9 @@ public class MicroBatcher<T> implements AutoCloseable {
     
     private volatile boolean closed = false;
     
+    // Processor health tracking
+    private final AtomicInteger processorHealthy;
+    
     // Cached configuration for performance
     private final boolean debugMode;
     private final BatchTracingHook tracingHook;
@@ -71,6 +75,7 @@ public class MicroBatcher<T> implements AutoCloseable {
     private final RetryManager<T> retryManager;
     private final ResultProcessor<T> resultProcessor;
     private final BatchFormationStrategy<T> batchFormationStrategy;
+    private final CircuitBreaker circuitBreaker; // null when disabled
     private final BatchDispatcher<T> batchDispatcher;
     private final SubmissionHandler<T> submissionHandler;
     private final ShutdownManager<T> shutdownManager;
@@ -131,6 +136,9 @@ public class MicroBatcher<T> implements AutoCloseable {
             this.activeBatchCount = null;
         }
         
+        // Initialize processor health tracking (1 = healthy, 0 = unhealthy)
+        this.processorHealthy = new AtomicInteger(0);
+        
         // Generate unique instance ID for thread naming
         this.instanceId = INSTANCE_COUNTER.incrementAndGet();
         
@@ -171,6 +179,11 @@ public class MicroBatcher<T> implements AutoCloseable {
                 .register(meterRegistry);
         }
         
+        // Register gauge for processor health (1 = healthy, 0 = unhealthy)
+        Gauge.builder("vortex.processor.healthy", processorHealthy, AtomicInteger::get)
+            .description("Batch processor thread health status (1 = healthy, 0 = unhealthy)")
+            .register(meterRegistry);
+        
         // RetryManager and ResultProcessor need CompletableFuture<BatchResult<T>> for retries/replays
         // Use internal method that provides this interface
         // RetryManager uses dedicated retry executor for named threads (vortex-{id}-retry-N)
@@ -182,20 +195,34 @@ public class MicroBatcher<T> implements AutoCloseable {
         
         // Initialize tracing helper (reused across components)
         this.tracingHelper = new TracingHelper(tracingHook, debugMode);
+
+        // Circuit breaker (optional): created when enabled
+        if (config.isCircuitBreakerEnabled()) {
+            long openDurationNanos = config.getCircuitBreakerOpenDuration().toNanos();
+            this.circuitBreaker = new CircuitBreaker(
+                config.getCircuitBreakerFailureThreshold(),
+                openDurationNanos,
+                meterRegistry);
+        } else {
+            this.circuitBreaker = null;
+        }
         
         // Initialize batch dispatcher with dedicated dispatch executor (vortex-{id}-dispatch-N)
         this.batchDispatcher = new BatchDispatcher<>(
             config, backend, dispatchExecutor, metrics, resultProcessor,
-            dispatchSemaphore, activeBatchCount, tracingHelper, debugMode);
+            dispatchSemaphore, activeBatchCount, tracingHelper, debugMode, circuitBreaker);
         
-        // Initialize submission handler
+        // Initialize submission handler with concurrent batch limit support
         this.submissionHandler = new SubmissionHandler<>(
             config, queue, metrics, tracingHelper,
-            () -> closed, this::newClosedException);
+            () -> closed, this::newClosedException,
+            dispatchSemaphore, activeBatchCount);
         
-        // Initialize shutdown manager with both executors
+        // Initialize shutdown manager with both executors and configurable timeouts
         this.shutdownManager = new ShutdownManager<>(
-            queue, dispatchExecutor, retryExecutor, activeBatchCount, backend, resultProcessor, retryManager);
+            queue, dispatchExecutor, retryExecutor, activeBatchCount, backend, resultProcessor, retryManager,
+            config.getQueueDrainTimeout().toMillis(),
+            config.getExecutorShutdownTimeout().getSeconds());
         
         // Cache diagnostics instance to avoid allocations on repeated calls
         this.diagnosticsView = new DefaultBatcherDiagnostics<>(this::isClosed, config, queue);
@@ -336,12 +363,20 @@ public class MicroBatcher<T> implements AutoCloseable {
         SubmissionContext<T> context = submissionHandler.submitCommon(item, true, false);
         
         // Handle immediate rejections - return synchronously
-        if (context.enqueueResult() == EnqueueResult.REJECTED_THRESHOLD || 
-            context.enqueueResult() == EnqueueResult.REJECTED_FULL) {
-            int currentSize = queue.size();
-            int maxSize = config.getMaxQueueSize();
-            return ItemResult.failure(item, ItemRejectedException.queueFull(currentSize, maxSize));
-        } else if (context.enqueueResult() == EnqueueResult.INTERRUPTED) {
+        // Use queue size from enqueueResult (captured at rejection time) for accurate reporting
+        if (context.enqueueResult().isRejected()) {
+            EnqueueResult result = context.enqueueResult();
+            if (result.getType() == EnqueueResult.Type.REJECTED_CONCURRENT_BATCHES) {
+                int activeBatches = activeBatchCount != null ? activeBatchCount.get() : 0;
+                int maxBatches = config.getMaxConcurrentBatches();
+                return ItemResult.failure(item, ItemRejectedException.concurrentLimitReached(
+                    activeBatches, maxBatches));
+            } else {
+                return ItemResult.failure(item, ItemRejectedException.queueFull(
+                    result.getQueueSizeAtRejection(), 
+                    result.getMaxQueueSize()));
+            }
+        } else if (context.enqueueResult().isInterrupted()) {
             return ItemResult.failure(item, new InterruptedException("Interrupted while queuing item"));
         }
         
@@ -419,15 +454,19 @@ public class MicroBatcher<T> implements AutoCloseable {
     public CompletableFuture<ItemResult<T>> submitAsync(T item) {
         SubmissionContext<T> context = submissionHandler.submitCommon(item, true, false);
         
-        // For rejected items, the future is already completed exceptionally
+        // For rejected items, the future may complete exceptionally (e.g. circuit open, dispatch rejected)
         // For accepted items, transform BatchResult to ItemResult
-        return context.batchFuture().thenApply(batchResult -> {
-            ItemResult<T> itemResult = batchResult.findItemResult(item)
-                .orElseThrow(() -> new IllegalStateException(
-                    String.format("Item result not found in batch. Item: %s, Batch size: %d", 
-                        item, batchResult.getTotalCount())));
-            return itemResult;
-        });
+        return context.batchFuture()
+            .<ItemResult<T>>handle((batchResult, ex) -> {
+                if (ex != null) {
+                    Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                    return ItemResult.failure(item, cause);
+                }
+                return batchResult.findItemResult(item)
+                    .orElseThrow(() -> new IllegalStateException(
+                        String.format("Item result not found in batch. Item: %s, Batch size: %d",
+                            item, batchResult.getTotalCount())));
+            });
     }
     
     /**
@@ -482,15 +521,24 @@ public class MicroBatcher<T> implements AutoCloseable {
         Thread.ofVirtual()
             .name("vortex-" + instanceId + "-batch-processor")
             .start(() -> {
-                while (!closed || !queue.isEmpty()) {
-                    try {
-                        processBatch();
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        break;
-                    } catch (Exception e) {
-                        logger.error("Error in batch processor", e);
+                // Mark processor as healthy when it starts
+                processorHealthy.set(1);
+                try {
+                    while (!closed || !queue.isEmpty()) {
+                        try {
+                            processBatch();
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            break;
+                        } catch (Exception e) {
+                            logger.error("Error in batch processor", e);
+                            // Processor encountered an error but continues running
+                            // Health remains 1 as long as thread is alive and processing
+                        }
                     }
+                } finally {
+                    // Mark processor as unhealthy when it stops
+                    processorHealthy.set(0);
                 }
             });
     }
@@ -647,5 +695,42 @@ public class MicroBatcher<T> implements AutoCloseable {
      */
     public BatcherConfig getConfig() {
         return config;
+    }
+    
+    /**
+     * Checks if the batch processor thread is healthy and running.
+     * 
+     * <p>The processor is considered healthy when:
+     * <ul>
+     *   <li>The batch processor thread is running</li>
+     *   <li>The thread has not encountered fatal errors</li>
+     * </ul>
+     * 
+     * <p>The processor becomes unhealthy when:
+     * <ul>
+     *   <li>The batcher is closed and the processor thread has stopped</li>
+     *   <li>The processor thread has terminated unexpectedly</li>
+     * </ul>
+     * 
+     * <p>This method is useful for:
+     * <ul>
+     *   <li>Health checks and monitoring</li>
+     *   <li>Detecting silent failures</li>
+     *   <li>Operational dashboards</li>
+     * </ul>
+     * 
+     * <p><strong>Example Usage:</strong>
+     * <pre>{@code
+     * if (!batcher.isProcessorHealthy()) {
+     *     logger.error("Batch processor is unhealthy - items may not be processed");
+     *     // Take corrective action: alert, restart, etc.
+     * }
+     * }</pre>
+     * 
+     * @return true if the batch processor is healthy and running, false otherwise
+     * @since 0.0.13
+     */
+    public boolean isProcessorHealthy() {
+        return processorHealthy.get() == 1;
     }
 }

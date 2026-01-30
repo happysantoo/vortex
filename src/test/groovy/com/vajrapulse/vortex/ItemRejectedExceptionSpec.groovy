@@ -31,6 +31,18 @@ class ItemRejectedExceptionSpec extends Specification {
         exception.message.contains("limit: 10")
     }
 
+    def "should create circuit open exception"() {
+        when:
+        def exception = ItemRejectedException.circuitOpen()
+
+        then:
+        exception instanceof ItemRejectedException
+        exception.currentLevel == 0
+        exception.maxLevel == 0
+        exception.sourceName == "Circuit Breaker"
+        exception.message.contains("circuit breaker is open")
+    }
+
     def "should create exception with custom message"() {
         when:
         def exception = new ItemRejectedException("Custom message", 5, 10, "Custom Source")

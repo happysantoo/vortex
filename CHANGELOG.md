@@ -5,6 +5,38 @@ All notable changes to the Vortex Micro-Batching Library will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.14] - 2026-01-29
+
+### Added
+- **Backpressure observability**:
+  - `vortex.backpressure.threshold.hits`, `vortex.backpressure.full.hits`, `vortex.backpressure.concurrent.hits`
+  - `vortex.queue.utilization`, `vortex.backpressure.rejection.rate`
+- **Batch processor health**:
+  - Gauge `vortex.processor.healthy`
+  - `MicroBatcher.isProcessorHealthy()` helper
+- **Circuit breaker (optional)**:
+  - Three-state circuit breaker (CLOSED/OPEN/HALF_OPEN)
+  - Metrics: `vortex.circuit.state`, `vortex.circuit.open.events`
+- **Enhanced retry strategies**:
+  - `BatcherConfig.RetryBackoffStrategy` (FIXED, EXPONENTIAL)
+  - Optional cap via `retryMaxDelay`
+
+### Changed
+- **Queue rejection accuracy**:
+  - Fixed TOCTOU race in enqueue path by relying on atomic `queue.offer()` first, then classifying rejections.
+  - `EnqueueResult` now captures `queueSizeAtRejection` for accurate diagnostics.
+- **Early concurrent batch rejection (opt-in)**:
+  - New config: `earlyConcurrentBatchRejection(true)` to reject earlier based on concurrent batch limits.
+- **submitAsync failure semantics**:
+  - `submitAsync()` now completes with `ItemResult.Failure` when the underlying batch future completes exceptionally
+    (e.g., circuit open, dispatch rejection, closed/null). It no longer completes the returned future exceptionally.
+- **Graceful shutdown**:
+  - Shutdown timeouts are now configurable: `queueDrainTimeout`, `executorShutdownTimeout`.
+
+### Fixed
+- **JMH benchmark config**:
+  - Fixed `SubmitSyncBenchmark` small-queue setup to satisfy `maxQueueSize >= batchSize`.
+
 ## [0.0.12] - 2025-12-26
 
 ### Added

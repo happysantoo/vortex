@@ -30,7 +30,7 @@ class MicroBatcherEdgeCasesSpec extends Specification {
         batcher?.close()
     }
 
-    def "should complete exceptionally when submitAsync after close"() {
+    def "should complete with failure when submitAsync after close"() {
         given:
         Backend<String> backend = successBackend()
         def config = BatcherConfig.builder().build()
@@ -38,17 +38,11 @@ class MicroBatcherEdgeCasesSpec extends Specification {
         batcher.close()
 
         when:
-        def future = batcher.submitAsync("item")
-        def exception = null
-        try {
-            future.get(100, TimeUnit.MILLISECONDS)
-        } catch (Exception e) {
-            exception = e
-        }
+        def result = batcher.submitAsync("item").get(100, TimeUnit.MILLISECONDS)
 
         then:
-        exception != null
-        exception.cause instanceof IllegalStateException
+        result instanceof ItemResult.Failure
+        result.error instanceof IllegalStateException
 
         cleanup:
         batcher?.close()
@@ -77,17 +71,11 @@ class MicroBatcherEdgeCasesSpec extends Specification {
         def batcher = new MicroBatcher<>(backend, config)
 
         when:
-        def future = batcher.submitAsync(null)
-        def exception = null
-        try {
-            future.get(100, TimeUnit.MILLISECONDS)
-        } catch (Exception e) {
-            exception = e
-        }
+        def result = batcher.submitAsync(null).get(100, TimeUnit.MILLISECONDS)
 
         then:
-        exception != null
-        exception.cause instanceof NullPointerException
+        result instanceof ItemResult.Failure
+        result.error instanceof NullPointerException
 
         cleanup:
         batcher?.close()

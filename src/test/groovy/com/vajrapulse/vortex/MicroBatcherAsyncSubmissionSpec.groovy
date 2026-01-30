@@ -145,7 +145,7 @@ class MicroBatcherAsyncSubmissionSpec extends Specification {
         batcher?.close()
     }
 
-    def "should complete future exceptionally when closed"() {
+    def "should complete future with failure when closed"() {
         given:
         Backend<String> backend = successBackend()
         def config = BatcherConfig.builder().build()
@@ -153,40 +153,28 @@ class MicroBatcherAsyncSubmissionSpec extends Specification {
         batcher.close()
 
         when:
-        def future = batcher.submitAsync("item")
+        def result = batcher.submitAsync("item").get(100, TimeUnit.MILLISECONDS)
 
         then:
-        def exception = null
-        try {
-            future.get(100, TimeUnit.MILLISECONDS)
-        } catch (Exception e) {
-            exception = e
-        }
-        exception != null
-        exception.cause instanceof IllegalStateException
+        result instanceof ItemResult.Failure
+        result.error instanceof IllegalStateException
 
         cleanup:
         batcher?.close()
     }
 
-    def "should complete future exceptionally on null item"() {
+    def "should complete future with failure on null item"() {
         given:
         Backend<String> backend = successBackend()
         def config = BatcherConfig.builder().build()
         def batcher = new MicroBatcher<>(backend, config)
 
         when:
-        def future = batcher.submitAsync(null)
+        def result = batcher.submitAsync(null).get(100, TimeUnit.MILLISECONDS)
 
         then:
-        def exception = null
-        try {
-            future.get(100, TimeUnit.MILLISECONDS)
-        } catch (Exception e) {
-            exception = e
-        }
-        exception != null
-        exception.cause instanceof NullPointerException
+        result instanceof ItemResult.Failure
+        result.error instanceof NullPointerException
 
         cleanup:
         batcher?.close()

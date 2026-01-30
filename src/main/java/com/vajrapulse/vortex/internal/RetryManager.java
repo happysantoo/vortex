@@ -104,8 +104,10 @@ public class RetryManager<T> {
         int currentRetries = retryCount.incrementAndGet();
         metrics.recordRequestRetried();
         
-        logger.debug("Scheduling retry {} for item: {}, error: {}", 
-            currentRetries, item, error.getClass().getSimpleName());
+        if (debugMode) {
+            logger.debug("Scheduling retry {} for item: {}, error: {}",
+                currentRetries, item, error.getClass().getSimpleName());
+        }
         
         Runnable retryTask = () -> {
             try {
@@ -140,9 +142,14 @@ public class RetryManager<T> {
         if (config.getRetryDelay().isZero()) {
             executor.submit(retryTask);
         } else {
+            long delayMillis = computeRetryDelayMillis(
+                config.getRetryDelay(),
+                currentRetries,
+                config.getRetryBackoffStrategy(),
+                config.getRetryMaxDelay());
             executor.submit(() -> {
                 try {
-                    Thread.sleep(config.getRetryDelay().toMillis());
+                    Thread.sleep(delayMillis);
                     retryTask.run();
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
@@ -154,6 +161,46 @@ public class RetryManager<T> {
                 }
             });
         }
+    }
+
+    static long computeRetryDelayMillis(
+        java.time.Duration baseDelay,
+        int attempt,
+        BatcherConfig.RetryBackoffStrategy strategy,
+        java.time.Duration maxDelay) {
+
+        if (baseDelay == null || baseDelay.isZero()) {
+            return 0L;
+        }
+        if (attempt <= 1) {
+            return Math.max(0L, baseDelay.toMillis());
+        }
+
+        long baseMillis = Math.max(0L, baseDelay.toMillis());
+        if (strategy == null || strategy == BatcherConfig.RetryBackoffStrategy.FIXED) {
+            return baseMillis;
+        }
+
+        long cappedMaxMillis = maxDelay != null ? Math.max(0L, maxDelay.toMillis()) : Long.MAX_VALUE;
+        if (cappedMaxMillis == 0L) {
+            return 0L;
+        }
+
+        // Exponential: base * 2^(attempt-1), with saturation and cap
+        int exponent = attempt - 1;
+        long delay = baseMillis;
+        for (int i = 0; i < exponent; i++) {
+            if (delay > Long.MAX_VALUE / 2) {
+                delay = Long.MAX_VALUE;
+                break;
+            }
+            delay = delay * 2;
+            if (delay >= cappedMaxMillis) {
+                delay = cappedMaxMillis;
+                break;
+            }
+        }
+        return Math.min(delay, cappedMaxMillis);
     }
     
     /**
@@ -233,7 +280,7 @@ public class RetryManager<T> {
         });
         
         int removed = removedCount.get();
-        if (removed > 0) {
+        if (debugMode && removed > 0) {
             logger.debug("Cleaned up {} stale retry count entries", removed);
         }
     }

@@ -7,6 +7,16 @@ import java.util.function.Predicate;
  * Configuration for the micro-batcher.
  */
 public class BatcherConfig {
+    /**
+     * Strategy for computing delays between retry attempts.
+     */
+    public enum RetryBackoffStrategy {
+        /** Always use {@link #getRetryDelay()} for each retry. */
+        FIXED,
+        /** Exponential backoff based on {@link #getRetryDelay()} and attempt number. */
+        EXPONENTIAL
+    }
+
     private final int batchSize;
     private final Duration lingerTime;
     private final boolean atomicCommit;
@@ -15,12 +25,20 @@ public class BatcherConfig {
     private final boolean debugMode;
     private final int maxRetries;
     private final Duration retryDelay;
+    private final RetryBackoffStrategy retryBackoffStrategy;
+    private final Duration retryMaxDelay;
     private final Predicate<Throwable> retryableErrorPredicate;
     private final int maxQueueSize;
     private final double queueRejectionThreshold;
     private final BatchTracingHook tracingHook;
     private final int maxConcurrentBatches;
-    
+    private final Duration queueDrainTimeout;
+    private final Duration executorShutdownTimeout;
+    private final boolean earlyConcurrentBatchRejection;
+    private final boolean circuitBreakerEnabled;
+    private final int circuitBreakerFailureThreshold;
+    private final Duration circuitBreakerOpenDuration;
+
     /**
      * Private constructor for BatcherConfig.
      * 
@@ -35,6 +53,10 @@ public class BatcherConfig {
         this.debugMode = builder.debugMode;
         this.maxRetries = builder.maxRetries;
         this.retryDelay = builder.retryDelay;
+        this.retryBackoffStrategy = builder.retryBackoffStrategy;
+        this.retryMaxDelay = builder.retryMaxDelay != null
+            ? builder.retryMaxDelay
+            : Duration.ofSeconds(30);
         this.retryableErrorPredicate = builder.retryableErrorPredicate;
         // Default to 2x batch size if not explicitly set
         this.maxQueueSize = builder.maxQueueSize != null ? builder.maxQueueSize : builder.batchSize * 2;
@@ -47,6 +69,23 @@ public class BatcherConfig {
         this.maxConcurrentBatches = builder.maxConcurrentBatches != null 
             ? builder.maxConcurrentBatches 
             : 0;
+        // Default to 2 seconds if not explicitly set
+        this.queueDrainTimeout = builder.queueDrainTimeout != null 
+            ? builder.queueDrainTimeout 
+            : Duration.ofSeconds(2);
+        // Default to 5 seconds if not explicitly set
+        this.executorShutdownTimeout = builder.executorShutdownTimeout != null 
+            ? builder.executorShutdownTimeout 
+            : Duration.ofSeconds(5);
+        // Default to false (disabled) if not explicitly set
+        this.earlyConcurrentBatchRejection = builder.earlyConcurrentBatchRejection;
+        this.circuitBreakerEnabled = builder.circuitBreakerEnabled;
+        this.circuitBreakerFailureThreshold = builder.circuitBreakerFailureThreshold != null
+            ? builder.circuitBreakerFailureThreshold
+            : 5;
+        this.circuitBreakerOpenDuration = builder.circuitBreakerOpenDuration != null
+            ? builder.circuitBreakerOpenDuration
+            : Duration.ofSeconds(30);
     }
     
     /**
@@ -120,6 +159,30 @@ public class BatcherConfig {
     public Duration getRetryDelay() {
         return retryDelay;
     }
+
+    /**
+     * Gets the retry backoff strategy.
+     *
+     * <p>Default: {@link RetryBackoffStrategy#FIXED}.
+     *
+     * @return retry backoff strategy
+     * @since 0.0.14
+     */
+    public RetryBackoffStrategy getRetryBackoffStrategy() {
+        return retryBackoffStrategy;
+    }
+
+    /**
+     * Gets the maximum retry delay when using exponential backoff.
+     *
+     * <p>Default: 30 seconds.
+     *
+     * @return maximum retry delay
+     * @since 0.0.14
+     */
+    public Duration getRetryMaxDelay() {
+        return retryMaxDelay;
+    }
     
     /**
      * Gets the predicate to determine if an error is retryable.
@@ -192,6 +255,84 @@ public class BatcherConfig {
         return maxConcurrentBatches;
     }
     
+    /**
+     * Gets the queue drain timeout for graceful shutdown.
+     * 
+     * <p>This is the maximum time to wait for the queue to drain during shutdown.
+     * After this timeout, shutdown proceeds even if items remain in the queue.
+     * 
+     * <p>Default: 2 seconds
+     * 
+     * @return the queue drain timeout duration
+     * @since 0.0.13
+     */
+    public Duration getQueueDrainTimeout() {
+        return queueDrainTimeout;
+    }
+    
+    /**
+     * Gets the executor shutdown timeout for graceful shutdown.
+     * 
+     * <p>This is the maximum time to wait for executor services to shut down
+     * gracefully during shutdown. After this timeout, executors are forcefully
+     * shut down.
+     * 
+     * <p>Default: 5 seconds
+     * 
+     * @return the executor shutdown timeout duration
+     * @since 0.0.13
+     */
+    public Duration getExecutorShutdownTimeout() {
+        return executorShutdownTimeout;
+    }
+    
+    /**
+     * Checks if early concurrent batch rejection is enabled.
+     * 
+     * <p>When enabled, submissions may be rejected at submission time when the
+     * configured {@code maxConcurrentBatches} limit has been reached. This
+     * provides earlier backpressure signalling based on concurrent batch
+     * pressure, rather than waiting until dispatch time.
+     * 
+     * <p>When disabled (default), rejections due to concurrent batch limits
+     * occur at dispatch time only. This maintains backward compatibility with
+     * existing behavior.
+     * 
+     * @return true if early concurrent batch rejection is enabled, false otherwise
+     * @since 0.0.13
+     */
+    public boolean isEarlyConcurrentBatchRejection() {
+        return earlyConcurrentBatchRejection;
+    }
+
+    /**
+     * Returns whether the circuit breaker is enabled for backend dispatch.
+     * When enabled, repeated backend failures open the circuit and batches are rejected until the circuit recovers.
+     *
+     * @return true if circuit breaker is enabled, false otherwise (default: false)
+     */
+    public boolean isCircuitBreakerEnabled() {
+        return circuitBreakerEnabled;
+    }
+
+    /**
+     * Returns the number of consecutive backend failures that open the circuit (when circuit breaker is enabled).
+     *
+     * @return failure threshold (default: 5)
+     */
+    public int getCircuitBreakerFailureThreshold() {
+        return circuitBreakerFailureThreshold;
+    }
+
+    /**
+     * Returns how long the circuit stays open before allowing a probe request (when circuit breaker is enabled).
+     *
+     * @return open duration (default: 30 seconds)
+     */
+    public Duration getCircuitBreakerOpenDuration() {
+        return circuitBreakerOpenDuration;
+    }
+
     /**
      * Creates a new builder instance.
      * 
@@ -291,12 +432,20 @@ public class BatcherConfig {
         private boolean debugMode = false;
         private int maxRetries = 0;
         private Duration retryDelay = Duration.ZERO;
+        private RetryBackoffStrategy retryBackoffStrategy = RetryBackoffStrategy.FIXED;
+        private Duration retryMaxDelay = null; // null means use default (30 seconds)
         private Predicate<Throwable> retryableErrorPredicate = t -> false;
         private Integer maxQueueSize = null; // null means use default (2x batchSize)
         private Double queueRejectionThreshold = null; // null means use default (1.0 = 100% full)
         private BatchTracingHook tracingHook = null;
         private Integer maxConcurrentBatches = null; // null means use default (0 = unlimited)
-        
+        private Duration queueDrainTimeout = null; // null means use default (2 seconds)
+        private Duration executorShutdownTimeout = null; // null means use default (5 seconds)
+        private boolean earlyConcurrentBatchRejection = false; // default: disabled
+        private boolean circuitBreakerEnabled = false;
+        private Integer circuitBreakerFailureThreshold = null; // default 5
+        private Duration circuitBreakerOpenDuration = null; // default 30s
+
         /**
          * Sets the batch size.
          * 
@@ -408,6 +557,42 @@ public class BatcherConfig {
                 throw new IllegalArgumentException("Retry delay must be non-negative");
             }
             this.retryDelay = retryDelay;
+            return this;
+        }
+
+        /**
+         * Sets the retry backoff strategy used to compute delay between attempts.
+         *
+         * <p>Default: {@link RetryBackoffStrategy#FIXED}
+         *
+         * @param strategy backoff strategy (must not be null)
+         * @return this builder instance
+         * @throws IllegalArgumentException if strategy is null
+         * @since 0.0.14
+         */
+        public Builder retryBackoffStrategy(RetryBackoffStrategy strategy) {
+            if (strategy == null) {
+                throw new IllegalArgumentException("Retry backoff strategy must not be null");
+            }
+            this.retryBackoffStrategy = strategy;
+            return this;
+        }
+
+        /**
+         * Sets the maximum delay used when {@link RetryBackoffStrategy#EXPONENTIAL} is enabled.
+         *
+         * <p>Default: 30 seconds
+         *
+         * @param maxDelay maximum delay (must be non-negative)
+         * @return this builder instance
+         * @throws IllegalArgumentException if maxDelay is null or negative
+         * @since 0.0.14
+         */
+        public Builder retryMaxDelay(Duration maxDelay) {
+            if (maxDelay == null || maxDelay.isNegative()) {
+                throw new IllegalArgumentException("Retry max delay must be non-negative");
+            }
+            this.retryMaxDelay = maxDelay;
             return this;
         }
         
@@ -547,6 +732,128 @@ public class BatcherConfig {
         }
         
         /**
+         * Sets the queue drain timeout for graceful shutdown.
+         * 
+         * <p>This is the maximum time to wait for the queue to drain during shutdown.
+         * After this timeout, shutdown proceeds even if items remain in the queue.
+         * 
+         * <p>Default: 2 seconds
+         * 
+         * <p>Example:
+         * <pre>{@code
+         * config.queueDrainTimeout(Duration.ofSeconds(5));
+         * }</pre>
+         * 
+         * @param timeout the queue drain timeout duration (must be non-negative)
+         * @return this builder instance
+         * @throws IllegalArgumentException if timeout is null or negative
+         * @since 0.0.13
+         */
+        public Builder queueDrainTimeout(Duration timeout) {
+            if (timeout == null || timeout.isNegative()) {
+                throw new IllegalArgumentException("Queue drain timeout must be non-negative");
+            }
+            this.queueDrainTimeout = timeout;
+            return this;
+        }
+        
+        /**
+         * Sets the executor shutdown timeout for graceful shutdown.
+         * 
+         * <p>This is the maximum time to wait for executor services to shut down
+         * gracefully during shutdown. After this timeout, executors are forcefully
+         * shut down.
+         * 
+         * <p>Default: 5 seconds
+         * 
+         * <p>Example:
+         * <pre>{@code
+         * config.executorShutdownTimeout(Duration.ofSeconds(10));
+         * }</pre>
+         * 
+         * @param timeout the executor shutdown timeout duration (must be non-negative)
+         * @return this builder instance
+         * @throws IllegalArgumentException if timeout is null or negative
+         * @since 0.0.13
+         */
+        public Builder executorShutdownTimeout(Duration timeout) {
+            if (timeout == null || timeout.isNegative()) {
+                throw new IllegalArgumentException("Executor shutdown timeout must be non-negative");
+            }
+            this.executorShutdownTimeout = timeout;
+            return this;
+        }
+        
+        /**
+         * Enables or disables early concurrent batch rejection.
+         * 
+         * <p>When enabled, items may be rejected at submission time if the
+         * configured {@code maxConcurrentBatches} limit has been reached.
+         * When disabled (default), items are accepted into the queue and may
+         * be rejected later at dispatch time if the concurrent batch limit
+         * is reached.
+         * 
+         * <p>Default: {@code false} (backward compatible).
+         * 
+         * @param enabled true to enable early concurrent batch rejection
+         * @return this builder instance
+         * @since 0.0.13
+         */
+        public Builder earlyConcurrentBatchRejection(boolean enabled) {
+            this.earlyConcurrentBatchRejection = enabled;
+            return this;
+        }
+
+        /**
+         * Enables or disables the circuit breaker for backend dispatch.
+         * When enabled, after a configurable number of consecutive backend failures,
+         * the circuit opens and batches are rejected until the open duration elapses (half-open probe).
+         *
+         * <p>Default: false (disabled)
+         *
+         * @param enabled true to enable the circuit breaker
+         * @return this builder instance
+         */
+        public Builder circuitBreakerEnabled(boolean enabled) {
+            this.circuitBreakerEnabled = enabled;
+            return this;
+        }
+
+        /**
+         * Sets the number of consecutive backend failures that open the circuit.
+         *
+         * <p>Default: 5
+         *
+         * @param failureThreshold number of consecutive failures (must be positive)
+         * @return this builder instance
+         * @throws IllegalArgumentException if failureThreshold is not positive
+         */
+        public Builder circuitBreakerFailureThreshold(int failureThreshold) {
+            if (failureThreshold <= 0) {
+                throw new IllegalArgumentException("circuitBreakerFailureThreshold must be positive");
+            }
+            this.circuitBreakerFailureThreshold = failureThreshold;
+            return this;
+        }
+
+        /**
+         * Sets how long the circuit stays open before allowing a single probe request (half-open).
+         *
+         * <p>Default: 30 seconds
+         *
+         * @param openDuration duration the circuit stays open (must be non-negative)
+         * @return this builder instance
+         * @throws IllegalArgumentException if openDuration is null or negative
+         */
+        public Builder circuitBreakerOpenDuration(Duration openDuration) {
+            if (openDuration == null || openDuration.isNegative()) {
+                throw new IllegalArgumentException("circuitBreakerOpenDuration must be non-negative");
+            }
+            this.circuitBreakerOpenDuration = openDuration;
+            return this;
+        }
+
+        /**
          * Builds the BatcherConfig instance.
          * 
          * @return a new BatcherConfig instance
@@ -558,6 +865,9 @@ public class BatcherConfig {
             }
             if (maxRetries > 0 && retryableErrorPredicate == null) {
                 throw new IllegalStateException("Retryable error predicate must be configured when maxRetries > 0");
+            }
+            if (retryMaxDelay != null && retryMaxDelay.isNegative()) {
+                throw new IllegalStateException("Retry max delay must be non-negative");
             }
             if (maxQueueSize != null && maxQueueSize < batchSize) {
                 throw new IllegalStateException(

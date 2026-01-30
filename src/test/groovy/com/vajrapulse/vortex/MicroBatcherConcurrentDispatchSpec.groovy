@@ -289,5 +289,52 @@ class MicroBatcherConcurrentDispatchSpec extends Specification {
         // Semaphore should be released (no deadlock)
         // This is verified by the fact that close() completes
     }
+
+    def "should reject submissions early when early concurrent rejection is enabled"() {
+        given:
+        def maxConcurrent = 1
+        def backendBlocked = new CountDownLatch(1)
+        Backend<String> backend = { batch ->
+            try {
+                // Block until latch is released to keep the batch in-flight
+                backendBlocked.await(5, TimeUnit.SECONDS)
+            } finally {
+                // no-op
+            }
+            def successes = batch.collect { new SuccessEvent<>(it) }
+            new BatchResult<>(successes, List.of())
+        }
+
+        def config = BatcherConfig.builder()
+            .batchSize(1)
+            .lingerTime(Duration.ofMillis(10))
+            .maxConcurrentBatches(maxConcurrent)
+            .earlyConcurrentBatchRejection(true)
+            .build()
+
+        SimpleMeterRegistry registry = new SimpleMeterRegistry()
+        MicroBatcher<String> batcher = new MicroBatcher<>(backend, config, registry)
+
+        when:
+        // First submission should be accepted and will occupy the single concurrent slot
+        def result1 = batcher.submit("item-1")
+        Thread.sleep(50) // Allow batch to start
+
+        // Second submission should be rejected immediately due to early concurrent rejection
+        def result2 = batcher.submit("item-2")
+
+        then:
+        result1 instanceof ItemResult.Success
+        result2 instanceof ItemResult.Failure
+        result2.error instanceof ItemRejectedException
+        result2.error.message.contains("too many concurrent batches")
+
+        // Concurrent backpressure metric should be recorded
+        registry.counter("vortex.backpressure.concurrent.hits").count() >= 1
+
+        cleanup:
+        backendBlocked.countDown()
+        batcher?.close()
+    }
 }
 

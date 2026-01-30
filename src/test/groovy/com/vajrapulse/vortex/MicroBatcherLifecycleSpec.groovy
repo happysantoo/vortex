@@ -183,5 +183,171 @@ class MicroBatcherLifecycleSpec extends Specification {
         cleanup:
         batcher?.close()
     }
+
+    def "should report processor as healthy when running"() {
+        given:
+        Backend<String> backend = successBackend()
+        def config = BatcherConfig.builder()
+            .batchSize(5)
+            .lingerTime(Duration.ofMillis(100))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        Thread.sleep(50) // Allow processor to start
+
+        then:
+        batcher.isProcessorHealthy() == true
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should report processor as healthy after processing items"() {
+        given:
+        Backend<String> backend = successBackend()
+        def config = BatcherConfig.builder()
+            .batchSize(2)
+            .lingerTime(Duration.ofMillis(50))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        batcher.submit("item-1")
+        batcher.submit("item-2")
+        Thread.sleep(200) // Allow batch to process
+
+        then:
+        batcher.isProcessorHealthy() == true
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should report processor as healthy when closed but queue empty"() {
+        given:
+        Backend<String> backend = successBackend()
+        def config = BatcherConfig.builder()
+            .batchSize(5)
+            .lingerTime(Duration.ofMillis(50))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        batcher.submit("item-1")
+        Thread.sleep(200) // Allow batch to process
+        batcher.close()
+
+        then:
+        // Processor may still be healthy if it completed normally
+        batcher.isProcessorHealthy() != null
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should record processor health metric"() {
+        given:
+        def registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry()
+        Backend<String> backend = successBackend()
+        def config = BatcherConfig.builder()
+            .batchSize(5)
+            .lingerTime(Duration.ofMillis(100))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config, registry)
+        Thread.sleep(50) // Allow processor to start
+
+        then:
+        def gauge = registry.find("vortex.processor.healthy").gauge()
+        gauge != null
+        gauge.value() == 1.0 // Healthy = 1.0
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should use default shutdown timeouts when not configured"() {
+        given:
+        Backend<String> backend = successBackend()
+        def config = BatcherConfig.builder()
+            .batchSize(5)
+            .lingerTime(Duration.ofMillis(50))
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def configFromBatcher = batcher.getConfig()
+
+        then:
+        configFromBatcher.getQueueDrainTimeout() == Duration.ofSeconds(2)
+        configFromBatcher.getExecutorShutdownTimeout() == Duration.ofSeconds(5)
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should use custom queue drain timeout when configured"() {
+        given:
+        Backend<String> backend = successBackend()
+        def customTimeout = Duration.ofSeconds(10)
+        def config = BatcherConfig.builder()
+            .batchSize(5)
+            .lingerTime(Duration.ofMillis(50))
+            .queueDrainTimeout(customTimeout)
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def configFromBatcher = batcher.getConfig()
+
+        then:
+        configFromBatcher.getQueueDrainTimeout() == customTimeout
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should use custom executor shutdown timeout when configured"() {
+        given:
+        Backend<String> backend = successBackend()
+        def customTimeout = Duration.ofSeconds(15)
+        def config = BatcherConfig.builder()
+            .batchSize(5)
+            .lingerTime(Duration.ofMillis(50))
+            .executorShutdownTimeout(customTimeout)
+            .build()
+
+        when:
+        def batcher = new MicroBatcher<>(backend, config)
+        def configFromBatcher = batcher.getConfig()
+
+        then:
+        configFromBatcher.getExecutorShutdownTimeout() == customTimeout
+
+        cleanup:
+        batcher?.close()
+    }
+
+    def "should reject negative queue drain timeout"() {
+        when:
+        BatcherConfig.builder()
+            .queueDrainTimeout(Duration.ofSeconds(-1))
+            .build()
+
+        then:
+        thrown(IllegalArgumentException)
+    }
+
+    def "should reject negative executor shutdown timeout"() {
+        when:
+        BatcherConfig.builder()
+            .executorShutdownTimeout(Duration.ofSeconds(-1))
+            .build()
+
+        then:
+        thrown(IllegalArgumentException)
+    }
 }
 

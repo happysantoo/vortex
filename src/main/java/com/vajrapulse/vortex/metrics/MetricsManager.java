@@ -30,6 +30,11 @@ public class MetricsManager {
     private final Timer queueWaitTime;
     private final DistributionSummary batchSizeHistogram;
     
+    // Enhanced backpressure metrics
+    private final Counter backpressureThresholdHits;
+    private final Counter backpressureFullHits;
+    private final Counter backpressureConcurrentHits;
+    
     // Per-item metrics (optional)
     private final Timer itemSubmitLatency;
     private final Timer itemWaitTime;
@@ -81,6 +86,19 @@ public class MetricsManager {
             .description("Number of batches rejected due to concurrent dispatch limit")
             .register(meterRegistry);
         
+        // Enhanced backpressure metrics
+        this.backpressureThresholdHits = Counter.builder("vortex.backpressure.threshold.hits")
+            .description("Number of requests rejected due to queue rejection threshold")
+            .register(meterRegistry);
+        
+        this.backpressureFullHits = Counter.builder("vortex.backpressure.full.hits")
+            .description("Number of requests rejected due to queue being full")
+            .register(meterRegistry);
+        
+        this.backpressureConcurrentHits = Counter.builder("vortex.backpressure.concurrent.hits")
+            .description("Number of requests rejected due to concurrent batch limit")
+            .register(meterRegistry);
+        
         this.batchDispatchLatency = Timer.builder("vortex.batch.dispatch.latency")
             .description("Time taken to dispatch a batch")
             .publishPercentiles(0.5, 0.95, 0.99)
@@ -119,6 +137,26 @@ public class MetricsManager {
         // Register queue depth gauge (use queue.size() directly - optimization: no redundant tracking)
         Gauge.builder("vortex.queue.depth", queue, BlockingQueue::size)
             .description("Current depth of the request queue")
+            .register(meterRegistry);
+        
+        // Register queue utilization gauge (0.0 to 1.0)
+        Gauge.builder("vortex.queue.utilization", queue, q -> {
+            int size = q.size();
+            int maxSize = config.getMaxQueueSize();
+            return maxSize > 0 ? (double) size / maxSize : 0.0;
+        })
+            .description("Current queue utilization (0.0 = empty, 1.0 = full)")
+            .register(meterRegistry);
+        
+        // Register rejection rate gauge (0.0 to 1.0)
+        // Calculated as: rejected / (submitted + rejected)
+        Gauge.builder("vortex.backpressure.rejection.rate", this, m -> {
+            double submitted = m.requestsSubmitted.count();
+            double rejected = m.requestsRejected.count();
+            double total = submitted + rejected;
+            return total > 0 ? rejected / total : 0.0;
+        })
+            .description("Current rejection rate (0.0 = no rejections, 1.0 = all rejected)")
             .register(meterRegistry);
     }
     
@@ -168,6 +206,30 @@ public class MetricsManager {
      * Records that a request was rejected (queue full or threshold reached).
      */
     public void recordRequestRejected() {
+        requestsRejected.increment();
+    }
+    
+    /**
+     * Records that a request was rejected due to queue rejection threshold.
+     */
+    public void recordBackpressureThresholdHit() {
+        backpressureThresholdHits.increment();
+        requestsRejected.increment();
+    }
+    
+    /**
+     * Records that a request was rejected due to queue being full.
+     */
+    public void recordBackpressureFullHit() {
+        backpressureFullHits.increment();
+        requestsRejected.increment();
+    }
+    
+    /**
+     * Records that a request was rejected due to concurrent batch limit.
+     */
+    public void recordBackpressureConcurrentHit() {
+        backpressureConcurrentHits.increment();
         requestsRejected.increment();
     }
     

@@ -111,6 +111,22 @@ public class ItemRejectedException extends RuntimeException {
             "Concurrent Batches"
         );
     }
+
+    /**
+     * Creates an item rejected exception for circuit breaker open scenario.
+     * 
+     * <p>Used when the circuit breaker is open and the batch is not dispatched to the backend.
+     * 
+     * @return an ItemRejectedException with source="Circuit Breaker"
+     */
+    public static ItemRejectedException circuitOpen() {
+        return new ItemRejectedException(
+            "Batch rejected: circuit breaker is open",
+            0,
+            0,
+            "Circuit Breaker"
+        );
+    }
     
     /**
      * Gets the current capacity level.

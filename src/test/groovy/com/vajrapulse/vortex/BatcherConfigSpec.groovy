@@ -214,6 +214,43 @@ class BatcherConfigSpec extends Specification {
         config.retryDelay == Duration.ZERO
     }
 
+    def "should default retry backoff strategy to FIXED and max delay to 30s"() {
+        when:
+        def config = BatcherConfig.builder().build()
+
+        then:
+        config.retryBackoffStrategy == BatcherConfig.RetryBackoffStrategy.FIXED
+        config.retryMaxDelay == Duration.ofSeconds(30)
+    }
+
+    def "should allow configuring exponential retry backoff strategy and max delay"() {
+        when:
+        def config = BatcherConfig.builder()
+            .retryBackoffStrategy(BatcherConfig.RetryBackoffStrategy.EXPONENTIAL)
+            .retryMaxDelay(Duration.ofSeconds(5))
+            .build()
+
+        then:
+        config.retryBackoffStrategy == BatcherConfig.RetryBackoffStrategy.EXPONENTIAL
+        config.retryMaxDelay == Duration.ofSeconds(5)
+    }
+
+    def "should reject null retry backoff strategy"() {
+        when:
+        BatcherConfig.builder().retryBackoffStrategy(null).build()
+
+        then:
+        thrown(IllegalArgumentException)
+    }
+
+    def "should reject null retry max delay"() {
+        when:
+        BatcherConfig.builder().retryMaxDelay(null).build()
+
+        then:
+        thrown(IllegalArgumentException)
+    }
+
     def "should build config with all options set"() {
         when:
         def config = BatcherConfig.builder()
@@ -416,6 +453,64 @@ class BatcherConfigSpec extends Specification {
         config.batchSize == 10
         config.lingerTime == Duration.ofMillis(100)
         config.maxConcurrentBatches == 5
+    }
+
+    def "should default earlyConcurrentBatchRejection to false"() {
+        when:
+        def config = BatcherConfig.builder().build()
+
+        then:
+        !config.earlyConcurrentBatchRejection
+    }
+
+    def "should enable earlyConcurrentBatchRejection when configured"() {
+        when:
+        def config = BatcherConfig.builder()
+            .earlyConcurrentBatchRejection(true)
+            .build()
+
+        then:
+        config.earlyConcurrentBatchRejection
+    }
+
+    def "should default circuit breaker to disabled"() {
+        when:
+        def config = BatcherConfig.builder().build()
+
+        then:
+        !config.circuitBreakerEnabled
+        config.circuitBreakerFailureThreshold == 5
+        config.circuitBreakerOpenDuration == Duration.ofSeconds(30)
+    }
+
+    def "should enable circuit breaker with custom threshold and duration"() {
+        when:
+        def config = BatcherConfig.builder()
+            .circuitBreakerEnabled(true)
+            .circuitBreakerFailureThreshold(3)
+            .circuitBreakerOpenDuration(Duration.ofSeconds(60))
+            .build()
+
+        then:
+        config.circuitBreakerEnabled
+        config.circuitBreakerFailureThreshold == 3
+        config.circuitBreakerOpenDuration == Duration.ofSeconds(60)
+    }
+
+    def "should reject invalid circuit breaker failure threshold"() {
+        when:
+        BatcherConfig.builder().circuitBreakerFailureThreshold(0).build()
+
+        then:
+        thrown(IllegalArgumentException)
+    }
+
+    def "should reject invalid circuit breaker open duration"() {
+        when:
+        BatcherConfig.builder().circuitBreakerOpenDuration(Duration.ofMillis(-1)).build()
+
+        then:
+        thrown(IllegalArgumentException)
     }
 }
 

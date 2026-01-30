@@ -31,7 +31,7 @@ public class SubmitSyncBenchmark {
         this.batcher = BenchmarkBatcherFactory.defaultBatcher();
         
         // Small queue to test rejection path
-        this.batcherSmallQueue = BenchmarkBatcherFactory.smallQueueBatcher(10, 5, 1.0);
+        this.batcherSmallQueue = BenchmarkBatcherFactory.smallQueueBatcher(5, 5, 1.0);
     }
     
     @TearDown

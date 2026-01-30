@@ -17,9 +17,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * @param <T> the type of item being processed
  */
 public class ShutdownManager<T> {
-    private static final int CLOSE_QUEUE_WAIT_TIMEOUT_MS = 2000;
     private static final int CLOSE_POLL_INTERVAL_MS = 10;
-    private static final int EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS = 5;
     
     private final BlockingQueue<PendingRequest<T>> queue;
     private final ExecutorService dispatchExecutor;
@@ -28,6 +26,8 @@ public class ShutdownManager<T> {
     private final Backend<T> backend;
     private final ResultProcessor<T> resultProcessor;
     private final RetryManager<T> retryManager;
+    private final long queueDrainTimeoutMillis;
+    private final long executorShutdownTimeoutSeconds;
     
     /**
      * Creates a new ShutdownManager.
@@ -39,6 +39,8 @@ public class ShutdownManager<T> {
      * @param backend the backend for processing remaining items
      * @param resultProcessor the result processor for processing batch results
      * @param retryManager the retry manager for clearing retry state
+     * @param queueDrainTimeout the timeout for waiting for queue to drain (in milliseconds)
+     * @param executorShutdownTimeout the timeout for executor shutdown (in seconds)
      */
     public ShutdownManager(
             BlockingQueue<PendingRequest<T>> queue,
@@ -47,7 +49,9 @@ public class ShutdownManager<T> {
             AtomicInteger activeBatchCount,
             Backend<T> backend,
             ResultProcessor<T> resultProcessor,
-            RetryManager<T> retryManager) {
+            RetryManager<T> retryManager,
+            long queueDrainTimeoutMillis,
+            long executorShutdownTimeoutSeconds) {
         this.queue = queue;
         this.dispatchExecutor = dispatchExecutor;
         this.retryExecutor = retryExecutor;
@@ -55,6 +59,8 @@ public class ShutdownManager<T> {
         this.backend = backend;
         this.resultProcessor = resultProcessor;
         this.retryManager = retryManager;
+        this.queueDrainTimeoutMillis = queueDrainTimeoutMillis;
+        this.executorShutdownTimeoutSeconds = executorShutdownTimeoutSeconds;
     }
     
     /**
@@ -72,7 +78,7 @@ public class ShutdownManager<T> {
         retryManager.clearAll();
 
         // Best-effort wait for the batch processor to drain the queue
-        waitForQueueToDrain(CLOSE_QUEUE_WAIT_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+        waitForQueueToDrain(queueDrainTimeoutMillis, TimeUnit.MILLISECONDS);
         
         // Shutdown both executors gracefully to allow in-flight operations to complete
         dispatchExecutor.shutdown();
@@ -80,11 +86,11 @@ public class ShutdownManager<T> {
         
         try {
             // Wait for dispatch executor
-            if (!dispatchExecutor.awaitTermination(EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+            if (!dispatchExecutor.awaitTermination(executorShutdownTimeoutSeconds, TimeUnit.SECONDS)) {
                 dispatchExecutor.shutdownNow();
             }
             // Wait for retry executor
-            if (!retryExecutor.awaitTermination(EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+            if (!retryExecutor.awaitTermination(executorShutdownTimeoutSeconds, TimeUnit.SECONDS)) {
                 retryExecutor.shutdownNow();
             }
         } catch (InterruptedException e) {
@@ -95,7 +101,7 @@ public class ShutdownManager<T> {
         
         // Wait for all in-flight batches to complete (if concurrent limiting is enabled)
         try {
-            awaitInFlightBatches(EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            awaitInFlightBatches(executorShutdownTimeoutSeconds, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
