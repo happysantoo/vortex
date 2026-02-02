@@ -222,7 +222,8 @@ public class MicroBatcher<T> implements AutoCloseable {
         this.shutdownManager = new ShutdownManager<>(
             queue, dispatchExecutor, retryExecutor, activeBatchCount, backend, resultProcessor, retryManager,
             config.getQueueDrainTimeout().toMillis(),
-            config.getExecutorShutdownTimeout().getSeconds());
+            config.getExecutorShutdownTimeout().getSeconds(),
+            config.getShutdownFinalDispatchTimeout().toMillis());
         
         // Cache diagnostics instance to avoid allocations on repeated calls
         this.diagnosticsView = new DefaultBatcherDiagnostics<>(this::isClosed, config, queue);

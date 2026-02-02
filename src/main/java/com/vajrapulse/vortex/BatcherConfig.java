@@ -34,6 +34,7 @@ public class BatcherConfig {
     private final int maxConcurrentBatches;
     private final Duration queueDrainTimeout;
     private final Duration executorShutdownTimeout;
+    private final Duration shutdownFinalDispatchTimeout;
     private final boolean earlyConcurrentBatchRejection;
     private final boolean circuitBreakerEnabled;
     private final int circuitBreakerFailureThreshold;
@@ -77,6 +78,10 @@ public class BatcherConfig {
         this.executorShutdownTimeout = builder.executorShutdownTimeout != null 
             ? builder.executorShutdownTimeout 
             : Duration.ofSeconds(5);
+        // Default to 2 seconds if not explicitly set
+        this.shutdownFinalDispatchTimeout = builder.shutdownFinalDispatchTimeout != null
+            ? builder.shutdownFinalDispatchTimeout
+            : Duration.ofSeconds(2);
         // Default to false (disabled) if not explicitly set
         this.earlyConcurrentBatchRejection = builder.earlyConcurrentBatchRejection;
         this.circuitBreakerEnabled = builder.circuitBreakerEnabled;
@@ -285,6 +290,22 @@ public class BatcherConfig {
     public Duration getExecutorShutdownTimeout() {
         return executorShutdownTimeout;
     }
+
+    /**
+     * Gets the timeout used for the final synchronous dispatch during shutdown.
+     *
+     * <p>During {@code close()}, after executors are shut down, Vortex attempts to process any remaining
+     * queued items synchronously as a best-effort. This timeout bounds that final dispatch to avoid
+     * hanging shutdown if the backend blocks.
+     *
+     * <p>Default: 2 seconds
+     *
+     * @return final dispatch timeout duration
+     * @since 0.0.16
+     */
+    public Duration getShutdownFinalDispatchTimeout() {
+        return shutdownFinalDispatchTimeout;
+    }
     
     /**
      * Checks if early concurrent batch rejection is enabled.
@@ -441,6 +462,7 @@ public class BatcherConfig {
         private Integer maxConcurrentBatches = null; // null means use default (0 = unlimited)
         private Duration queueDrainTimeout = null; // null means use default (2 seconds)
         private Duration executorShutdownTimeout = null; // null means use default (5 seconds)
+        private Duration shutdownFinalDispatchTimeout = null; // null means use default (2 seconds)
         private boolean earlyConcurrentBatchRejection = false; // default: disabled
         private boolean circuitBreakerEnabled = false;
         private Integer circuitBreakerFailureThreshold = null; // default 5
@@ -781,6 +803,24 @@ public class BatcherConfig {
                 throw new IllegalArgumentException("Executor shutdown timeout must be non-negative");
             }
             this.executorShutdownTimeout = timeout;
+            return this;
+        }
+
+        /**
+         * Sets the timeout used for the final synchronous dispatch during shutdown.
+         *
+         * <p>Default: 2 seconds
+         *
+         * @param timeout final dispatch timeout duration (must be non-negative)
+         * @return this builder instance
+         * @throws IllegalArgumentException if timeout is null or negative
+         * @since 0.0.16
+         */
+        public Builder shutdownFinalDispatchTimeout(Duration timeout) {
+            if (timeout == null || timeout.isNegative()) {
+                throw new IllegalArgumentException("Shutdown final dispatch timeout must be non-negative");
+            }
+            this.shutdownFinalDispatchTimeout = timeout;
             return this;
         }
         

@@ -56,6 +56,7 @@ public class BatchFormationStrategy<T> {
         
         Duration lingerTime = config.getLingerTime();
         long lingerTimeMillis = lingerTime.toMillis();
+        long lingerTimeNanos = lingerTime.toNanos();
         
         // Wait for first item with timeout based on linger time
         PendingRequest<T> first = queue.poll(lingerTimeMillis, TimeUnit.MILLISECONDS);
@@ -67,16 +68,17 @@ public class BatchFormationStrategy<T> {
         
         logger.debug("Starting batch formation, first item: {}", first.data());
         
-        // Collect up to batchSize items, respecting linger time
-        long deadline = System.currentTimeMillis() + lingerTimeMillis;
+        // Collect up to batchSize items, respecting linger time (use monotonic clock)
+        long deadlineNanos = System.nanoTime() + lingerTimeNanos;
         while (batch.size() < batchSize) {
-            long remainingMillis = deadline - System.currentTimeMillis();
-            if (remainingMillis <= 0) {
+            long remainingNanos = deadlineNanos - System.nanoTime();
+            if (remainingNanos <= 0) {
                 logger.debug("Linger time elapsed, batch size: {}", batch.size());
                 break;
             }
             
             // Ensure at least 1ms for poll() to avoid immediate timeout
+            long remainingMillis = TimeUnit.NANOSECONDS.toMillis(remainingNanos);
             long pollTimeout = Math.max(1, remainingMillis);
             PendingRequest<T> next = queue.poll(pollTimeout, TimeUnit.MILLISECONDS);
             if (next == null) {

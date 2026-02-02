@@ -7,6 +7,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -47,6 +48,7 @@ public final class CircuitBreaker {
     private final AtomicReference<State> state;
     private final AtomicInteger consecutiveFailures;
     private final AtomicLong openSinceNanos;
+    private final AtomicBoolean probeInFlight;
 
     private final Counter circuitOpenEvents;
     private final AtomicInteger stateGaugeValue;
@@ -71,6 +73,7 @@ public final class CircuitBreaker {
         this.consecutiveFailures = new AtomicInteger(0);
         this.openSinceNanos = new AtomicLong(0);
         this.stateGaugeValue = new AtomicInteger(STATE_CLOSED);
+        this.probeInFlight = new AtomicBoolean(false);
 
         if (meterRegistry != null) {
             this.circuitOpenEvents = Counter.builder("vortex.circuit.open.events")
@@ -99,15 +102,19 @@ public final class CircuitBreaker {
             return true;
         }
         if (current == State.HALF_OPEN) {
-            return true;
+            // Allow exactly one probe request at a time.
+            return probeInFlight.compareAndSet(false, true);
         }
         // OPEN: check if we can transition to HALF_OPEN
         long openedAt = openSinceNanos.get();
         long elapsed = System.nanoTime() - openedAt;
         if (elapsed >= openDurationNanos && state.compareAndSet(State.OPEN, State.HALF_OPEN)) {
             stateGaugeValue.set(STATE_HALF_OPEN);
-            logger.debug("Circuit breaker transitioning OPEN -> HALF_OPEN (probe allowed)");
-            return true;
+            // Reset probe flag when entering half-open, then reserve the probe.
+            probeInFlight.set(false);
+            boolean reserved = probeInFlight.compareAndSet(false, true);
+            logger.debug("Circuit breaker transitioning OPEN -> HALF_OPEN (probe allowed={})", reserved);
+            return reserved;
         }
         return false;
     }
@@ -124,6 +131,7 @@ public final class CircuitBreaker {
         if (current == State.HALF_OPEN && state.compareAndSet(State.HALF_OPEN, State.CLOSED)) {
             consecutiveFailures.set(0);
             stateGaugeValue.set(STATE_CLOSED);
+            probeInFlight.set(false);
             logger.debug("Circuit breaker transitioning HALF_OPEN -> CLOSED (probe succeeded)");
         }
     }
@@ -137,6 +145,7 @@ public final class CircuitBreaker {
             if (state.compareAndSet(State.HALF_OPEN, State.OPEN)) {
                 openSinceNanos.set(System.nanoTime());
                 stateGaugeValue.set(STATE_OPEN);
+                probeInFlight.set(false);
                 if (circuitOpenEvents != null) {
                     circuitOpenEvents.increment();
                 }
@@ -149,6 +158,7 @@ public final class CircuitBreaker {
             if (failures >= failureThreshold && state.compareAndSet(State.CLOSED, State.OPEN)) {
                 openSinceNanos.set(System.nanoTime());
                 stateGaugeValue.set(STATE_OPEN);
+                probeInFlight.set(false);
                 if (circuitOpenEvents != null) {
                     circuitOpenEvents.increment();
                 }

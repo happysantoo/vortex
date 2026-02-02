@@ -117,15 +117,6 @@ public class BatchDispatcher<T> {
             dataList.add(req.data());
         }
 
-        // Circuit breaker: reject batch if circuit is open (before submitting to executor)
-        if (circuitBreaker != null && !circuitBreaker.allowRequest()) {
-            if (dispatchSemaphore != null) {
-                dispatchSemaphore.release();
-            }
-            handleCircuitOpen(batch);
-            return;
-        }
-        
         tracingHelper.safeOnBatchDispatchStart(dataList);
         
         metrics.recordBatchDispatched();
@@ -159,11 +150,11 @@ public class BatchDispatcher<T> {
         
         // Execute backend dispatch on a virtual thread
         try {
+            // Count this batch as in-flight once it is scheduled (avoids a window where work is in-flight but gauge is 0).
+            if (activeBatchCount != null) {
+                activeBatchCount.incrementAndGet();
+            }
             executor.submit(() -> {
-                // Update active batch count after successful submission
-                if (activeBatchCount != null) {
-                    activeBatchCount.incrementAndGet();
-                }
                 try {
                     // Re-check circuit inside the task; it may have opened since we submitted
                     if (circuitBreaker != null && !circuitBreaker.allowRequest()) {
@@ -200,9 +191,12 @@ public class BatchDispatcher<T> {
                 }
             });
         } catch (RejectedExecutionException e) {
-            // Executor rejected - release permit (activeBatchCount was never incremented)
+            // Executor rejected - release permit and revert active batch count
             if (dispatchSemaphore != null) {
                 dispatchSemaphore.release();
+            }
+            if (activeBatchCount != null) {
+                activeBatchCount.decrementAndGet();
             }
             logger.debug("Executor rejected batch dispatch", e);
             handleDispatchRejection(batch);

@@ -473,6 +473,32 @@ class BatcherConfigSpec extends Specification {
         config.earlyConcurrentBatchRejection
     }
 
+    def "should default shutdownFinalDispatchTimeout to 2 seconds"() {
+        when:
+        def config = BatcherConfig.builder().build()
+
+        then:
+        config.shutdownFinalDispatchTimeout == Duration.ofSeconds(2)
+    }
+
+    def "should allow configuring shutdownFinalDispatchTimeout"() {
+        when:
+        def config = BatcherConfig.builder()
+            .shutdownFinalDispatchTimeout(Duration.ofSeconds(7))
+            .build()
+
+        then:
+        config.shutdownFinalDispatchTimeout == Duration.ofSeconds(7)
+    }
+
+    def "should reject invalid shutdownFinalDispatchTimeout"() {
+        when:
+        BatcherConfig.builder().shutdownFinalDispatchTimeout(Duration.ofMillis(-1)).build()
+
+        then:
+        thrown(IllegalArgumentException)
+    }
+
     def "should default circuit breaker to disabled"() {
         when:
         def config = BatcherConfig.builder().build()

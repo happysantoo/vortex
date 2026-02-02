@@ -4,6 +4,11 @@ import com.vajrapulse.vortex.internal.CircuitBreaker
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import spock.lang.Specification
 
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.Collections
+
 class CircuitBreakerSpec extends Specification {
 
     def "allowRequest returns true when closed"() {
@@ -65,6 +70,24 @@ class CircuitBreakerSpec extends Specification {
         cb.state == CircuitBreaker.STATE_HALF_OPEN
     }
 
+    def "half-open allows only one probe request at a time"() {
+        given:
+        def cb = new CircuitBreaker(2, 0L, null)
+        2.times { cb.recordFailure() }
+        cb.allowRequest() // OPEN -> HALF_OPEN and reserves probe
+
+        expect:
+        cb.state == CircuitBreaker.STATE_HALF_OPEN
+        // second attempt while probe is in-flight must be rejected
+        !cb.allowRequest()
+
+        when:
+        cb.recordSuccess() // closes and clears probe flag
+
+        then:
+        cb.state == CircuitBreaker.STATE_CLOSED
+    }
+
     def "half-open probe success closes circuit"() {
         given:
         def cb = new CircuitBreaker(2, 0L, null)
@@ -119,5 +142,33 @@ class CircuitBreakerSpec extends Specification {
         then:
         registry.get("vortex.circuit.state").gauge().value() == CircuitBreaker.STATE_OPEN
         registry.get("vortex.circuit.open.events").counter().count() == 1
+    }
+
+    def "half-open probe is single under concurrency"() {
+        given:
+        def cb = new CircuitBreaker(1, 0L, null)
+        cb.recordFailure() // CLOSED -> OPEN
+        cb.allowRequest()  // OPEN -> HALF_OPEN and reserve probe
+
+        def start = new CountDownLatch(1)
+        def done = new CountDownLatch(8)
+        def allowed = Collections.synchronizedList([] as List<Boolean>)
+        def exec = Executors.newFixedThreadPool(8)
+
+        when:
+        8.times {
+            exec.submit {
+                start.await(2, TimeUnit.SECONDS)
+                allowed.add(cb.allowRequest())
+                done.countDown()
+            }
+        }
+        start.countDown()
+        done.await(2, TimeUnit.SECONDS)
+        exec.shutdownNow()
+
+        then:
+        // Only one thread can acquire the probe; all others should be rejected.
+        allowed.count { it } == 0
     }
 }

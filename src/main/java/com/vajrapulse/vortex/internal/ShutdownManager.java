@@ -5,9 +5,13 @@ import com.vajrapulse.vortex.results.BatchResult;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -28,6 +32,7 @@ public class ShutdownManager<T> {
     private final RetryManager<T> retryManager;
     private final long queueDrainTimeoutMillis;
     private final long executorShutdownTimeoutSeconds;
+    private final long finalDispatchTimeoutMillis;
     
     /**
      * Creates a new ShutdownManager.
@@ -41,6 +46,7 @@ public class ShutdownManager<T> {
      * @param retryManager the retry manager for clearing retry state
      * @param queueDrainTimeoutMillis the timeout for waiting for queue to drain (in milliseconds)
      * @param executorShutdownTimeoutSeconds the timeout for executor shutdown (in seconds)
+     * @param finalDispatchTimeoutMillis the timeout for the final synchronous dispatch during shutdown (in milliseconds)
      */
     public ShutdownManager(
             BlockingQueue<PendingRequest<T>> queue,
@@ -51,7 +57,8 @@ public class ShutdownManager<T> {
             ResultProcessor<T> resultProcessor,
             RetryManager<T> retryManager,
             long queueDrainTimeoutMillis,
-            long executorShutdownTimeoutSeconds) {
+            long executorShutdownTimeoutSeconds,
+            long finalDispatchTimeoutMillis) {
         this.queue = queue;
         this.dispatchExecutor = dispatchExecutor;
         this.retryExecutor = retryExecutor;
@@ -61,6 +68,7 @@ public class ShutdownManager<T> {
         this.retryManager = retryManager;
         this.queueDrainTimeoutMillis = queueDrainTimeoutMillis;
         this.executorShutdownTimeoutSeconds = executorShutdownTimeoutSeconds;
+        this.finalDispatchTimeoutMillis = finalDispatchTimeoutMillis;
     }
     
     /**
@@ -115,13 +123,44 @@ public class ShutdownManager<T> {
             for (PendingRequest<T> req : remaining) {
                 dataList.add(req.data());
             }
-            
+
             try {
-                BatchResult<T> result = backend.dispatch(dataList);
+                BatchResult<T> result = dispatchWithTimeout(backend, dataList, finalDispatchTimeoutMillis);
                 resultProcessor.processResults(remaining, result);
             } catch (Exception e) {
                 resultProcessor.processFailure(remaining, e);
             }
+        }
+    }
+
+    static <T> BatchResult<T> dispatchWithTimeout(Backend<T> backend, List<T> dataList, long timeoutMillis) {
+        if (timeoutMillis <= 0) {
+            throw new RuntimeException(new TimeoutException(
+                "Shutdown final dispatch timed out (timeoutMillis=" + timeoutMillis + ")"));
+        }
+
+        ExecutorService exec = Executors.newVirtualThreadPerTaskExecutor();
+        CompletableFuture<BatchResult<T>> base = CompletableFuture.supplyAsync(() -> {
+            try {
+                return backend.dispatch(dataList);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        }, exec);
+        CompletableFuture<BatchResult<T>> timed = base.orTimeout(timeoutMillis, TimeUnit.MILLISECONDS);
+        try {
+            return timed.join();
+        } catch (CompletionException e) {
+            Throwable cause = e.getCause() != null ? e.getCause() : e;
+            if (cause instanceof TimeoutException) {
+                base.cancel(true);
+            }
+            if (cause instanceof RuntimeException re) {
+                throw re;
+            }
+            throw new RuntimeException(cause);
+        } finally {
+            exec.shutdownNow();
         }
     }
     

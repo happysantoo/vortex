@@ -129,6 +129,13 @@ if [[ "${HTTP_CODE}" == "200" ]] || [[ "${HTTP_CODE}" == "201" ]]; then
     
     # SCRIPT_DIR and PROJECT_ROOT are already calculated at the start of the script
     RELEASE_NOTES="${PROJECT_ROOT}/documents/releases/RELEASE_NOTES_${VERSION}.md"
+
+    # If the release already exists, don't fail the publish (upload already succeeded).
+    if gh release view "v${VERSION}" >/dev/null 2>&1; then
+        echo "✓ GitHub release already exists for v${VERSION} - skipping"
+        echo ""
+        exit 0
+    fi
     
     # Check if release notes exist
     if [[ ! -f "${RELEASE_NOTES}" ]]; then
@@ -137,18 +144,16 @@ if [[ "${HTTP_CODE}" == "200" ]] || [[ "${HTTP_CODE}" == "201" ]]; then
         gh release create "v${VERSION}" \
             --title "Release ${VERSION}" \
             --notes "Release ${VERSION} of Vortex Micro-Batching Library" || {
-            echo "✗ Failed to create GitHub release"
-            echo "Note: Maven Central upload was successful, but GitHub release creation failed"
-            exit 1
+            echo "⚠ Warning: Failed to create GitHub release (upload already succeeded)"
+            exit 0
         }
     else
         echo "Using release notes from: ${RELEASE_NOTES}"
         gh release create "v${VERSION}" \
             --title "Release ${VERSION}: $(head -n 1 "${RELEASE_NOTES}" | sed 's/# //' | head -c 80)" \
             --notes-file "${RELEASE_NOTES}" || {
-            echo "✗ Failed to create GitHub release"
-            echo "Note: Maven Central upload was successful, but GitHub release creation failed"
-            exit 1
+            echo "⚠ Warning: Failed to create GitHub release (upload already succeeded)"
+            exit 0
         }
     fi
     

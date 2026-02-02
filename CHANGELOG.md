@@ -5,6 +5,15 @@ All notable changes to the Vortex Micro-Batching Library will be documented in t
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.16] - 2026-01-29
+
+### Fixed
+- **Circuit breaker HALF_OPEN probe gating**: HALF_OPEN now allows exactly one probe request at a time.
+- **Shutdown hang protection**: Final shutdown dispatch is bounded by `shutdownFinalDispatchTimeout` (default 2s).
+- **Circuit breaker check timing**: Removed pre-submit circuit check; only check at dispatch execution time to avoid TOCTOU.
+- **Batch formation timing**: Switched linger deadline tracking to monotonic time (`System.nanoTime()`).
+- **Publishing script**: `publish-to-central.sh` no longer fails if the GitHub release already exists.
+
 ## [0.0.15] - 2026-01-29
 
 ### Fixed
