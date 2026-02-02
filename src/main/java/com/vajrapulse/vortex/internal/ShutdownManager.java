@@ -39,8 +39,8 @@ public class ShutdownManager<T> {
      * @param backend the backend for processing remaining items
      * @param resultProcessor the result processor for processing batch results
      * @param retryManager the retry manager for clearing retry state
-     * @param queueDrainTimeout the timeout for waiting for queue to drain (in milliseconds)
-     * @param executorShutdownTimeout the timeout for executor shutdown (in seconds)
+     * @param queueDrainTimeoutMillis the timeout for waiting for queue to drain (in milliseconds)
+     * @param executorShutdownTimeoutSeconds the timeout for executor shutdown (in seconds)
      */
     public ShutdownManager(
             BlockingQueue<PendingRequest<T>> queue,

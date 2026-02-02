@@ -168,6 +168,8 @@ public final class CircuitBreaker {
 
     /**
      * Current consecutive failure count (only meaningful when CLOSED).
+     *
+     * @return current consecutive failure count
      */
     public int getConsecutiveFailures() {
         return consecutiveFailures.get();
